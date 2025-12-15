@@ -2,25 +2,14 @@ local state = require('zpack.state')
 local hooks = require('zpack.hooks')
 local keymap = require('zpack.keymap')
 local lazy = require('zpack.lazy')
+local util = require('zpack.util')
 
 local M = {}
 
-local get_priority = function(src)
-  return state.src_spec[src].priority or 50
-end
-
 local sort_by_priority = function()
-  table.sort(state.startup_packs, function(a, b)
-    return get_priority(a.src) > get_priority(b.src)
-  end)
-
-  table.sort(state.src_with_startup_init, function(a, b)
-    return get_priority(a) > get_priority(b)
-  end)
-
-  table.sort(state.src_with_startup_config, function(a, b)
-    return get_priority(a) > get_priority(b)
-  end)
+  table.sort(state.startup_packs, util.compare_priority)
+  table.sort(state.src_with_startup_init, util.compare_priority)
+  table.sort(state.src_with_startup_config, util.compare_priority)
 end
 
 local setup_build_tracking = function()

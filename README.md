@@ -95,10 +95,12 @@ zpack might be for you if:
     - Declarative plugin specs to keep your config neat and tidy
     - A simple, readable codebase you can understand
 
+Additionally, because everything is just `vim.pack` under the hood, you can mix and match zpack.nvim and traditional `vim.pack.add({ ... })` as you wish!
+
 Out of the box, zpack does not provide:
 - UI dashboard for your plugins
 - Profiling, dev mode, etc.
-- Automatic dependency resolution for lazy-loading
+- Implicit dependency inference for lazy-loading
 - Implicit ft/event handling for lazy-loading, favoring explicit user intent and configuration (see [key differences](#key-differences))
 
 Many of these features are available through Neovim's native tooling. We're actively exploring ways to improve lazy-loading functionality without introducing significant complexity.
@@ -159,14 +161,25 @@ return {
 
 #### Load Priority
 
-Control load order for startup plugins (higher priority loads first):
+Control load order with priority (higher priority loads first):
 
 ```lua
+-- Startup plugin: load colorscheme early
 return {
   'folke/tokyonight.nvim',
-  priority = 1000,  -- Load colorscheme early
+  priority = 1000,
   config = function()
     vim.cmd('colorscheme tokyonight')
+  end,
+}
+
+-- Lazy plugin: ensure base plugin loads before dependent
+return {
+  'user/base-plugin',
+  event = 'VeryLazy',
+  priority = 100,  -- Loads before other VeryLazy plugins
+  config = function()
+    _G.MyAPI = { setup = function() end }
   end,
 }
 ```
@@ -215,14 +228,14 @@ Based on the `Spec` type definition:
   enabled = true|false|function,        -- Enable/disable plugin
   cond = true|false|function,           -- Condition to load plugin
   lazy = true|false,                    -- Force eager loading when false (auto-detected)
-  priority = 50,                        -- Load priority for startup plugins (higher = earlier, default: 50)
+  priority = 50,                        -- Load priority (higher = earlier, default: 50)
 
   -- Lifecycle hooks
-  init = function() end,                -- Runs before plugin loads
+  init = function() end,                -- Runs before plugin loads, useful for certain vim plugins
   config = function() end,              -- Runs after plugin loads
   build = string|function,              -- Build command or function
 
-  -- Lazy loading triggers (auto-sets lazy=true)
+  -- Lazy loading triggers (auto-sets lazy=true unless overridden)
   event = string|string[],              -- Autocommand event(s). Supports 'VeryLazy'
   pattern = string|string[],            -- Event pattern(s)
   cmd = string|string[],                -- Command(s) to create
@@ -251,9 +264,9 @@ Most of your lazy.nvim plugin specs will work as-is with zpack.
 **Key differences:**
 
 - **url**/**dir**: use `src` instead. See `:h vim.pack.Spec`
-- **ft**: With lazy.nvim, `ft` lazy-loading re-triggers `BufReadPre`, `BufReadPost`, and `FileType` events in order to properly attach LSP clients and apply Treesitter syntax, whereas zpack favors simplicity and explicitness. Thus zpack does not provide a `ft` trigger. Please select `FileType`, `BufReadPre`, and `BufReadPost` appropriately based on the plugin's needs.
-- **Dependencies**: zpack does not have a `dependencies` field to implicitly infer plugin ordering. Use `priority` to explicitly control load order for startup plugins (higher values load first), or structure your lazy-loading triggers (like `event`, `cmd`, `keys`) to ensure dependencies load before dependent plugins. See the `plenary.nvim` [example migration](#example-migration)
-- **opt**: For simplicity, use `config` instead.
+- **ft**: With lazy.nvim, `ft` lazy-loading implicitly re-triggers `BufReadPre`, `BufReadPost`, and `FileType` events in order to properly attach LSP clients and apply Treesitter syntax. zpack favors explicit event control and thus does not provide a `ft` trigger. Please select `FileType`, `BufReadPre`, and `BufReadPost` events appropriately based on the plugin's needs. If you're not sure, `BufReadPre` is a safe bet to ensure your plugin is loaded before entering the buffer.
+- **Dependencies**: zpack does not have a `dependencies` field to implicitly infer plugin ordering. Use `priority` to directly control load order (higher values load first) for both startup and lazy-loaded plugins, or structure your lazy-loading triggers (like `event`, `cmd`, `keys`) to ensure dependencies load before dependent plugins. See the `plenary.nvim` [example migration](#example-migration)
+- **opt**: use `config = function() ... end` instead.
 - **Other unsupported fields**: Remove lazy.nvim-specific fields like `dev`, `name`, `module`, etc. See the [Spec Reference](#spec-reference) for supported fields.
 
 <a name="example-migration"></a>
@@ -284,3 +297,21 @@ Most of your lazy.nvim plugin specs will work as-is with zpack.
 }
 ```
 
+### blink.cmp + lazydev
+
+Due to the lack of implicit dependency inference, when using `blink.cmp` with `lazydev`, add lazydev to `per_filetype` instead of `default` sources.
+
+This approach also ensures lazydev loads only in Lua files, rather than every time blink.cmp loads (which happens even with lazy.nvim if lazydev is part of the default sources).
+
+```lua
+require('blink.cmp').setup({
+  sources = {
+    per_filetype = {
+      lua = { inherit_defaults = true, 'lazydev' }
+    },
+    providers = {
+      lazydev = { name = "LazyDev", module = "lazydev.integrations.blink", fallbacks = { "lsp" } },
+    },
+  },
+})
+```

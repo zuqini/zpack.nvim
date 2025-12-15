@@ -129,6 +129,9 @@ local setup_key_loading = function(vim_spec, spec)
 end
 
 M.process_all = function()
+  -- Sort lazy packs by priority (higher priority = registered first)
+  table.sort(state.lazy_packs, util.compare_priority)
+
   vim.pack.add(state.lazy_packs, {
     load = function(plugin)
       local spec = state.src_spec[plugin.spec.src]
