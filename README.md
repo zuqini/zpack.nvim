@@ -4,7 +4,7 @@ A super lightweight layer on top of Neovim's native `vim.pack` plugin manager to
 
 The built-in plugin manager itself is currently a work in progress, so please expect breaking changes.
 
-**[Why zpack?](#why-zpack)**
+**[Why zpack?](#why-zpack)** | **[Examples](#examples)** | **[Spec Reference](#spec-reference)** | **[Migrating from lazy.nvim](#migrating-from-lazynvim)**
 
 ## Requirements
 
@@ -14,6 +14,11 @@ The built-in plugin manager itself is currently a work in progress, so please ex
 
 ```lua
 vim.pack.add({{ src = "https://github.com/zuqini/zpack.nvim" }})
+
+-- Make sure to setup `mapleader` and `maplocalleader` before
+-- loading zpack.nvim so that mappings are correct.
+vim.g.mapleader = " "
+vim.g.maplocalleader = "\\"
 
 -- automatically import specs from `/lua/plugins/*.lua`
 require('zpack').setup({})
@@ -66,10 +71,13 @@ return {
 
 Neovim 0.12+ includes a built-in package manager (`vim.pack`) that handles plugin installation, updates, and version management. zpack is a thin layer that adds lazy-loading capabilities and a lazy.nvim-like declarative structure while leveraging the native infrastructure.
 
-zpack might be for you if you're already comfortable with what `vim.pack` has to offer and want:
-- A minimalist lazy-loading implementation for faster startup
-- Declarative plugin specs to keep your config neat and tidy
-- A simple, readable codebase you can understand
+zpack might be for you if:
+- you're a lazy.nvim user, love its declarative spec, and its wide adoption by plugin authors, but you don't need most of its advanced features
+- you want to try `vim.pack`, but don't want to rewrite your entire plugins spec from scratch
+- you're already comfortable with `vim.pack`, and want:
+    - A minimalist lazy-loading implementation for faster startup
+    - Declarative plugin specs to keep your config neat and tidy
+    - A simple, readable codebase you can understand
 
 Out of the box, zpack does not currently provide:
 - UI dashboard for your plugins
@@ -77,9 +85,9 @@ Out of the box, zpack does not currently provide:
 - Automatic dependency resolution for lazy-loading
 - Advanced lazy-loading optimizations
 
-Note that many of these features are available through Neovim's native tooling rather than being reimplemented in zpack. We're actively exploring ways to improve lazy-loading functionality without introducing significant bloat or complexity.
+Many of these features are available through Neovim's native tooling. We're actively exploring ways to improve lazy-loading functionality without introducing significant complexity.
 
-For anything else missing that native tooling doesn't cover, contributions are welcome!
+For anything else missing, contributions are welcome!
 
 ## Examples
 
@@ -95,7 +103,7 @@ return {
 }
 ```
 
-### Lazy Load on Event
+#### Lazy Load on Event
 
 ```lua
 return {
@@ -107,7 +115,7 @@ return {
 }
 ```
 
-### Lazy Load on Command
+#### Lazy Load on Command
 
 ```lua
 return {
@@ -119,7 +127,7 @@ return {
 }
 ```
 
-### Lazy Load on Keymap
+#### Lazy Load on Keymap
 
 ```lua
 return {
@@ -134,7 +142,7 @@ return {
 }
 ```
 
-### Conditional Loading
+#### Conditional Loading
 
 ```lua
 return {
@@ -146,7 +154,7 @@ return {
 }
 ```
 
-### Load Priority
+#### Load Priority
 
 Control load order for startup plugins (higher priority loads first):
 
@@ -160,7 +168,7 @@ return {
 }
 ```
 
-### Build Hook
+#### Build Hook
 
 ```lua
 return {
@@ -172,7 +180,7 @@ return {
 }
 ```
 
-### Multiple Plugins in One File
+#### Multiple Plugins in One File
 
 ```lua
 return {
@@ -229,6 +237,44 @@ Based on the `Spec` type definition:
   mode = "n"|{"n","v"},           -- Mode(s), default: "n"
   noremap = true|false,           -- Default: true
   nowait = true|false,            -- Default: false
+}
+```
+
+## Migrating from lazy.nvim
+
+Most of your lazy.nvim plugin specs will work as-is with zpack. Simply copy your specs from `lazy.setup()` to `zpack.setup()` or your `lua/plugins/` directory.
+
+**Key differences:**
+
+- **Dependencies**: zpack does not have a `dependencies` field. Use `priority` to control load order for startup plugins (higher values load first), or structure your lazy-loading triggers (like `event`, `cmd`, `keys`) to ensure dependencies load before dependent plugins.
+- **url**/**dir**: use `src` instead. See `:h vim.pack.Spec`
+- **opt**: For simplicity, use `config` instead.
+- **Other unsupported fields**: Remove lazy.nvim-specific fields like `dev`, `name`, `module`, etc. See the [Spec Reference](#spec-reference) for supported fields.
+
+**Example migration:**
+
+```lua
+-- lazy.nvim
+{
+  'nvim-telescope/telescope.nvim',
+  dependencies = { 'nvim-lua/plenary.nvim' },
+  cmd = 'Telescope',
+}
+
+-- zpack
+-- Add plenary as a separate spec to load on startup
+{ 'nvim-lua/plenary.nvim' },
+-- Alternatively, add plenary on the same cmd as Telescope with higher priority
+{
+  'nvim-lua/plenary.nvim'
+  cmd = 'Telescope',
+  priority = 1000,
+},
+
+-- Telescope will load when needed via cmd trigger
+{
+  'nvim-telescope/telescope.nvim',
+  cmd = 'Telescope',
 }
 ```
 

@@ -14,18 +14,19 @@ CONTENTS                                                      *zpack-contents*
       3.2 Commands...........................................|zpack-commands|
       3.3 Directory Structure...................|zpack-directory-structure|
   4. Why zpack?................................................|zpack-why-zpack|
-  5. Examples..................................................|zpack-examples|
-      5.1 Startup Plugin................................|zpack-example-startup|
-      5.2 Lazy Load on Event............................|zpack-example-event|
-      5.3 Lazy Load on Command..........................|zpack-example-cmd|
-      5.4 Lazy Load on Keymap...........................|zpack-example-keys|
-      5.5 VeryLazy Event................................|zpack-example-verylazy|
-      5.6 Conditional Loading...........................|zpack-example-conditional|
-      5.7 Load Priority.................................|zpack-example-priority|
-      5.8 Build Hook....................................|zpack-example-build|
-      5.9 Multiple Plugins..............................|zpack-example-multiple|
-  6. Spec Reference.........................................|zpack-spec-reference|
-  7. KeySpec Reference..................................|zpack-keyspec-reference|
+  5. Migrating from lazy.nvim...........................|zpack-migrating-lazy|
+  6. Examples..................................................|zpack-examples|
+      6.1 Startup Plugin................................|zpack-example-startup|
+      6.2 Lazy Load on Event............................|zpack-example-event|
+      6.3 Lazy Load on Command..........................|zpack-example-cmd|
+      6.4 Lazy Load on Keymap...........................|zpack-example-keys|
+      6.5 VeryLazy Event................................|zpack-example-verylazy|
+      6.6 Conditional Loading...........................|zpack-example-conditional|
+      6.7 Load Priority.................................|zpack-example-priority|
+      6.8 Build Hook....................................|zpack-example-build|
+      6.9 Multiple Plugins..............................|zpack-example-multiple|
+  7. Spec Reference.........................................|zpack-spec-reference|
+  8. KeySpec Reference..................................|zpack-keyspec-reference|
 
 ==============================================================================
 1. INTRODUCTION                                           *zpack-introduction*
@@ -49,6 +50,11 @@ expect breaking changes.
 Install zpack.nvim via vim.pack.add():
 >lua
     vim.pack.add({{ src = "https://github.com/zuqini/zpack.nvim" }})
+
+    -- Make sure to setup `mapleader` and `maplocalleader` before
+    -- loading zpack.nvim so that mappings are correct.
+    vim.g.mapleader = " "
+    vim.g.maplocalleader = "\\"
 <
 
 Automatically import specs from `/lua/plugins/*.lua`:
@@ -136,11 +142,15 @@ plugin installation, updates, and version management. zpack is a thin layer
 that adds lazy-loading capabilities and a lazy.nvim-like declarative structure
 while leveraging the native infrastructure.
 
-zpack might be for you if you're already comfortable with what `vim.pack` has
-to offer and want:
-- A minimalist lazy-loading implementation for faster startup
-- Declarative plugin specs to keep your config neat and tidy
-- A simple, readable codebase you can understand
+zpack might be for you if:
+- you're a lazy.nvim user, love its declarative spec, and its wide adoption
+  by plugin authors, but you don't need most of its advanced features
+- you want to try `vim.pack`, but don't want to rewrite your entire plugins
+  spec from scratch
+- you're already comfortable with `vim.pack`, and want:
+    - A minimalist lazy-loading implementation for faster startup
+    - Declarative plugin specs to keep your config neat and tidy
+    - A simple, readable codebase you can understand
 
 Out of the box, zpack does not currently provide:
 - UI dashboard for your plugins
@@ -148,19 +158,81 @@ Out of the box, zpack does not currently provide:
 - Automatic dependency resolution for lazy-loading
 - Advanced lazy-loading optimizations
 
-Note that many of these features are available through Neovim's native tooling
-rather than being reimplemented in zpack. We're actively exploring ways to
-improve lazy-loading functionality without introducing significant bloat or
-complexity.
+Many of these features are available through Neovim's native tooling. We're
+actively exploring ways to improve lazy-loading functionality without
+introducing significant complexity.
 
-For anything else missing that native tooling doesn't cover, contributions
-are welcome!
+For anything else missing, contributions are welcome!
 
 ==============================================================================
-5. EXAMPLES                                                   *zpack-examples*
+5. MIGRATING FROM LAZY.NVIM                            *zpack-migrating-lazy*
+
+Most of your lazy.nvim plugin specs will work as-is with zpack. Simply copy
+your specs from `lazy.setup()` to `zpack.setup()` or your `lua/plugins/`
+directory.
+
+KEY DIFFERENCES ~
+
+Dependencies              zpack does not have a `dependencies` field. Use
+                          `priority` to control load order for startup plugins
+                          (higher values load first), or structure your
+                          lazy-loading triggers (like `event`, `cmd`, `keys`)
+                          to ensure dependencies load before dependent plugins.
+
+url/dir                   Use `src` instead. See |vim.pack.Spec|.
+
+opt                       For simplicity, use `config` instead.
+
+Other unsupported fields  Remove lazy.nvim-specific fields like `dev`, `name`,
+                          `module`, etc. See |zpack-spec-reference| for
+                          supported fields.
+
+EXAMPLE MIGRATION ~
+>lua
+    -- lazy.nvim
+    {
+      'nvim-telescope/telescope.nvim',
+      dependencies = { 'nvim-lua/plenary.nvim' },
+      cmd = 'Telescope',
+    }
+
+    -- zpack
+    -- Add plenary as a separate spec to load on startup
+    { 'nvim-lua/plenary.nvim' },
+    -- Alternatively, add plenary on the same cmd as Telescope with higher priority
+    {
+      'nvim-lua/plenary.nvim'
+      cmd = 'Telescope',
+      priority = 1000,
+    },
+
+    -- Telescope will load when needed via cmd trigger
+    {
+      'nvim-telescope/telescope.nvim',
+      cmd = 'Telescope',
+    }
+<
+
+For startup plugins with dependencies, use `priority` to ensure load order:
+>lua
+    -- Load colorscheme dependency first
+    { 'rktjmp/lush.nvim', priority = 1000 }
+
+    -- Then load your colorscheme
+    {
+      'my-colorscheme',
+      priority = 999,
+      config = function()
+        vim.cmd('colorscheme my-theme')
+      end,
+    }
+<
+
+==============================================================================
+6. EXAMPLES                                                   *zpack-examples*
 
 ------------------------------------------------------------------------------
-5.1 STARTUP PLUGIN                                       *zpack-example-startup*
+6.1 STARTUP PLUGIN                                       *zpack-example-startup*
 
 Plugins without lazy-loading triggers load immediately at startup:
 >lua
@@ -176,7 +248,7 @@ Plugins without lazy-loading triggers load immediately at startup:
 <
 
 ------------------------------------------------------------------------------
-5.2 LAZY LOAD ON EVENT                                    *zpack-example-event*
+6.2 LAZY LOAD ON EVENT                                    *zpack-example-event*
 
 Load plugin when a specific event is triggered:
 >lua
@@ -190,7 +262,7 @@ Load plugin when a specific event is triggered:
 <
 
 ------------------------------------------------------------------------------
-5.3 LAZY LOAD ON COMMAND                                    *zpack-example-cmd*
+6.3 LAZY LOAD ON COMMAND                                    *zpack-example-cmd*
 
 Load plugin when a specific command is executed:
 >lua
@@ -204,7 +276,7 @@ Load plugin when a specific command is executed:
 <
 
 ------------------------------------------------------------------------------
-5.4 LAZY LOAD ON KEYMAP                                    *zpack-example-keys*
+6.4 LAZY LOAD ON KEYMAP                                    *zpack-example-keys*
 
 Load plugin when a specific keymap is triggered:
 >lua
@@ -223,7 +295,7 @@ Load plugin when a specific keymap is triggered:
 <
 
 ------------------------------------------------------------------------------
-5.5 VERYLAZY EVENT                                     *zpack-example-verylazy*
+6.5 VERYLAZY EVENT                                     *zpack-example-verylazy*
 
 Defer loading until after startup is complete:
 >lua
@@ -237,7 +309,7 @@ Defer loading until after startup is complete:
 <
 
 ------------------------------------------------------------------------------
-5.6 CONDITIONAL LOADING                             *zpack-example-conditional*
+6.6 CONDITIONAL LOADING                             *zpack-example-conditional*
 
 Enable plugin based on a condition:
 >lua
@@ -251,7 +323,7 @@ Enable plugin based on a condition:
 <
 
 ------------------------------------------------------------------------------
-5.7 LOAD PRIORITY                                       *zpack-example-priority*
+6.7 LOAD PRIORITY                                       *zpack-example-priority*
 
 Control load order for startup plugins (higher priority loads first):
 >lua
@@ -265,7 +337,7 @@ Control load order for startup plugins (higher priority loads first):
 <
 
 ------------------------------------------------------------------------------
-5.8 BUILD HOOK                                           *zpack-example-build*
+6.8 BUILD HOOK                                           *zpack-example-build*
 
 Run a build command after installing/updating plugin:
 >lua
@@ -279,7 +351,7 @@ Run a build command after installing/updating plugin:
 <
 
 ------------------------------------------------------------------------------
-5.9 MULTIPLE PLUGINS                                   *zpack-example-multiple*
+6.9 MULTIPLE PLUGINS                                   *zpack-example-multiple*
 
 Define multiple plugins in a single file:
 >lua
@@ -296,7 +368,7 @@ Define multiple plugins in a single file:
 <
 
 ==============================================================================
-6. SPEC REFERENCE                                       *zpack-spec-reference*
+7. SPEC REFERENCE                                       *zpack-spec-reference*
                                                                   *zpack-Spec*
 
 Based on the `Spec` type definition:
@@ -397,7 +469,7 @@ keys            (KeySpec|KeySpec[], optional)
                 Auto-sets `lazy=true`. See |zpack-KeySpec|.
 
 ==============================================================================
-7. KEYSPEC REFERENCE                                *zpack-keyspec-reference*
+8. KEYSPEC REFERENCE                                *zpack-keyspec-reference*
                                                                *zpack-KeySpec*
 
 >lua
