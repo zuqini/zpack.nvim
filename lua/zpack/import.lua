@@ -31,9 +31,9 @@ end
 ---@param src string
 local categorize_spec = function(spec, src)
   if lazy.is_lazy(spec) then
-    table.insert(state.lazy_packs, { src = src, version = spec.version })
+    table.insert(state.lazy_packs, { src = src, version = spec.version, name = spec.name })
   else
-    table.insert(state.startup_packs, { src = src, version = spec.version })
+    table.insert(state.startup_packs, { src = src, version = spec.version, name = spec.name })
 
     if spec.config then
       table.insert(state.src_with_startup_config, src)

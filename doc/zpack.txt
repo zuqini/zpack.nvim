@@ -62,7 +62,7 @@ expect breaking changes.
 
 Install zpack.nvim via vim.pack.add():
 >lua
-    vim.pack.add({{ src = "https://github.com/zuqini/zpack.nvim" }})
+    vim.pack.add({ 'https://github.com/zuqini/zpack.nvim' })
 
     -- Make sure to setup `mapleader` and `maplocalleader` before
     -- loading zpack.nvim so that mappings are correct.
@@ -428,6 +428,7 @@ Based on the `Spec` type definition:
       -- Plugin identification (provide at least one)
       [1] = "user/repo",                    -- Plugin short name. Expands to https://github.com/{user/repo}
       src = "https://...",                  -- Custom git URL (local paths also supported)
+      name = "my-plugin",                   -- Custom plugin name (optional, overrides auto-derived name)
 
       -- Source control
       version = vim.version.range("1.*"),   -- Version range via vim.version.range()
@@ -460,6 +461,12 @@ Based on the `Spec` type definition:
 src             (string, optional)
                 Custom git URL for the plugin source. Can also be a local path.
                 Either [1] or src must be provided.
+
+                                                            *zpack-Spec.name*
+name            (string, optional)
+                Custom plugin name. Overrides the name automatically derived
+                from the source URL. Useful when you need a specific directory
+                name or want to avoid naming conflicts.
 
                                                          *zpack-Spec.version*
 version         (string, optional)

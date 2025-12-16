@@ -28,7 +28,7 @@ The built-in plugin manager itself is currently a work in progress, so please ex
 ## Usage
 
 ```lua
-vim.pack.add({{ src = "https://github.com/zuqini/zpack.nvim" }})
+vim.pack.add({ 'https://github.com/zuqini/zpack.nvim' })
 
 -- Make sure to setup `mapleader` and `maplocalleader` before
 -- loading zpack.nvim so that mappings are correct.
@@ -108,6 +108,9 @@ Many of these features are available through Neovim's native tooling. We're acti
 For anything else missing, contributions are welcome!
 
 ## Examples
+For more examples, refer to my personal config:
+- [zpack installation and setup](https://github.com/zuqini/nvim/blob/main/init.lua)
+- [plugins directory structure](https://github.com/zuqini/nvim/tree/main/lua/plugins)
 #### Lazy Load on Event
 
 ```lua
@@ -220,6 +223,7 @@ Based on the `Spec` type definition:
   -- Plugin identification (provide at least one)
   [1] = "user/repo",                    -- Plugin short name. Expands to https://github.com/{user/repo}
   src = "https://...",                  -- Custom git URL (local paths also supported)
+  name = "my-plugin",                   -- Custom plugin name (optional, overrides auto-derived name)
 
   -- Source control
   version = vim.version.range("1.*"),   -- Version range via vim.version.range()
