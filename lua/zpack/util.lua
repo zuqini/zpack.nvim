@@ -43,4 +43,16 @@ M.compare_priority = function(a, b)
   return M.get_priority(src_a) > M.get_priority(src_b)
 end
 
+---Normalize keys to a consistent format
+---@param keys KeySpec|KeySpec[]|string
+---@return KeySpec[]
+M.normalize_keys = function(keys)
+  if type(keys) == "string" then
+    return { { keys } }
+  elseif keys[1] and type(keys[1]) == "string" then
+    return { keys }
+  end
+  return keys
+end
+
 return M

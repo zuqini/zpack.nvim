@@ -102,7 +102,6 @@ local build_cmd_mapping = function(registered_pack_specs)
   return cmd_to_pack_specs
 end
 
----Create user commands that load all plugins associated with each command
 ---@param cmd_to_pack_specs table<string, vim.pack.Spec[]>
 local setup_shared_cmd_loading = function(cmd_to_pack_specs)
   for cmd, pack_specs in pairs(cmd_to_pack_specs) do
@@ -113,7 +112,7 @@ local setup_shared_cmd_loading = function(cmd_to_pack_specs)
         M.process_spec(pack_spec)
       end
 
-      pcall(vim.api.nvim_command, {
+      pcall(vim.api.nvim_cmd, {
         cmd = cmd,
         args = cmd_args.fargs,
       }, {})
@@ -121,33 +120,60 @@ local setup_shared_cmd_loading = function(cmd_to_pack_specs)
   end
 end
 
----@param pack_spec vim.pack.Spec
----@param spec Spec
-local setup_key_loading = function(pack_spec, spec)
-  local keys = (spec.keys[1] and type(spec.keys[1]) == "string") and { spec.keys } or spec.keys --[[@as KeySpec[] ]]
+---Build a mapping of keys to all plugins that lazy-load on that key
+---@param registered_pack_specs vim.pack.Spec[] Array of registered plugin objects from vim.pack.add
+---@return table<string, {pack_specs: vim.pack.Spec[], key_spec: KeySpec}>
+local build_key_mapping = function(registered_pack_specs)
+  local key_to_info = {}
+  for _, pack_spec in ipairs(registered_pack_specs) do
+    local spec = state.src_spec[pack_spec.src]
+    if spec.keys then
+      local keys = util.normalize_keys(spec.keys) --[[@as KeySpec[] ]]
+      for _, key in ipairs(keys) do
+        local lhs = key[1]
+        local mode = key.mode or 'n'
+        local modes = type(mode) == "string" and { mode } or mode --[[@as string[] ]]
 
-  for _, key in ipairs(keys) do
-    local lhs = key[1]
-    local rhs = key[2]
-    local mode = key.mode or 'n'
-    local modes = type(mode) == "string" and { mode } or mode --[[@as string[] ]]
-
-    for _, m in ipairs(modes) do
-      vim.keymap.set(m, lhs, function()
-        vim.keymap.del(m, lhs)
-        M.process_spec(pack_spec)
-
-        if rhs then
-          -- Set up the actual mapping with the provided rhs
-          if type(rhs) == "string" then
-            vim.keymap.set(m, lhs, rhs, { desc = key.desc })
-          elseif type(rhs) == "function" then
-            vim.keymap.set(m, lhs, rhs, { desc = key.desc })
+        for _, m in ipairs(modes) do
+          local key_id = lhs .. ":" .. m
+          if not key_to_info[key_id] then
+            key_to_info[key_id] = {
+              pack_specs = {},
+              key_spec = key,
+            }
           end
+          table.insert(key_to_info[key_id].pack_specs, pack_spec)
         end
-        vim.api.nvim_feedkeys(vim.keycode(lhs), 'm', false)
-      end, { desc = key.desc })
+      end
     end
+  end
+  return key_to_info
+end
+
+---@param key_to_info table<string, {pack_specs: vim.pack.Spec[], key_spec: KeySpec}>
+local setup_shared_key_loading = function(key_to_info)
+  for key_id, key_info in pairs(key_to_info) do
+    local lhs = key_info.key_spec[1]
+    local rhs = key_info.key_spec[2]
+    local mode = key_id:match(":(.+)$")
+    local desc = key_info.key_spec.desc
+
+    vim.keymap.set(mode, lhs, function()
+      pcall(vim.keymap.del, mode, lhs)
+
+      for _, pack_spec in ipairs(key_info.pack_specs) do
+        M.process_spec(pack_spec)
+      end
+
+      if rhs then
+        if type(rhs) == "string" then
+          vim.keymap.set(mode, lhs, rhs, { desc = desc })
+        elseif type(rhs) == "function" then
+          vim.keymap.set(mode, lhs, rhs, { desc = desc })
+        end
+      end
+      vim.api.nvim_feedkeys(vim.keycode(lhs), 'm', false)
+    end, { desc = desc })
   end
 end
 
@@ -157,7 +183,6 @@ local register_lazy_packs = function()
   vim.pack.add(state.lazy_packs, {
     load = function(plugin)
       local pack_spec = plugin.spec
-      table.insert(registered_plugins, pack_spec)
       local spec = state.src_spec[pack_spec.src]
       if state.src_to_request_build[pack_spec.src] then
         -- requested build, do not lazy load this
@@ -165,28 +190,22 @@ local register_lazy_packs = function()
         return
       end
 
+      table.insert(registered_plugins, pack_spec)
       if spec.event then
         setup_event_loading(plugin.spec, spec)
-      end
-
-      if spec.keys then
-        setup_key_loading(plugin.spec, spec)
       end
     end
   })
   return registered_plugins
 end
 
----@param registered_pack_specs vim.pack.Spec[]
-local setup_cmd_loading = function(registered_pack_specs)
-  local cmd_to_pack_specs = build_cmd_mapping(registered_pack_specs)
-  setup_shared_cmd_loading(cmd_to_pack_specs)
-end
-
 M.process_all = function()
   table.sort(state.lazy_packs, util.compare_priority)
   local registered_pack_specs = register_lazy_packs()
-  setup_cmd_loading(registered_pack_specs)
+  local cmd_to_pack_specs = build_cmd_mapping(registered_pack_specs)
+  setup_shared_cmd_loading(cmd_to_pack_specs)
+  local key_to_info = build_key_mapping(registered_pack_specs)
+  setup_shared_key_loading(key_to_info)
 end
 
 return M
