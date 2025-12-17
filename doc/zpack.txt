@@ -33,17 +33,18 @@ CONTENTS                                                      *zpack-contents*
 A super lightweight layer on top of Neovim's native `vim.pack` plugin manager
 to support a lazy.nvim-like declarative spec and minimalist lazy-loading.
 >lua
-    -- ./lua/plugins/treesitter.lua
+    -- ./lua/plugins/fundo.lua
     return {
-      'nvim-treesitter/nvim-treesitter',
-      version = 'main',
-      build = ':TSUpdate',
-      config = function()
-        require('nvim-treesitter.configs').setup({
-          ensure_installed = { 'lua', 'vim' },
-          highlight = { enable = true },
-        })
-      end,
+      { 'kevinhwang91/promise-async' },
+      {
+        'kevinhwang91/nvim-fundo',
+        version = 'main',
+        build = function() require('fundo').install() end,
+        config = function()
+          vim.o.undofile = true
+          require('fundo').setup()
+        end,
+      },
     }
 <
 
