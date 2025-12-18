@@ -44,7 +44,7 @@ M.compare_priority = function(a, b)
 end
 
 ---Normalize keys to a consistent format
----@param keys KeySpec|KeySpec[]|string
+---@param keys KeySpec|KeySpec[]|string|string[]
 ---@return KeySpec[]
 M.normalize_keys = function(keys)
   if type(keys) == "string" then
@@ -52,7 +52,17 @@ M.normalize_keys = function(keys)
   elseif keys[1] and type(keys[1]) == "string" then
     return { keys }
   end
-  return keys
+
+  -- Handle mixed arrays with KeySpec tables and plain strings
+  local result = {}
+  for _, key in ipairs(keys) do
+    if type(key) == "string" then
+      table.insert(result, { key })
+    else
+      table.insert(result, key)
+    end
+  end
+  return result
 end
 
 ---@param val string|string[]
