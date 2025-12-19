@@ -18,9 +18,6 @@ M.is_lazy = function(spec)
   return (spec.event ~= nil) or (spec.cmd ~= nil) or (spec.keys ~= nil and #spec.keys > 0) or (spec.ft ~= nil)
 end
 
--- Re-export for backward compatibility
-M.process_spec = loader.process_spec
-
 ---@return vim.pack.Spec[]
 local register_lazy_packs = function()
   local registered_plugins = {}

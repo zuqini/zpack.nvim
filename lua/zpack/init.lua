@@ -6,6 +6,7 @@ local startup = require('zpack.startup')
 local commands = require('zpack.commands')
 local hooks = require('zpack.hooks')
 local util = require('zpack.utils')
+local state = require('zpack.state')
 
 local M = {}
 
@@ -38,6 +39,7 @@ local process_all = function()
   startup.process_all()
   lazy.process_all()
   hooks.run_build_hooks()
+  state.update_cache()
 end
 
 ---@class ZpackConfig

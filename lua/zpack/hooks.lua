@@ -33,14 +33,8 @@ M.try_call_hook = function(src, hook_name)
   return true
 end
 
----@param src string
 ---@param build string|fun()
-local execute_build = function(src, build)
-  if not state.src_to_request_build[src] then
-    util.schedule_notify("Trying to execute build hook for invalid src " .. src)
-    return
-  end
-
+M.execute_build = function(build)
   if type(build) == "string" then
     vim.schedule(function()
       vim.cmd(build)
@@ -64,8 +58,30 @@ M.run_build_hooks = function()
   for src, _ in pairs(state.src_to_request_build) do
     local spec = state.src_spec[src].spec
     if spec.build then
-      execute_build(src, spec.build)
+      M.execute_build(spec.build)
     end
+  end
+end
+
+M.run_all_build_hooks = function()
+  local loader = require('zpack.loader')
+  local count = 0
+
+  local installed = vim.pack.get()
+  for _, pack in ipairs(installed) do
+    local src_spec_entry = state.src_spec[pack.spec.src]
+    if src_spec_entry and src_spec_entry.spec.build then
+      loader.process_spec(pack.spec)
+      state.src_to_request_build[pack.spec.src] = true
+      M.execute_build(src_spec_entry.spec.build)
+      count = count + 1
+    end
+  end
+
+  if count > 0 then
+    util.schedule_notify(('Running build hooks for %d plugin(s)'):format(count), vim.log.levels.INFO)
+  else
+    util.schedule_notify('No plugins with build hooks found', vim.log.levels.INFO)
   end
 end
 

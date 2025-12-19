@@ -53,10 +53,10 @@ require('zpack').add({
 
 zpack provides the following commands:
 
-- `:ZUpdate` - Update all plugins. See `:h vim.pack.update()`
+- `:ZUpdate [plugin]` - Update all plugins, or a specific plugin if provided (supports tab completion). See `:h vim.pack.update()`
 - `:ZClean` - Remove plugins that are no longer in your spec
-- `:ZCleanAll` - Remove all installed plugins
-- `:ZDelete <plugin>` - Remove a specific plugin (supports tab completion)
+- `:ZBuild[!] [plugin]` - Run build hook for a specific plugin, or all plugins with `!` (supports tab completion)
+- `:ZDelete[!] [plugin]` - Remove a specific plugin, or all plugins with `!` (supports tab completion)
 
 ### Directory Structure
 
@@ -96,8 +96,6 @@ zpack might be for you if:
 - you're already comfortable with `vim.pack`, and want:
     - A minimalist lazy-loading implementation for faster startup
     - Declarative plugin specs to keep your config neat and tidy
-
-Additionally, because everything is just `vim.pack` under the hood, you can mix and match zpack.nvim specs and traditional `vim.pack.add({ ... })` as you wish!
 
 Out of the box, zpack does not provide:
 - UI dashboard for your plugins
