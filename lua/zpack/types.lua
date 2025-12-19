@@ -16,8 +16,10 @@
 ---@field pattern string|string[] Pattern(s) for these events
 
 ---@class Spec
----@field [1]? string Plugin short name (e.g., "user/repo"). Required if src is not provided
----@field src? string Custom git URL. Required if [1] is not provided
+---@field [1]? string Plugin short name (e.g., "user/repo"). Required if src/dir/url not provided
+---@field src? string Custom git URL or local path. Required if [1]/dir/url not provided
+---@field dir? string Local plugin directory path (lazy.nvim compat). Mapped to src
+---@field url? string Custom git URL (lazy.nvim compat). Mapped to src
 ---@field name? string Custom plugin name. Overrides auto-derived name from URL
 ---@field init? fun()
 ---@field build? string|fun()

@@ -291,9 +291,13 @@ return {
 
 ```lua
 {
-  -- Plugin identification (provide at least one)
+  -- Plugin source (provide exactly one)
   [1] = "user/repo",                    -- Plugin short name. Expands to https://github.com/{user/repo}
-  src = "https://...",                  -- Custom git URL (local paths also supported)
+  src = "https://...",                  -- Custom git URL or local path
+  dir = "/path/to/plugin",              -- Local plugin directory (lazy.nvim compat, mapped to src)
+  url = "https://...",                  -- Custom git URL (lazy.nvim compat, mapped to src)
+
+  -- Plugin metadata
   name = "my-plugin",                   -- Custom plugin name (optional, overrides auto-derived name)
 
   -- Source control
@@ -348,7 +352,6 @@ Most of your lazy.nvim plugin specs will work as-is with zpack.
 <a name="key-differences"></a>
 **Key differences:**
 
-- **url**/**dir**: use `src` instead. See `:h vim.pack.Spec`
 - **Dependencies**: zpack does not have a `dependencies` field. Instead, use `priority` to control load order (higher = earlier, default: 50), or remove lazy-loading from the dependency to load it at startup. See [example migration](#example-migration)
 - **opt**: use `config = function() ... end` instead
 - **Other unsupported fields**: Remove lazy.nvim-specific fields like `dev`, `main`, `module`, etc. See the [Spec Reference](#spec-reference) for supported fields

@@ -388,9 +388,13 @@ Define multiple plugins in a single file:
 
 >lua
     {
-      -- Plugin identification (provide at least one)
+      -- Plugin source (provide exactly one)
       [1] = "user/repo",                    -- Short name (github.com/...)
-      src = "https://...",                  -- Custom git URL or path
+      src = "https://...",                  -- Custom git URL or local path
+      dir = "/path/to/plugin",              -- Local path (lazy.nvim compat)
+      url = "https://...",                  -- Git URL (lazy.nvim compat)
+
+      -- Plugin metadata
       name = "my-plugin",                   -- Custom name (optional)
 
       -- Source control
@@ -419,12 +423,25 @@ Define multiple plugins in a single file:
                                                             *zpack-Spec.[1]*
 [1]             (string, optional)
                 Plugin short name (e.g., "user/repo"). Expands to
-                `https://github.com/{[1]}`. Either [1] or src must be provided.
+                `https://github.com/{[1]}`. Provide exactly one of:
+                [1], src, dir, or url. Priority: [1] > src > url > dir.
 
                                                              *zpack-Spec.src*
 src             (string, optional)
-                Custom git URL for the plugin source. Can also be a local path.
-                Either [1] or src must be provided.
+                Custom git URL or local path for the plugin source.
+                Provide exactly one of: [1], src, dir, or url.
+
+                                                             *zpack-Spec.dir*
+dir             (string, optional)
+                Local plugin directory path. For lazy.nvim compatibility.
+                Mapped to `src` internally. Provide exactly one of:
+                [1], src, dir, or url.
+
+                                                             *zpack-Spec.url*
+url             (string, optional)
+                Custom git URL. For lazy.nvim compatibility.
+                Mapped to `src` internally. Provide exactly one of:
+                [1], src, dir, or url.
 
                                                             *zpack-Spec.name*
 name            (string, optional)
@@ -572,8 +589,6 @@ nowait          (boolean, optional)
 Most of your lazy.nvim plugin specs will work as-is with zpack.
 
 KEY DIFFERENCES ~
-
-url/dir                   Use `src` instead. See |vim.pack.Spec|.
 
 Dependencies              zpack does not have a `dependencies` field to
                           implicitly infer plugin ordering. Use `priority` to

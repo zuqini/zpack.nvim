@@ -1,3 +1,4 @@
+local utils = require('zpack.utils')
 local state = require('zpack.state')
 local lazy = require('zpack.lazy')
 
@@ -21,10 +22,33 @@ local check_condition = function(spec)
   return true
 end
 
+---Normalize plugin source using priority: [1] > src > url > dir
+---@param spec Spec
+---@return string|nil source URL/path, or nil if invalid
+---@return string|nil error message if validation fails
+local normalize_source = function(spec)
+  if spec[1] then
+    return 'https://github.com/' .. spec[1]
+  elseif spec.src then
+    return spec.src
+  elseif spec.url then
+    return spec.url
+  elseif spec.dir then
+    return spec.dir
+  else
+    return nil, "spec must provide one of: [1], src, dir, or url"
+  end
+end
+
 ---@param spec Spec
 ---@return string
 local get_source_url = function(spec)
-  return spec.src and spec.src or 'https://github.com/' .. spec[1]
+  local src, err = normalize_source(spec)
+  if not src then
+    utils.schedule_notify(err, vim.log.levels.ERROR)
+    error(err)
+  end
+  return src
 end
 
 ---@param spec Spec
@@ -52,9 +76,19 @@ local categorize_spec = function(spec, src)
   end
 end
 
+---Check if value is a single spec (not a list of specs)
+---@param value Spec|Spec[]
+---@return boolean
+local is_single_spec = function(value)
+  return type(value[1]) == "string"
+      or value.src ~= nil
+      or value.dir ~= nil
+      or value.url ~= nil
+end
+
 ---@param spec_item_or_list Spec|Spec[]
 M.import_specs = function(spec_item_or_list)
-  local specs = (type(spec_item_or_list[1]) == "string" or spec_item_or_list.src)
+  local specs = is_single_spec(spec_item_or_list)
       and { spec_item_or_list }
       or spec_item_or_list --[[@as Spec[] ]]
 
