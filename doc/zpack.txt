@@ -161,7 +161,7 @@ as you wish!
 Out of the box, zpack does not provide:
 - UI dashboard for your plugins
 - Profiling, dev mode, etc.
-- Implicit dependency inference for lazy-loading
+- Implicit dependency inference (see |zpack-dependency-handling|)
 - Implicit ft/event handling for lazy-loading, favoring explicit user intent
   and configuration (see |zpack-migrating-lazy|)
 
@@ -315,11 +315,24 @@ Multiple filetypes:
 ------------------------------------------------------------------------------
 5.6 CONDITIONAL LOADING                             *zpack-example-conditional*
 
-Enable plugin based on a condition:
+Use `enabled` to skip `vim.pack.add` entirely, or `cond` to conditionally
+load after calling `vim.pack.add`:
 >lua
+    -- enabled: Checked at setup time, vim.pack.add never called if false
     return {
       'linux-only-plugin',
       enabled = vim.fn.has('linux') == 1,
+      config = function()
+        -- plugin config
+      end,
+    }
+
+    -- cond: Checked at load time, vim.pack.add called but won't load if false
+    return {
+      'project-specific-plugin',
+      cond = function()
+        return vim.fn.filereadable('.project-marker') == 1
+      end,
       config = function()
         -- plugin config
       end,
@@ -383,7 +396,69 @@ Define multiple plugins in a single file:
 <
 
 ==============================================================================
-6. SPEC REFERENCE                                       *zpack-spec-reference*
+6. DEPENDENCY HANDLING                              *zpack-dependency-handling*
+
+Unlike lazy.nvim, zpack does not have a `dependencies` field to automatically
+infer plugin load order. Instead, you explicitly control dependencies using
+one of two approaches:
+
+------------------------------------------------------------------------------
+6.1 OPTION 1: LOAD DEPENDENCIES AT STARTUP    *zpack-dependency-option-startup*
+
+The simplest approach is to load dependency plugins at startup (without
+lazy-loading triggers) while keeping the dependent plugin lazy-loaded. For
+most plugins, loading small dependencies at startup has negligible impact on
+startup time while keeping your config simple.
+
+lazy.nvim:
+>lua
+    return {
+      'nvim-telescope/telescope.nvim',
+      dependencies = { 'nvim-lua/plenary.nvim' },
+      cmd = 'Telescope',
+    }
+<
+
+zpack:
+>lua
+    return {
+      { 'nvim-lua/plenary.nvim' },  -- Loads at startup
+      {
+        'nvim-telescope/telescope.nvim',
+        cmd = 'Telescope',  -- Lazy-loaded on command
+      }
+    }
+<
+
+------------------------------------------------------------------------------
+6.2 OPTION 2: USE PRIORITY WITH SAME TRIGGER  *zpack-dependency-option-priority*
+
+If you want both plugins lazy-loaded, use the same trigger with `priority` to
+control load order (higher = earlier):
+>lua
+    local common_cmd_trigger = 'Telescope'
+    return {
+      {
+        'nvim-lua/plenary.nvim',
+        cmd = common_cmd_trigger,
+        priority = 1000,  -- Loads first
+      },
+      {
+        'nvim-telescope/telescope.nvim',
+        cmd = common_cmd_trigger,  -- Loads second
+      }
+    }
+<
+
+Note: Priority only affects `vim.pack.add` order for lazy-loaded plugins with
+the same trigger. For non lazy-loaded plugins, all packages are added
+simultaneously via `vim.pack.add()` before calling plugin's config hooks, and
+priority only affects the order in which the config hooks are called. There
+should almost never be a need to define dependency priority for non
+lazy-loaded plugins.
+
+==============================================================================
+7. SPEC REFERENCE                                       *zpack-spec-reference*
                                                                   *zpack-Spec*
 
 >lua
@@ -524,7 +599,7 @@ ft              (string|string[], optional)
                 Auto-sets `lazy=true`.
 
 ==============================================================================
-7. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*
+8. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*
                                                              *zpack-EventSpec*
 
 >lua
@@ -544,7 +619,7 @@ pattern         (string|string[], optional)
                 patterns. If not specified, defaults to '*' (match all).
 
 ==============================================================================
-8. KEYSPEC REFERENCE                                *zpack-keyspec-reference*
+9. KEYSPEC REFERENCE                                *zpack-keyspec-reference*
                                                                *zpack-KeySpec*
 
 >lua
@@ -584,68 +659,21 @@ nowait          (boolean, optional)
                 Whether to use nowait. Default: false.
 
 ==============================================================================
-9. MIGRATING FROM LAZY.NVIM                            *zpack-migrating-lazy*
+10. MIGRATING FROM LAZY.NVIM                           *zpack-migrating-lazy*
 
 Most of your lazy.nvim plugin specs will work as-is with zpack.
 
 KEY DIFFERENCES ~
 
-Dependencies              zpack does not have a `dependencies` field to
-                          implicitly infer plugin ordering. Use `priority` to
-                          directly control load order (higher values load
-                          first) for both startup and lazy-loaded plugins, or
-                          structure your lazy-loading triggers (like `event`,
-                          `cmd`, `keys`) to ensure dependencies load before
-                          dependent plugins. See the `plenary.nvim` example
-                          migration below.
+Dependencies              zpack does not have a `dependencies` field. See
+                          |zpack-dependency-handling| for how to manage plugin
+                          dependencies using `priority` or startup loading.
 
 opt                       use `config = function() ... end` instead.
 
 Other unsupported fields  Remove lazy.nvim-specific fields like `dev`, `main`,
                           `module`, etc. See |zpack-spec-reference| for
                           supported fields.
-
-EXAMPLE MIGRATION ~
-                                                  *zpack-example-migration*
->lua
-    -- lazy.nvim
-    {
-      'nvim-telescope/telescope.nvim',
-      dependencies = { 'nvim-lua/plenary.nvim' },
-      cmd = 'Telescope',
-    }
-
-    -- zpack
-    -- Add plenary as a separate spec to load on startup
-    { 'nvim-lua/plenary.nvim' },
-    -- Or add plenary on the same cmd as Telescope with higher priority
-    {
-      'nvim-lua/plenary.nvim'
-      cmd = 'Telescope',
-      priority = 1000,
-    },
-
-    -- Telescope will load when needed via cmd trigger
-    {
-      'nvim-telescope/telescope.nvim',
-      cmd = 'Telescope',
-    }
-<
-
-For startup plugins with dependencies, use `priority` to ensure load order:
->lua
-    -- Load colorscheme dependency first
-    { 'rktjmp/lush.nvim', priority = 1000 }
-
-    -- Then load your colorscheme
-    {
-      'my-colorscheme',
-      priority = 999,
-      config = function()
-        vim.cmd('colorscheme my-theme')
-      end,
-    }
-<
 
 BLINK.CMP + LAZYDEV ~
                                               *zpack-migration-blink-lazydev*

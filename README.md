@@ -21,7 +21,7 @@ return {
 
 The built-in plugin manager itself is currently a work in progress, so please expect breaking changes.
 
-**[Why zpack?](#why-zpack)** | **[Examples](#examples)** | **[Spec Reference](#spec-reference)** | **[Migrating from lazy.nvim](#migrating-from-lazynvim)**
+**[Why zpack?](#why-zpack)** | **[Examples](#examples)** | **[Dependency Handling](#dependency-handling)** | **[Spec Reference](#spec-reference)** | **[Migrating from lazy.nvim](#migrating-from-lazynvim)**
 
 ## Requirements
 
@@ -102,7 +102,7 @@ Additionally, because everything is just `vim.pack` under the hood, you can mix 
 Out of the box, zpack does not provide:
 - UI dashboard for your plugins
 - Profiling, dev mode, etc.
-- Implicit dependency inference for lazy-loading
+- Implicit dependency inference (see [Dependency Handling](#dependency-handling) for the explicit approach)
 
 Many of these features are available through Neovim's native tooling. We're actively exploring ways to improve lazy-loading functionality without introducing significant complexity.
 
@@ -225,10 +225,24 @@ return {
 
 #### Conditional Loading
 
+Use `enabled` to skip `vim.pack.add` entirely, or `cond` to conditionally load after calling `vim.pack.add`:
+
 ```lua
+-- enabled: Checked at setup time, vim.pack.add never called if false
 return {
   'linux-only-plugin',
   enabled = vim.fn.has('linux') == 1,
+  config = function()
+    -- plugin config
+  end,
+}
+
+-- cond: Checked at load time, vim.pack.add called but won't load if false
+return {
+  'project-specific-plugin',
+  cond = function()
+    return vim.fn.filereadable('.project-marker') == 1
+  end,
   config = function()
     -- plugin config
   end,
@@ -286,6 +300,55 @@ return {
   },
 }
 ```
+
+## Dependency Handling
+
+Unlike lazy.nvim, zpack does not have a `dependencies` field to automatically infer plugin load order. Instead, you explicitly control dependencies using one of two approaches:
+
+### Option 1: Load Dependencies at Startup
+
+The simplest approach is to load dependency plugins at startup (without lazy-loading triggers) while keeping the dependent plugin lazy-loaded. For most plugins, loading small dependencies at startup has negligible impact on startup time while keeping your config simple.
+
+**lazy.nvim:**
+```lua
+return {
+  'nvim-telescope/telescope.nvim',
+  dependencies = { 'nvim-lua/plenary.nvim' },
+  cmd = 'Telescope',
+}
+```
+
+**zpack:**
+```lua
+return {
+  { 'nvim-lua/plenary.nvim' },  -- Loads at startup
+  {
+    'nvim-telescope/telescope.nvim',
+    cmd = 'Telescope',  -- Lazy-loaded on command
+  }
+}
+```
+
+### Option 2: Use Priority with Same Trigger
+
+If you want both plugins lazy-loaded, use the same trigger with `priority` to control load order (higher = earlier):
+
+```lua
+local common_cmd_trigger = 'Telescope'
+return {
+  {
+    'nvim-lua/plenary.nvim',
+    cmd = common_cmd_trigger,
+    priority = 1000,  -- Loads first
+  },
+  {
+    'nvim-telescope/telescope.nvim',
+    cmd = common_cmd_trigger,  -- Loads second
+  }
+}
+```
+
+**Note:** Priority only affects `vim.pack.add` order for lazy-loaded plugins with the same trigger. For non lazy-loaded plugins, all packages are added simultaneously via `vim.pack.add()` before calling plugin's config hooks, and priority only affects the order in which the config hooks are called. There should almost never be a need to define dependency priority for non lazy-loaded plugins.
 
 ## Spec Reference
 
@@ -349,51 +412,11 @@ return {
 
 Most of your lazy.nvim plugin specs will work as-is with zpack.
 
-<a name="key-differences"></a>
 **Key differences:**
 
-- **Dependencies**: zpack does not have a `dependencies` field. Instead, use `priority` to control load order (higher = earlier, default: 50), or remove lazy-loading from the dependency to load it at startup. See [example migration](#example-migration)
+- **Dependencies**: zpack does not have a `dependencies` field. See [Dependency Handling](#dependency-handling) for how to manage plugin dependencies using `priority` or startup loading
 - **opt**: use `config = function() ... end` instead
 - **Other unsupported fields**: Remove lazy.nvim-specific fields like `dev`, `main`, `module`, etc. See the [Spec Reference](#spec-reference) for supported fields
-
-<a name="example-migration"></a>
-**Example migration:**
-
-**lazy.nvim:**
-```lua
-return {
-  'nvim-telescope/telescope.nvim',
-  dependencies = { 'nvim-lua/plenary.nvim' },
-  cmd = 'Telescope',
-}
-```
-
-**zpack (Option 1):** Load dependency at startup
-```lua
-return {
-  { 'nvim-lua/plenary.nvim' },
-  {
-    'nvim-telescope/telescope.nvim',
-    cmd = 'Telescope',
-  }
-}
-```
-
-**zpack (Option 2):** Use `priority` with same lazy-loading trigger
-```lua
-local common_cmd_trigger = 'Telescope'
-return {
-  {
-    'nvim-lua/plenary.nvim',
-    cmd = common_cmd_trigger,
-    priority = 1000,
-  },
-  {
-    'nvim-telescope/telescope.nvim',
-    cmd = common_cmd_trigger,
-  }
-}
-```
 
 ### blink.cmp + lazydev
 
