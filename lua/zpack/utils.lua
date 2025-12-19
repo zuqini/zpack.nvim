@@ -50,7 +50,7 @@ M.normalize_keys = function(keys)
   -- Normalize to always be an array
   local key_list = (type(keys) == "string" or (keys[1] and type(keys[1]) == "string"))
       and { keys }
-      or keys
+      or keys --[[@as string[]|KeySpec[] ]]
 
   local result = {}
   for _, key in ipairs(key_list) do
@@ -67,6 +67,18 @@ end
 ---@return string[]
 M.normalize_string_list = function(val)
   return type(val) == "string" and { val } or val --[[@as string[] ]]
+end
+
+---Create an autocmd with callback
+---@param event string|string[]
+---@param callback function
+---@param opts? table Optional opts (group, once, pattern, buffer, etc.)
+---@return number Autocmd ID
+M.autocmd = function(event, callback, opts)
+  opts = opts or {}
+  return vim.api.nvim_create_autocmd(event, vim.tbl_extend('force', {
+    callback = callback,
+  }, opts))
 end
 
 return M

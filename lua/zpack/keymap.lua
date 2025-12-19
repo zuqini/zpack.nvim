@@ -1,4 +1,4 @@
-local util = require('zpack.util')
+local util = require('zpack.utils')
 
 local M = {}
 

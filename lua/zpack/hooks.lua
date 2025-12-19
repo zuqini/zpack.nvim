@@ -1,4 +1,4 @@
-local util = require('zpack.util')
+local util = require('zpack.utils')
 local state = require('zpack.state')
 
 local M = {}
@@ -53,14 +53,11 @@ local execute_build = function(src, build)
 end
 
 M.setup_build_tracking = function()
-  vim.api.nvim_create_autocmd('PackChanged', {
-    group = state.startup_group,
-    callback = function(event)
-      if event.data.kind == "update" or event.data.kind == "install" then
-        state.src_to_request_build[event.data.spec.src] = true
-      end
-    end,
-  })
+  util.autocmd('PackChanged', function(event)
+    if event.data.kind == "update" or event.data.kind == "install" then
+      state.src_to_request_build[event.data.spec.src] = true
+    end
+  end, { group = state.startup_group })
 end
 
 M.run_build_hooks = function()

@@ -5,7 +5,7 @@ local lazy = require('zpack.lazy')
 local startup = require('zpack.startup')
 local commands = require('zpack.commands')
 local hooks = require('zpack.hooks')
-local util = require('zpack.util')
+local util = require('zpack.utils')
 
 local M = {}
 
