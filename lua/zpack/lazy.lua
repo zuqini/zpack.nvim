@@ -12,7 +12,7 @@ M.is_lazy = function(spec)
   if spec.lazy ~= nil then
     return spec.lazy
   end
-  return (spec.event ~= nil) or (spec.cmd ~= nil) or (spec.keys ~= nil and #spec.keys > 0)
+  return (spec.event ~= nil) or (spec.cmd ~= nil) or (spec.keys ~= nil and #spec.keys > 0) or (spec.ft ~= nil)
 end
 
 ---@param pack_spec vim.pack.Spec
@@ -127,6 +127,29 @@ local setup_event_loading = function(pack_spec, spec)
   end
 end
 
+---@param pack_spec vim.pack.Spec
+---@param spec Spec
+local setup_ft_loading = function(pack_spec, spec)
+  local filetypes = util.normalize_string_list(spec.ft)
+
+  vim.api.nvim_create_autocmd("FileType", {
+    group = state.lazy_group,
+    pattern = filetypes,
+    once = true,
+    callback = function(ev)
+      M.process_spec(pack_spec)
+
+      -- Re-trigger events for the buffer that triggered loading to ensure LSP/Treesitter attach
+      vim.schedule(function()
+        local bufnr = ev.buf
+        vim.api.nvim_exec_autocmds("BufReadPre", { buffer = bufnr, modeline = false })
+        vim.api.nvim_exec_autocmds("BufReadPost", { buffer = bufnr, modeline = false })
+        vim.api.nvim_exec_autocmds("FileType", { buffer = bufnr, modeline = false })
+      end)
+    end,
+  })
+end
+
 ---Build a mapping of command names to all plugins that lazy-load on that command
 ---@param registered_pack_specs vim.pack.Spec[] Array of registered plugin objects from vim.pack.add
 ---@return table<string, vim.pack.Spec[]>
@@ -234,6 +257,9 @@ local register_lazy_packs = function()
       table.insert(registered_plugins, pack_spec)
       if spec.event then
         setup_event_loading(plugin.spec, spec)
+      end
+      if spec.ft then
+        setup_ft_loading(plugin.spec, spec)
       end
     end
   })

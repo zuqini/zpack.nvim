@@ -275,7 +275,34 @@ Multiple events with different patterns:
 <
 
 ------------------------------------------------------------------------------
-5.5 CONDITIONAL LOADING                             *zpack-example-conditional*
+5.5 LAZY LOAD ON FILETYPE                                 *zpack-example-ft*
+
+Load plugin when opening files of specific types. Automatically re-triggers
+BufReadPre, BufReadPost, and FileType events to ensure LSP clients and
+Treesitter attach properly:
+>lua
+    return {
+      'rust-lang/rust.vim',
+      ft = 'rust',
+      config = function()
+        vim.g.rustfmt_autosave = 1
+      end,
+    }
+<
+
+Multiple filetypes:
+>lua
+    return {
+      'some-plugin',
+      ft = { 'lua', 'rust', 'go' },
+      config = function()
+        -- plugin config
+      end,
+    }
+<
+
+------------------------------------------------------------------------------
+5.6 CONDITIONAL LOADING                             *zpack-example-conditional*
 
 Enable plugin based on a condition:
 >lua
@@ -289,7 +316,7 @@ Enable plugin based on a condition:
 <
 
 ------------------------------------------------------------------------------
-5.6 LOAD PRIORITY                                       *zpack-example-priority*
+5.7 LOAD PRIORITY                                       *zpack-example-priority*
 
 Control load order with priority (higher loads first; default: 50):
 >lua
@@ -314,7 +341,7 @@ Control load order with priority (higher loads first; default: 50):
 <
 
 ------------------------------------------------------------------------------
-5.7 BUILD HOOK                                           *zpack-example-build*
+5.8 BUILD HOOK                                           *zpack-example-build*
 
 Run a build command after installing/updating plugin:
 >lua
@@ -328,7 +355,7 @@ Run a build command after installing/updating plugin:
 <
 
 ------------------------------------------------------------------------------
-5.8 MULTIPLE PLUGINS                                   *zpack-example-multiple*
+5.9 MULTIPLE PLUGINS                                   *zpack-example-multiple*
 
 Define multiple plugins in a single file:
 >lua
@@ -374,6 +401,7 @@ Define multiple plugins in a single file:
       pattern = string|string[],            -- Global event pattern(s)
       cmd = string|string[],                -- Command(s) to create
       keys = KeySpec|KeySpec[],             -- Keymap(s) to create
+      ft = string|string[],                 -- FileType(s) to lazy load on
     }
 <
 
@@ -459,6 +487,13 @@ keys            (KeySpec|KeySpec[], optional)
                 Keymap(s) to create that trigger lazy loading.
                 Auto-sets `lazy=true`. See |zpack-KeySpec|.
 
+                                                              *zpack-Spec.ft*
+ft              (string|string[], optional)
+                FileType(s) to lazy load on. Automatically re-triggers
+                BufReadPre, BufReadPost, and FileType events after loading
+                to ensure LSP clients and Treesitter attach properly.
+                Auto-sets `lazy=true`.
+
 ==============================================================================
 7. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*
                                                              *zpack-EventSpec*
@@ -527,17 +562,6 @@ Most of your lazy.nvim plugin specs will work as-is with zpack.
 KEY DIFFERENCES ~
 
 url/dir                   Use `src` instead. See |vim.pack.Spec|.
-
-ft                        With lazy.nvim, `ft` lazy-loading implicitly
-                          re-triggers `BufReadPre`, `BufReadPost`, and
-                          `FileType` events in order to properly attach LSP
-                          clients and apply Treesitter syntax. zpack favors
-                          explicit event control and thus does not provide a
-                          `ft` trigger. Please select `FileType`, `BufReadPre`,
-                          and `BufReadPost` events appropriately based on the
-                          plugin's needs. If you're not sure, `BufReadPre` is a
-                          safe bet to ensure your plugin is loaded before
-                          entering the buffer.
 
 Dependencies              zpack does not have a `dependencies` field to
                           implicitly infer plugin ordering. Use `priority` to

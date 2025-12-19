@@ -103,7 +103,6 @@ Out of the box, zpack does not provide:
 - UI dashboard for your plugins
 - Profiling, dev mode, etc.
 - Implicit dependency inference for lazy-loading
-- Implicit ft/event handling for lazy-loading, favoring explicit user intent and configuration (see [key differences](#key-differences))
 
 Many of these features are available through Neovim's native tooling. We're actively exploring ways to improve lazy-loading functionality without introducing significant complexity.
 
@@ -186,6 +185,29 @@ return {
     { event = 'BufReadPre', pattern = '*.lua' },
     { event = 'BufNewFile', pattern = '*.rs' },
   },
+  config = function()
+    -- plugin config
+  end,
+}
+```
+
+#### Lazy Load on FileType
+
+Load plugin when opening files of specific types. Automatically re-triggers `BufReadPre`, `BufReadPost`, and `FileType` events to ensure LSP clients and Treesitter attach properly:
+
+```lua
+return {
+  'rust-lang/rust.vim',
+  ft = 'rust',
+  config = function()
+    vim.g.rustfmt_autosave = 1
+  end,
+}
+
+-- Multiple filetypes
+return {
+  'some-plugin',
+  ft = { 'lua', 'rust', 'go' },
   config = function()
     -- plugin config
   end,
@@ -284,6 +306,7 @@ return {
   pattern = string|string[],            -- Global fallback pattern(s) for all events
   cmd = string|string[],                -- Command(s) to create
   keys = KeySpec|KeySpec[],             -- Keymap(s) to create
+  ft = string|string[],                 -- FileType(s) to lazy load on
 }
 ```
 
@@ -317,7 +340,6 @@ Most of your lazy.nvim plugin specs will work as-is with zpack.
 **Key differences:**
 
 - **url**/**dir**: use `src` instead. See `:h vim.pack.Spec`
-- **ft**: With lazy.nvim, `ft` lazy-loading implicitly re-triggers `BufReadPre`, `BufReadPost`, and `FileType` events in order to properly attach LSP clients and apply Treesitter syntax. zpack favors explicit event control and thus does not provide a `ft` trigger. Please select `FileType`, `BufReadPre`, and `BufReadPost` events appropriately based on the plugin's needs. If you're not sure, `BufReadPre` is a safe bet to ensure your plugin is loaded before entering the buffer.
 - **Dependencies**: zpack does not have a `dependencies` field to implicitly infer plugin ordering. Use `priority` to directly control load order (higher values load first) for both startup and lazy-loaded plugins, or structure your lazy-loading triggers (like `event`, `cmd`, `keys`) to ensure dependencies load before dependent plugins. See the `plenary.nvim` [example migration](#example-migration)
 - **opt**: use `config = function() ... end` instead.
 - **Other unsupported fields**: Remove lazy.nvim-specific fields like `dev`, `main`, `module`, etc. See the [Spec Reference](#spec-reference) for supported fields.

@@ -31,5 +31,6 @@
 ---@field event? string|string[]|EventSpec|(string|EventSpec)[]
 ---@field pattern? string|string[] Global fallback pattern applied to all events (unless EventSpec specifies its own)
 ---@field cmd? string|string[]
+---@field ft? string|string[]
 
 return {}
