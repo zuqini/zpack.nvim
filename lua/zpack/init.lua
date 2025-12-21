@@ -1,13 +1,16 @@
 ---@module 'zpack'
 
-if vim.fn.has('nvim-0.12') ~= 1 then
-  vim.schedule(function()
-    vim.notify('zpack.nvim requires Neovim 0.12+', vim.log.levels.ERROR)
-  end)
-  return {}
-end
-
 local M = {}
+
+local function check_version()
+  if vim.fn.has('nvim-0.12') ~= 1 then
+    vim.schedule(function()
+      vim.notify('zpack.nvim requires Neovim 0.12+', vim.log.levels.ERROR)
+    end)
+    return false
+  end
+  return true
+end
 
 ---@param plugins_dir string
 local import_specs_from_dir = function(plugins_dir)
@@ -48,6 +51,7 @@ end
 
 ---@param opts? ZpackConfig
 M.setup = function(opts)
+  if not check_version() then return end
   opts = opts or {}
 
   if not opts.disable_vim_loader then
@@ -67,6 +71,7 @@ end
 
 ---@param spec_item_or_list Spec|Spec[]
 M.add = function(spec_item_or_list)
+  if not check_version() then return end
   require('zpack.import').import_specs(spec_item_or_list)
   process_all()
 end
