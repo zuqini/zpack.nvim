@@ -9,8 +9,9 @@ Repository: https://github.com/zuqini/zpack.nvim
 ==============================================================================
 1. INTRODUCTION                                           *zpack-introduction*
 
-A super lightweight layer on top of Neovim's native `vim.pack` plugin manager
-to support a lazy.nvim-like declarative spec and minimalist lazy-loading.
+A super lightweight layer on top of Neovim's native `vim.pack`, with support
+for the widely adopted lazy.nvim-like declarative spec and minimalist
+lazy-loading using only Neovim's builtin features.
 >lua
     -- ./lua/plugins/fundo.lua
     return {
@@ -38,7 +39,7 @@ expect breaking changes.
 ==============================================================================
 3. USAGE                                                         *zpack-usage*
                                                                  *zpack.setup()*
-                                                                    *zpack.add()*
+                                                                 *zpack.add()*
 
 Install zpack.nvim via vim.pack.add():
 >lua
