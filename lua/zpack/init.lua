@@ -36,7 +36,9 @@ local import_specs_from_dir = function(plugins_dir)
   end
 end
 
-local process_all = function()
+---@param opts? { refresh?: boolean }
+local process_all = function(opts)
+  opts = opts or {}
   local hooks = require('zpack.hooks')
   local state = require('zpack.state')
 
@@ -46,7 +48,7 @@ local process_all = function()
   hooks.run_pending_builds()
   vim.api.nvim_clear_autocmds({ group = state.startup_group })
   hooks.setup_lazy_build_tracking()
-  state.update_cache()
+  state.update_cache(opts.refresh)
 end
 
 ---@class ZpackConfig
@@ -69,7 +71,7 @@ M.setup = function(opts)
 
   if auto_import then
     import_specs_from_dir(plugins_dir)
-    process_all()
+    process_all({ refresh = true })
   end
   require('zpack.commands').setup()
 end
@@ -78,7 +80,7 @@ end
 M.add = function(spec_item_or_list)
   if not check_version() then return end
   require('zpack.import').import_specs(spec_item_or_list)
-  process_all()
+  process_all({ refresh = true })
 end
 
 return M

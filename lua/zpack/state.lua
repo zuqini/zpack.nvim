@@ -76,8 +76,13 @@ M.get_plugin_names_with_build_hooks = function()
   return M.cached_plugin_names_with_build or {}
 end
 
-M.update_cache = function()
+---@param refresh? boolean
+M.update_cache = function(refresh)
   vim.schedule(function()
+    if refresh then
+      M.sorted_plugins = nil
+    end
+
     local names_with_build = {}
 
     for _, plugin in ipairs(M.get_sorted_plugins()) do
