@@ -28,7 +28,7 @@
 ---@field lazy? boolean
 ---@field priority? number Load priority for startup plugins. Higher priority loads first. Default: 50
 ---@field version? string
----@field keys? KeySpec|KeySpec[]
+---@field keys? string|string[]|KeySpec|KeySpec[]
 ---@field config? fun()
 ---@field event? string|string[]|EventSpec|(string|EventSpec)[]
 ---@field pattern? string|string[] Global fallback pattern applied to all events (unless EventSpec specifies its own)

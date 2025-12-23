@@ -13,15 +13,6 @@ local is_enabled = function(spec)
   return true
 end
 
----@param spec Spec
----@return boolean
-local check_condition = function(spec)
-  if spec.cond == false or (type(spec.cond) == "function" and not spec.cond()) then
-    return false
-  end
-  return true
-end
-
 ---Normalize plugin source using priority: [1] > src > url > dir
 ---@param spec Spec
 ---@return string|nil source URL/path, or nil if invalid
@@ -53,26 +44,26 @@ end
 
 ---@param spec Spec
 ---@param src string
-local index_spec = function(spec, src)
-  table.insert(state.vim_packs, { src = src, version = spec.version, name = spec.name })
+---@param ctx ProcessContext
+local index_spec = function(spec, src, ctx)
+  table.insert(ctx.vim_packs, { src = src, version = spec.version, name = spec.name })
 
-  if not check_condition(spec) then
+  if not utils.check_cond(spec) then
     return
   end
 
   if not lazy.is_lazy(spec) then
     if spec.config then
-      table.insert(state.src_with_startup_config, src)
+      table.insert(ctx.src_with_startup_config, src)
     end
 
     if spec.init then
-      table.insert(state.src_with_startup_init, src)
+      table.insert(ctx.src_with_startup_init, src)
     end
 
     if spec.keys then
-      local keys = (spec.keys[1] and type(spec.keys[1]) == "string") and { spec.keys } or spec.keys --[[@as KeySpec[] ]]
-      for _, key in ipairs(keys) do
-        table.insert(state.startup_keys, key)
+      for _, key in ipairs(utils.normalize_keys(spec.keys)) do
+        table.insert(ctx.startup_keys, key)
       end
     end
   end
@@ -89,7 +80,8 @@ local is_single_spec = function(value)
 end
 
 ---@param spec_item_or_list Spec|Spec[]
-M.import_specs = function(spec_item_or_list)
+---@param ctx ProcessContext
+M.import_specs = function(spec_item_or_list, ctx)
   local specs = is_single_spec(spec_item_or_list)
       and { spec_item_or_list }
       or spec_item_or_list --[[@as Spec[] ]]
@@ -100,8 +92,13 @@ M.import_specs = function(spec_item_or_list)
     end
 
     local src = get_source_url(spec)
+    -- already imported, skip
+    if state.spec_registry[src] then
+      goto continue
+    end
+
     state.spec_registry[src] = { spec = spec, loaded = false }
-    index_spec(spec, src)
+    index_spec(spec, src, ctx)
 
     ::continue::
   end

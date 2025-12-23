@@ -98,6 +98,16 @@ require('zpack').setup({
 })
 ```
 
+### Plugin Installation
+
+By default, `vim.pack` prompts for confirmation before installing new plugins. To skip confirmation prompts:
+
+```lua
+require('zpack').setup({
+  confirm = false,
+})
+```
+
 ## Why zpack?
 
 Neovim 0.12+ includes a built-in package manager (`vim.pack`) that handles plugin installation, updates, and version management. zpack is a thin layer that adds lazy-loading capabilities and a lazy.nvim-like declarative structure while leveraging the native infrastructure.

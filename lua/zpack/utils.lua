@@ -81,4 +81,14 @@ M.autocmd = function(event, callback, opts)
   }, opts))
 end
 
+---Check if spec.cond passes
+---@param spec Spec
+---@return boolean
+M.check_cond = function(spec)
+  if spec.cond == false or (type(spec.cond) == "function" and not spec.cond()) then
+    return false
+  end
+  return true
+end
+
 return M

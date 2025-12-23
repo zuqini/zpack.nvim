@@ -16,12 +16,13 @@ M.is_lazy = function(spec)
   return (spec.event ~= nil) or (spec.cmd ~= nil) or (spec.keys ~= nil and #spec.keys > 0) or (spec.ft ~= nil)
 end
 
-M.process_all = function()
-  if next(state.src_to_request_build) ~= nil then
+---@param ctx ProcessContext
+M.process_all = function(ctx)
+  if next(state.src_with_pending_build) ~= nil then
     return
   end
 
-  for _, pack_spec in ipairs(state.registered_lazy_packs) do
+  for _, pack_spec in ipairs(ctx.registered_lazy_packs) do
     local spec = state.spec_registry[pack_spec.src].spec
     if spec.event then
       event_handler.setup(pack_spec, spec)
@@ -30,8 +31,8 @@ M.process_all = function()
       ft_handler.setup(pack_spec, spec)
     end
   end
-  cmd_handler.setup(state.registered_lazy_packs)
-  keys_handler.setup(state.registered_lazy_packs)
+  cmd_handler.setup(ctx.registered_lazy_packs)
+  keys_handler.setup(ctx.registered_lazy_packs)
 end
 
 return M

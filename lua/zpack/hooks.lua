@@ -49,7 +49,7 @@ end
 M.setup_build_tracking = function()
   util.autocmd('PackChanged', function(event)
     if event.data.kind == "update" or event.data.kind == "install" then
-      state.src_to_request_build[event.data.spec.src] = true
+      state.src_with_pending_build[event.data.spec.src] = true
     end
   end, { group = state.startup_group })
 end
@@ -71,29 +71,29 @@ M.load_all_unloaded_plugins = function(opts)
   opts = opts or {}
   local loader = require('zpack.loader')
 
-  for _, plugin in ipairs(state.get_sorted_plugins()) do
-    local entry = state.spec_registry[plugin.spec.src]
+  for _, pack_spec in ipairs(state.registered_plugins) do
+    local entry = state.spec_registry[pack_spec.src]
     if entry and not entry.loaded then
-      loader.process_spec(plugin.spec, opts)
+      loader.process_spec(pack_spec, opts)
     end
   end
 end
 
-M.run_pending_builds = function()
-  if next(state.src_to_request_build) == nil then
+M.run_pending_builds_on_startup = function(ctx)
+  if next(state.src_with_pending_build) == nil then
     return
   end
 
-  M.load_all_unloaded_plugins({ bang = true })
+  M.load_all_unloaded_plugins({ bang = not ctx.load })
 
-  for src in pairs(state.src_to_request_build) do
+  for src in pairs(state.src_with_pending_build) do
     local entry = state.spec_registry[src]
     if entry and entry.spec.build then
       M.execute_build(entry.spec.build)
     end
   end
 
-  state.src_to_request_build = {}
+  state.src_with_pending_build = {}
 end
 
 M.run_all_builds = function()

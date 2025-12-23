@@ -91,6 +91,11 @@ disable_vim_loader (boolean, optional)
                 Disable vim.loader bytecode caching. See
                 |zpack-performance| for details. Default: `false`
 
+                                                        *zpack-setup-confirm*
+confirm         (boolean, optional)
+                Whether `vim.pack` prompts for confirmation before
+                installing new plugins. Default: `true`
+
 ------------------------------------------------------------------------------
 3.2 COMMANDS                                                  *zpack-commands*
 
