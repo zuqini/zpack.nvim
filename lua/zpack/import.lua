@@ -56,6 +56,10 @@ end
 local index_spec = function(spec, src)
   table.insert(state.vim_packs, { src = src, version = spec.version, name = spec.name })
 
+  if not check_condition(spec) then
+    return
+  end
+
   if not lazy.is_lazy(spec) then
     if spec.config then
       table.insert(state.src_with_startup_config, src)
@@ -92,10 +96,6 @@ M.import_specs = function(spec_item_or_list)
 
   for _, spec in ipairs(specs) do
     if not is_enabled(spec) then
-      goto continue
-    end
-
-    if not check_condition(spec) then
       goto continue
     end
 
