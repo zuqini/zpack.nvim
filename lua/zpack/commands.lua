@@ -21,8 +21,11 @@ local get_plugin_or_notify = function(plugin_name)
   return pack
 end
 
-M.clean_all = function()
-  local names = state.registered_plugin_names
+M.delete_all = function()
+  local names = {}
+  for i = #state.registered_plugins, 1, -1 do
+    table.insert(names, state.registered_plugins[i].name)
+  end
 
   util.schedule_notify(("Deleting all %d installed plugin(s)..."):format(#names), vim.log.levels.INFO)
 
@@ -119,12 +122,24 @@ M.setup = function()
         )
         return
       end
-      M.clean_all()
+      util.schedule_notify(
+        'Note: Deleting active plugins in your spec can result in errors in your current session. Restart Neovim to re-install them.',
+        vim.log.levels.WARN
+      )
+      M.delete_all()
       return
     end
 
-    if not get_plugin_or_notify(plugin_name) then
+    local pack = get_plugin_or_notify(plugin_name)
+    if not pack then
       return
+    end
+
+    if state.spec_registry[pack.spec.src] then
+      util.schedule_notify(
+        'Note: Deleting an active plugin in your spec can result in errors in your current session. Restart Neovim to re-install it.',
+        vim.log.levels.WARN
+      )
     end
 
     vim.pack.del({ plugin_name })

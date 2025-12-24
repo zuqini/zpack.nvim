@@ -100,6 +100,10 @@ zpack provides the following commands:
                 attempting to delete all will show a warning message. Supports
                 tab completion of installed plugin names.
 
+                Note: Deleting active plugins in your spec can result in
+                errors in your current session. Restart Neovim to re-install
+                them.
+
 ------------------------------------------------------------------------------
 4.2 DIRECTORY STRUCTURE                         *zpack-directory-structure*
 

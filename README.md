@@ -65,6 +65,8 @@ zpack provides the following commands:
 - `:ZBuild[!] [plugin]` - Run build hook for a specific plugin, or all plugins with `!` (supports tab completion)
 - `:ZDelete[!] [plugin]` - Remove a specific plugin, or all plugins with `!` (supports tab completion)
 
+**Note:** Deleting active plugins in your spec can result in errors in your current session. Restart Neovim to re-install them.
+
 ### Directory Structure
 
 Under the default setting, create plugin specs in `lua/plugins/`:
