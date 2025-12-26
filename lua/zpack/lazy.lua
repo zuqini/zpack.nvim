@@ -7,7 +7,7 @@ local keys_handler = require('zpack.lazy_trigger.keys')
 
 local M = {}
 
----@param spec Spec
+---@param spec zpack.Spec
 ---@return boolean
 M.is_lazy = function(spec)
   if spec.lazy ~= nil then

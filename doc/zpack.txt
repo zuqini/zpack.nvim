@@ -554,10 +554,10 @@ called in specific orders.
 
       -- Autocommand event(s). Supports 'VeryLazy' and inline patterns:
       -- "BufReadPre *.lua"
-      event = string|string[]|EventSpec|(string|EventSpec)[],
+      event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[],
       pattern = string|string[],            -- Global event pattern(s)
       cmd = string|string[],                -- Command(s) to create
-      keys = KeySpec|KeySpec[],             -- Keymap(s) to create
+      keys = zpack.KeySpec|zpack.KeySpec[], -- Keymap(s) to create
       ft = string|string[],                 -- FileType(s) to lazy load on
     }
 <
@@ -636,12 +636,12 @@ build           (string|function, optional)
                 cross-plugin dependencies are available.
 
                                                            *zpack-Spec.event*
-event           (string|string[]|EventSpec|(string|EventSpec)[], optional)
+event           (string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[], optional)
                 Autocommand event(s) that trigger lazy loading. Supports
                 'VeryLazy'. Can be a simple string, array of strings,
-                EventSpec (for specifying patterns), or mixed array.
+                zpack.EventSpec (for specifying patterns), or mixed array.
                 Patterns can be specified inline: "BufReadPre *.lua".
-                See |zpack-EventSpec|. Auto-sets `lazy=true`.
+                See |zpack.EventSpec|. Auto-sets `lazy=true`.
 
                                                          *zpack-Spec.pattern*
 pattern         (string|string[], optional)
@@ -657,9 +657,9 @@ cmd             (string|string[], optional)
                 Auto-sets `lazy=true`.
 
                                                             *zpack-Spec.keys*
-keys            (KeySpec|KeySpec[], optional)
+keys            (zpack.KeySpec|zpack.KeySpec[], optional)
                 Keymap(s) to create that trigger lazy loading.
-                Auto-sets `lazy=true`. See |zpack-KeySpec|.
+                Auto-sets `lazy=true`. See |zpack.KeySpec|.
 
                                                               *zpack-Spec.ft*
 ft              (string|string[], optional)
@@ -670,7 +670,7 @@ ft              (string|string[], optional)
 
 ==============================================================================
 9. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*
-                                                             *zpack-EventSpec*
+                                                       *zpack.EventSpec*
 
 >lua
     {
@@ -679,18 +679,18 @@ ft              (string|string[], optional)
     }
 <
 
-                                                        *zpack-EventSpec.event*
+                                                      *zpack.EventSpec.event*
 event           (string|string[], required)
                 Event name(s) to trigger on.
 
-                                                      *zpack-EventSpec.pattern*
+                                                    *zpack.EventSpec.pattern*
 pattern         (string|string[], optional)
                 Pattern(s) for the event. Can be a single pattern or array of
                 patterns. If not specified, defaults to '*' (match all).
 
 ==============================================================================
 10. KEYSPEC REFERENCE                               *zpack-keyspec-reference*
-                                                               *zpack-KeySpec*
+                                                             *zpack.KeySpec*
 
 >lua
     {
@@ -703,28 +703,28 @@ pattern         (string|string[], optional)
     }
 <
 
-                                                          *zpack-KeySpec.[1]*
+                                                        *zpack.KeySpec.[1]*
 [1]             (string, required)
                 The left-hand side of the keymap (e.g., `<leader>ff`).
 
-                                                          *zpack-KeySpec.[2]*
+                                                        *zpack.KeySpec.[2]*
 [2]             (function, required)
                 The right-hand side function to execute.
 
-                                                          *zpack-KeySpec.desc*
+                                                        *zpack.KeySpec.desc*
 desc            (string, optional)
                 Description of the keymap.
 
-                                                          *zpack-KeySpec.mode*
+                                                        *zpack.KeySpec.mode*
 mode            (string|string[], optional)
                 Mode(s) for the keymap. Default: "n" (normal mode).
 
-                                                         *zpack-KeySpec.remap*
+                                                       *zpack.KeySpec.remap*
 remap           (boolean, optional)
                 Whether to allow remapping (recursive mapping). When false,
                 the mapping is non-recursive (like noremap). Default: false.
 
-                                                        *zpack-KeySpec.nowait*
+                                                      *zpack.KeySpec.nowait*
 nowait          (boolean, optional)
                 Whether to use nowait. Default: false.
 

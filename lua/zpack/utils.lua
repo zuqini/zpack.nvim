@@ -44,8 +44,8 @@ M.compare_priority = function(a, b)
 end
 
 ---Normalize keys to a consistent format
----@param keys KeySpec|KeySpec[]|string|string[]
----@return KeySpec[]
+---@param keys zpack.KeySpec|zpack.KeySpec[]|string|string[]
+---@return zpack.KeySpec[]
 M.normalize_keys = function(keys)
   -- Normalize to always be an array
   local key_list = (type(keys) == "string" or (keys[1] and type(keys[1]) == "string"))
@@ -82,7 +82,7 @@ M.autocmd = function(event, callback, opts)
 end
 
 ---Check if spec.cond passes
----@param spec Spec
+---@param spec zpack.Spec
 ---@return boolean
 M.check_cond = function(spec)
   if spec.cond == false or (type(spec.cond) == "function" and not spec.cond()) then

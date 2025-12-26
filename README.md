@@ -425,15 +425,15 @@ return {
   build = string|function,              -- Build command or function
 
   -- Lazy loading triggers (auto-sets lazy=true unless overridden)
-  event = string|string[]|EventSpec|(string|EventSpec)[], -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua"
+  event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[], -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua"
   pattern = string|string[],            -- Global fallback pattern(s) for all events
   cmd = string|string[],                -- Command(s) to create
-  keys = KeySpec|KeySpec[],             -- Keymap(s) to create
+  keys = zpack.KeySpec|zpack.KeySpec[], -- Keymap(s) to create
   ft = string|string[],                 -- FileType(s) to lazy load on
 }
 ```
 
-### EventSpec Reference
+### zpack.EventSpec Reference
 
 ```lua
 {
@@ -442,7 +442,7 @@ return {
 }
 ```
 
-### KeySpec Reference
+### zpack.KeySpec Reference
 
 ```lua
 {

@@ -10,8 +10,8 @@ local is_event_spec = function(value)
   return type(value) == "table" and value.event ~= nil
 end
 
----@param spec Spec
----@return NormalizedEvent[]
+---@param spec zpack.Spec
+---@return zpack.NormalizedEvent[]
 local normalize_and_apply_fallback_pattern = function(spec)
   local result = {}
   local fallback_pattern = spec.pattern or '*'
@@ -22,7 +22,7 @@ local normalize_and_apply_fallback_pattern = function(spec)
 
   local event_list = (type(spec.event) == "string" or is_event_spec(spec.event))
       and { spec.event }
-      or spec.event --[[@as string[]|EventSpec[] ]]
+      or spec.event --[[@as string[]|zpack.EventSpec[] ]]
 
   for _, event in ipairs(event_list) do
     if type(event) == "string" then
@@ -68,7 +68,7 @@ local split_very_lazy = function(events)
 end
 
 ---@param pack_spec vim.pack.Spec
----@param spec Spec
+---@param spec zpack.Spec
 M.setup = function(pack_spec, spec)
   local normalized_events = normalize_and_apply_fallback_pattern(spec)
 

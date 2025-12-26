@@ -6,7 +6,7 @@ local M = {}
 ---@field vim_packs vim.pack.Spec[]
 ---@field src_with_startup_init string[]
 ---@field src_with_startup_config string[]
----@field startup_keys KeySpec[]
+---@field startup_keys zpack.KeySpec[]
 ---@field registered_startup_packs vim.pack.Spec[]
 ---@field registered_lazy_packs vim.pack.Spec[]
 ---@field load boolean?
@@ -121,7 +121,7 @@ M.setup = function(opts)
   require('zpack.commands').setup()
 end
 
----@param spec_item_or_list Spec|Spec[]
+---@param spec_item_or_list zpack.Spec|zpack.Spec[]
 M.add = function(spec_item_or_list)
   if not check_version() then return end
 

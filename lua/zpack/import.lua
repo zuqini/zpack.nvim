@@ -4,7 +4,7 @@ local lazy = require('zpack.lazy')
 
 local M = {}
 
----@param spec Spec
+---@param spec zpack.Spec
 ---@return boolean
 local is_enabled = function(spec)
   if spec.enabled == false or (type(spec.enabled) == "function" and not spec.enabled()) then
@@ -14,7 +14,7 @@ local is_enabled = function(spec)
 end
 
 ---Normalize plugin source using priority: [1] > src > url > dir
----@param spec Spec
+---@param spec zpack.Spec
 ---@return string|nil source URL/path, or nil if invalid
 ---@return string|nil error message if validation fails
 local normalize_source = function(spec)
@@ -31,7 +31,7 @@ local normalize_source = function(spec)
   end
 end
 
----@param spec Spec
+---@param spec zpack.Spec
 ---@return string
 local get_source_url = function(spec)
   local src, err = normalize_source(spec)
@@ -42,7 +42,7 @@ local get_source_url = function(spec)
   return src
 end
 
----@param spec Spec
+---@param spec zpack.Spec
 ---@param src string
 ---@param ctx ProcessContext
 local index_spec = function(spec, src, ctx)
@@ -70,7 +70,7 @@ local index_spec = function(spec, src, ctx)
 end
 
 ---Check if value is a single spec (not a list of specs)
----@param value Spec|Spec[]
+---@param value zpack.Spec|zpack.Spec[]
 ---@return boolean
 local is_single_spec = function(value)
   return type(value[1]) == "string"
@@ -79,12 +79,12 @@ local is_single_spec = function(value)
       or value.url ~= nil
 end
 
----@param spec_item_or_list Spec|Spec[]
+---@param spec_item_or_list zpack.Spec|zpack.Spec[]
 ---@param ctx ProcessContext
 M.import_specs = function(spec_item_or_list, ctx)
   local specs = is_single_spec(spec_item_or_list)
       and { spec_item_or_list }
-      or spec_item_or_list --[[@as Spec[] ]]
+      or spec_item_or_list --[[@as zpack.Spec[] ]]
 
   for _, spec in ipairs(specs) do
     if not is_enabled(spec) then

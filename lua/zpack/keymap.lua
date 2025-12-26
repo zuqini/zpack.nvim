@@ -16,9 +16,9 @@ M.map = function(mapping, rhs, remap, desc, mode, nowait)
   vim.keymap.set(mode, mapping, rhs, { desc = desc, remap = remap, nowait = nowait })
 end
 
----@param keys KeySpec|KeySpec[]|string
+---@param keys zpack.KeySpec|zpack.KeySpec[]|string
 M.apply_keys = function(keys)
-  local key_list = util.normalize_keys(keys) --[[@as KeySpec[] ]]
+  local key_list = util.normalize_keys(keys) --[[@as zpack.KeySpec[] ]]
 
   for _, key in ipairs(key_list) do
     if key[2] ~= nil then
