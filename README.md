@@ -122,7 +122,7 @@ require('zpack').setup({
 
 ## Why zpack?
 
-Neovim 0.12+ includes a built-in package manager (`vim.pack`) that handles plugin installation, updates, and version management. zpack is a thin layer that adds lazy-loading capabilities and a lazy.nvim-like declarative structure while leveraging the native infrastructure.
+Neovim 0.12+ includes a built-in package manager (`vim.pack`) that handles plugin installation, updates, and version management. zpack is a thin layer that adds lazy-loading capabilities and support for a lazy.nvim-like declarative spec while leveraging the native infrastructure.
 
 zpack might be for you if:
 - you're a lazy.nvim user, love its declarative spec, and its wide adoption by plugin authors, but you don't need most of its advanced features
@@ -131,19 +131,16 @@ zpack might be for you if:
     - A minimalist lazy-loading implementation for faster startup
     - Declarative plugin specs to keep your config neat and tidy
 
-Out of the box, zpack does not provide:
+As a thin layer, zpack does not provide:
 - UI dashboard for your plugins
 - Profiling, dev mode, etc.
 - Implicit dependency inference (see [Dependency Handling](#dependency-handling) for the explicit approach)
-
-Many of these features are available through Neovim's native tooling. We're actively exploring ways to improve lazy-loading functionality without introducing significant complexity.
-
-For anything else missing, contributions are welcome!
 
 ## Examples
 For more examples, refer to my personal config:
 - [zpack installation and setup](https://github.com/zuqini/nvim/blob/main/init.lua)
 - [plugins directory structure](https://github.com/zuqini/nvim/tree/main/lua/plugins)
+
 #### Lazy Load on Command
 
 ```lua
@@ -395,16 +392,27 @@ return {
 If you want both plugins lazy-loaded, use the same trigger with `priority` to control load order (higher = earlier):
 
 ```lua
-local common_cmd_trigger = 'Telescope'
+-- /lua/plugins/plenary.lua
+local telescope_triggers = 'Telescope'
+local harpoon_triggers = '<leader>a'
 return {
   {
     'nvim-lua/plenary.nvim',
-    cmd = common_cmd_trigger,
-    priority = 1000,  -- Loads first
+    cmd = telescope_triggers,
+    keys = harpoon_triggers,
+    priority = 1000,
   },
   {
     'nvim-telescope/telescope.nvim',
-    cmd = common_cmd_trigger,  -- Loads second
+    cmd = telescope_triggers,
+  },
+  {
+    "ThePrimeagen/harpoon",
+    version = "harpoon2",
+    keys = harpoon_triggers,
+    config = function()
+      ...
+    end
   }
 }
 ```
@@ -484,14 +492,13 @@ The plugin data object passed to hooks and trigger functions:
 
 ## Migrating from lazy.nvim
 
-Most of your lazy.nvim plugin specs will work as-is with zpack.
+Most of your lazy.nvim plugin specs will work as-is with zpack, however, to minimize complexity as a thin layer to `vim.pack`, see **key differences:**
 
-**Key differences:**
-
-- **Dependencies**: zpack does not have a `dependencies` field. See [Dependency Handling](#dependency-handling) for how to manage plugin dependencies using `priority` or startup loading
-- **version**: `vim.pack` expects string for git branch, tag, or commit hash; and `vim.VersionRange` for semver versions. See [Version Pinning](#version-pinning)
-- **opts**: use `config = function() require('plugin').setup({ ... }) end` instead. lazy.nvim uses heuristics to determine a plugin's main module and automatically calls setup with opts, but this isn't guaranteed to succeed for all plugins and is out of scope for zpack
+- **Dependencies**: zpack does not have a `dependencies` field. See [Dependency Handling](#dependency-handling)
+- **version**: `vim.pack` expects a `string` for git branch, tag, or commit hash; and `vim.VersionRange` for semver versions. See [Version Pinning](#version-pinning)
+- **opts**: use `config = function() require('plugin').setup({ ... }) end` instead
 - **Other unsupported fields**: Remove lazy.nvim-specific fields like `dev`, `main`, `module`, etc. See the [Spec Reference](#spec-reference) for supported fields
+- **Spec merging**: zpack does not merge duplicate specs. Please only define each plugin spec once.
 
 ### blink.cmp + lazydev
 
