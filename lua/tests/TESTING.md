@@ -9,8 +9,11 @@ Comprehensive test suite for zpack.nvim covering all major flows and lazy-loadin
 From the project root directory:
 
 ```bash
-nvim --headless -S run_tests.lua
+nvim -u NONE --headless -S run_tests.lua
 ```
+
+The `-u NONE` flag ensures no user config is loaded, so tests run against
+the local codebase rather than an installed version of zpack.nvim.
 
 Or from within Neovim after `cd` to project root:
 

@@ -24,7 +24,7 @@ jobs:
           version: ${{ matrix.neovim-version }}
 
       - name: Run tests
-        run: nvim --version && nvim --headless -S run_tests.lua
+        run: nvim --version && nvim -u NONE --headless -S run_tests.lua
 
       - name: Check test results
         if: failure()
