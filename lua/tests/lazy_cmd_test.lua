@@ -85,7 +85,6 @@ return function()
     end)
     helpers.test("plugin loads when command is invoked with args", function()
       helpers.setup_test_env()
-      local state = require('zpack.state')
       local loaded = false
 
       require('zpack').setup({ auto_import = false })
