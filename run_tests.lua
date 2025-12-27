@@ -1,7 +1,10 @@
--- Add the project's lua directory to package.path
 local project_root = vim.fn.getcwd()
-package.path = project_root .. '/lua/?.lua;' .. project_root .. '/lua/?/init.lua;' .. package.path
 
--- Run the test suite
-require('tests.run_all')
+-- Add lua/ for zpack modules and tests/ for test modules
+package.path = project_root .. '/lua/?.lua;'
+  .. project_root .. '/lua/?/init.lua;'
+  .. project_root .. '/tests/?.lua;'
+  .. package.path
+
+require('run_all')
 vim.cmd('qa!')

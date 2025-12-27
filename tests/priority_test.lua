@@ -1,4 +1,4 @@
-local helpers = require('tests.helpers')
+local helpers = require('helpers')
 
 return function()
   helpers.describe("Priority-based Loading", function()

@@ -1,19 +1,19 @@
-local helpers = require('tests.helpers')
+local helpers = require('helpers')
 
 -- Clean state before running any tests
 package.loaded['zpack.state'] = nil
 package.loaded['zpack.init'] = nil
 
 local test_modules = {
-  'tests.setup_test',
-  'tests.lazy_cmd_test',
-  'tests.lazy_keys_test',
-  'tests.lazy_event_test',
-  'tests.lazy_ft_test',
-  'tests.lifecycle_test',
-  'tests.priority_test',
-  'tests.conditional_test',
-  'tests.plugin_data_test',
+  'setup_test',
+  'lazy_cmd_test',
+  'lazy_keys_test',
+  'lazy_event_test',
+  'lazy_ft_test',
+  'lifecycle_test',
+  'priority_test',
+  'conditional_test',
+  'plugin_data_test',
 }
 
 print("\n" .. string.rep("=", 60))

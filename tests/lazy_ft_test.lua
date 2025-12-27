@@ -1,4 +1,4 @@
-local helpers = require('tests.helpers')
+local helpers = require('helpers')
 
 return function()
   helpers.describe("Lazy Loading - FileType", function()

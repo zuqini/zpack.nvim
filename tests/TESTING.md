@@ -12,9 +12,6 @@ From the project root directory:
 nvim -u NONE --headless -S run_tests.lua
 ```
 
-The `-u NONE` flag ensures no user config is loaded, so tests run against
-the local codebase rather than an installed version of zpack.nvim.
-
 Or from within Neovim after `cd` to project root:
 
 ```vim
@@ -24,8 +21,8 @@ Or from within Neovim after `cd` to project root:
 ### Run specific test module
 
 ```vim
-:lua package.path = vim.fn.getcwd() .. '/lua/?.lua;' .. package.path
-:lua require('tests.setup_test')()
+:lua package.path = vim.fn.getcwd() .. '/lua/?.lua;' .. vim.fn.getcwd() .. '/tests/?.lua;' .. package.path
+:lua require('setup_test')()
 ```
 
 ### Test Results
@@ -43,7 +40,7 @@ All tests use mocked `vim.pack.add` to avoid actual plugin installation attempts
 Use the test helpers to write new tests:
 
 ```lua
-local helpers = require('tests.helpers')
+local helpers = require('helpers')
 
 return function()
   helpers.describe("Your Test Suite", function()
