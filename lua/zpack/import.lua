@@ -45,6 +45,7 @@ local get_source_url = function(spec)
   local src, err = normalize_source(spec)
   if not src then
     utils.schedule_notify(err, vim.log.levels.ERROR)
+    error(err)
   end
   return src
 end
