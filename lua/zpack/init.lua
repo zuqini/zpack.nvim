@@ -39,6 +39,9 @@ end
 ---@field cond? boolean|(fun(plugin: zpack.Plugin):boolean)
 ---@field confirm? boolean
 
+---@class zpack.Config.Dev
+---@field path? string Root directory for local dev plugins. Default: `~/projects`
+
 ---@class zpack.Config.Performance
 ---@field vim_loader? boolean
 
@@ -50,6 +53,7 @@ end
 ---@field spec? zpack.Spec[]
 ---@field cmd_prefix? string
 ---@field defaults? zpack.Config.Defaults
+---@field dev? zpack.Config.Dev
 ---@field performance? zpack.Config.Performance
 ---@field profiling? zpack.Config.Profiling
 ---@field plugins_dir? string @deprecated Use { import = 'dir' } in spec instead
@@ -59,6 +63,7 @@ end
 local config = {
   cmd_prefix = 'Z',
   defaults = { confirm = true },
+  dev = { path = '~/projects' },
   performance = { vim_loader = true },
   profiling = { loader = false, require = false },
 }
@@ -113,6 +118,10 @@ M.setup = function(opts)
     config.performance = vim.tbl_extend('force', config.performance, opts.performance)
   end
 
+  if opts.dev ~= nil then
+    config.dev = vim.tbl_extend('force', config.dev, opts.dev)
+  end
+
   if opts.profiling ~= nil then
     config.profiling = vim.tbl_extend('force', config.profiling, opts.profiling)
   end
@@ -132,6 +141,8 @@ M.setup = function(opts)
   if config.performance.vim_loader then
     vim.loader.enable()
   end
+
+  state.dev_path = vim.fn.expand(config.dev.path or '~/projects')
 
   if opts.auto_import ~= nil then
     deprecation.notify_removed('auto_import')

@@ -6,10 +6,26 @@ local M = {}
 local imported_modules = {}
 
 ---Normalize plugin source using priority: [1] > src > url > dir
+---When dev=true, resolve to the local dev path instead of fetching from remote
 ---@param spec zpack.Spec
 ---@return string|nil source URL/path, or nil if invalid
 ---@return string|nil error message if validation fails
 local normalize_source = function(spec)
+  if spec.dev then
+    local plugin_name = spec.name
+    if not plugin_name then
+      if spec[1] then
+        plugin_name = spec[1]:match('([^/]+)$') or spec[1]
+      else
+        return nil, "dev = true requires [1] or name to derive the plugin directory"
+      end
+    end
+    local dev_plugin_path = state.dev_path .. '/' .. plugin_name
+    if not vim.uv.fs_stat(dev_plugin_path) then
+      return nil, ("Dev mode: plugin '%s' not found in '%s'"):format(plugin_name, state.dev_path)
+    end
+    return dev_plugin_path
+  end
   if spec[1] then
     return 'https://github.com/' .. spec[1]
   elseif spec.src then
@@ -24,12 +40,11 @@ local normalize_source = function(spec)
 end
 
 ---@param spec zpack.Spec
----@return string
+---@return string|nil
 local get_source_url = function(spec)
   local src, err = normalize_source(spec)
   if not src then
     utils.schedule_notify(err, vim.log.levels.ERROR)
-    error(err)
   end
   return src
 end
@@ -167,6 +182,7 @@ M.import_specs = function(spec_item_or_list, ctx)
     end
 
     local src = get_source_url(spec)
+    if not src then goto continue end
     local is_dep = ctx.is_dependency or false
 
     spec._import_order = state.import_order

@@ -144,7 +144,7 @@ zpack might be for you if:
 
 As a thin layer, zpack does not provide:
 - UI dashboard for your plugins (see [Extensions](#extensions) for community solutions)
-- Advanced profiling, dev mode, change-detection, etc.
+- Advanced profiling, change-detection, etc.
 
 If you're a lazy.nvim user, see [Migrating from lazy.nvim](docs/tips.md#migrating-from-lazynvim)
 

@@ -80,9 +80,13 @@ M.process_all = function(ctx)
   local sorted_packs, lazy_deps_map = toposort_startup_packs(ctx.registered_startup_packs)
 
   for _, pack_spec in ipairs(sorted_packs) do
-    vim.cmd.packadd({ pack_spec.name, bang = not ctx.load })
+    local entry = state.spec_registry[pack_spec.src]
+    if util.is_local_src(pack_spec.src) then
+      util.load_local_plugin(pack_spec.src, ctx.load)
+    else
+      vim.cmd.packadd({ pack_spec.name, bang = not ctx.load })
+    end
     if ctx.load then
-      local entry = state.spec_registry[pack_spec.src]
       if entry and entry.plugin and entry.plugin.path then
         util.source_after_plugin_files(entry.plugin.path)
       end

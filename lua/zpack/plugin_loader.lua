@@ -95,10 +95,15 @@ M.process_spec = function(pack_spec, opts)
     return
   end
 
-  local name = plugin.spec.name
-  vim.cmd.packadd({ name, bang = opts.bang })
+  if utils.is_local_src(pack_spec.src) then
+    utils.load_local_plugin(plugin.path, not opts.bang)
+  else
+    local name = plugin.spec.name
+    vim.cmd.packadd({ name, bang = opts.bang })
+  end
 
-  -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
+  -- Source after/plugin/ files (packadd never does this; for local paths
+  -- load_local_plugin already sourced plugin/ so we just need after/plugin/).
   if not opts.bang and plugin.path then
     utils.source_after_plugin_files(plugin.path)
   end
@@ -137,7 +142,7 @@ M.process_spec = function(pack_spec, opts)
   end
 
   registry_entry.load_status = "loaded"
-  state.unloaded_plugin_names[name] = nil
+  state.unloaded_plugin_names[plugin.spec.name] = nil
 end
 
 return M

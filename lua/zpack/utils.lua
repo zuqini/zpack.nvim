@@ -287,6 +287,35 @@ end
 ---@type { [string]: true }
 local sourced_plugin_paths = {}
 
+---Return true when src is a local filesystem path rather than a remote URL.
+---Handles Linux/macOS (leading `/`) and Windows (drive letter `C:\` / `C:/`
+---or UNC path `\\`).
+---@param src string
+---@return boolean
+M.is_local_src = function(src)
+  if src:sub(1, 1) == '/' then return true end          -- Unix absolute
+  if src:sub(1, 2) == '\\\\' then return true end       -- Windows UNC  \\server\share
+  if src:match('^%a:[/\\]') then return true end        -- Windows drive  C:\ or C:/
+  return false
+end
+
+---Load a plugin directly from a local filesystem path, bypassing packadd.
+---packadd searches packpath by name and would find a remote-installed copy
+---instead of the intended local directory. We prepend the path to rtp so it
+---takes precedence, then optionally source plugin/ files the same way packadd
+---normally would.
+---@param path string Absolute path to the plugin directory
+---@param source_plugin_files boolean Whether to source plugin/**/*.{vim,lua}
+M.load_local_plugin = function(path, source_plugin_files)
+  vim.opt.runtimepath:prepend(path)
+  if source_plugin_files then
+    local files = vim.fn.glob(path .. '/plugin/**/*.{vim,lua}', false, true)
+    for _, file in ipairs(files) do
+      vim.cmd.source(file)
+    end
+  end
+end
+
 ---Source after/plugin/ files for a plugin.
 ---:packadd sources plugin/ files but never after/plugin/ files. The startup
 ---sequence that normally sources after/plugin/ from the rtp has already run

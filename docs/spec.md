@@ -7,6 +7,7 @@
   src = "https://...",                  -- Custom git URL or local path
   dir = "/path/to/plugin",              -- Local plugin directory (lazy.nvim compat, ~ expanded, mapped to src)
   url = "https://...",                  -- Custom git URL (lazy.nvim compat, mapped to src)
+  dev = true,                           -- Use local dev directory instead of fetching from remote. Resolves to {dev.path}/{name} (see setup config)
 
   -- Dependencies
   dependencies = string|string[]|zpack.Spec|zpack.Spec[], -- Plugin dependencies
@@ -53,6 +54,23 @@
   -- Spec imports
   import = "plugins.lsp",               -- Import from lua/{path}/*.lua and lua/{path}/*/init.lua
 }
+```
+
+### dev mode
+
+Set `dev = true` on any spec to load the plugin from a local directory instead of fetching it from remote. The plugin name is derived from `[1]` (the part after the `/`) or from `name` if set.
+
+Configure the root directory in `setup()`:
+
+```lua
+require('zpack').setup({
+  dev = {
+    path = '~/projects',  -- default
+  },
+  spec = {
+    { 'folke/snacks.nvim', dev = true },  -- loads from ~/projects/snacks.nvim
+  },
+})
 ```
 
 ### zpack.Plugin Reference
