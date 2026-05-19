@@ -1,7 +1,24 @@
+-- Deprecation and removal notices for zpack.
+--
+-- This custom layer is kept deliberately rather than migrated to
+-- vim.deprecate(); the evaluation:
+--   * Legacy :<prefix><Suffix> commands notify on EVERY invocation (see
+--     notify_legacy_command) so a notice that scrolled past is not lost.
+--     vim.deprecate() routes through vim.notify_once and would dedup it,
+--     conflicting with that intent.
+--   * `add`/`auto_import` are already removed, not pending removal, so
+--     vim.deprecate()'s "will be removed in version X" framing is wrong.
+--   * The option notices below carry copy-paste replacement snippets that
+--     vim.deprecate()'s single-line `alternative` argument cannot express.
+-- Deprecated options actually in use are also surfaced by :checkhealth zpack.
+
 local utils = require('zpack.utils')
 
 local M = {}
 
+-- Every M.removed/M.deprecated entry must carry both `message` and
+-- `replacement` strings: notify_removed/notify_deprecated format them
+-- unguarded, and :checkhealth zpack splits `replacement` into advice lines.
 M.removed = {
   add = {
     message = "zpack.add() has been removed. Pass specs directly to setup():",
@@ -32,6 +49,16 @@ M.deprecated = {
     message = "opts.plugins_dir is deprecated. Use { import = 'dir' } in spec instead:",
     replacement = "require('zpack').setup({ { import = 'plugins' } })",
   },
+}
+
+-- setup() option keys that are deprecated or removed, for :checkhealth zpack
+-- to report when one is still passed. Kept here as the single authoritative
+-- list rather than derived from M.removed/M.deprecated: M.removed also holds
+-- `add` (a removed function, not an option key) and `cmd_prefix` has only
+-- computed notices with no static entry — so the key set is neither table's
+-- keys. Update this list whenever M.removed/M.deprecated gains an option.
+M.deprecated_option_keys = {
+  'cmd_prefix', 'confirm', 'disable_vim_loader', 'plugins_dir', 'auto_import',
 }
 
 M.notify_removed = function(key)

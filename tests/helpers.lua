@@ -1,106 +1,30 @@
 ---@diagnostic disable: duplicate-set-field
+local luassert = require('luassert')
+local say = require('say')
+
 local M = {}
 
-M.test_results = {}
-M.test_count = 0
-M.passed_count = 0
-M.failed_count = 0
-
-function M.reset()
-  M.test_results = {}
-  M.test_count = 0
-  M.passed_count = 0
-  M.failed_count = 0
-end
-
-function M.assert_equal(actual, expected, msg)
-  if actual ~= expected then
-    error(string.format(
-      "%s\nExpected: %s\nActual: %s",
-      msg or "Assertion failed",
-      vim.inspect(expected),
-      vim.inspect(actual)
-    ))
+-- `assert.contains(tbl, value)` — a list-membership assertion luassert has no
+-- built-in for. Registered as a real luassert assertion (rather than a bare
+-- helper that raises via error()) so a failed containment check is classified
+-- by busted as a 'failure', not an 'error', like every other assertion.
+local function table_contains(_, arguments)
+  local tbl = arguments[1]
+  if type(tbl) ~= 'table' then
+    return false
   end
-end
-
-function M.assert_true(condition, msg)
-  if not condition then
-    error(msg or "Expected true but got false")
-  end
-end
-
-function M.assert_false(condition, msg)
-  if condition then
-    error(msg or "Expected false but got true")
-  end
-end
-
-function M.assert_nil(value, msg)
-  if value ~= nil then
-    error(string.format("%s\nExpected nil but got: %s", msg or "Assertion failed", vim.inspect(value)))
-  end
-end
-
-function M.assert_not_nil(value, msg)
-  if value == nil then
-    error(msg or "Expected non-nil value")
-  end
-end
-
-function M.assert_table_contains(tbl, value, msg)
   for _, v in ipairs(tbl) do
-    if v == value then
-      return
+    if v == arguments[2] then
+      return true
     end
   end
-  error(string.format(
-    "%s\nTable does not contain: %s\nTable: %s",
-    msg or "Assertion failed",
-    vim.inspect(value),
-    vim.inspect(tbl)
-  ))
+  return false
 end
 
-function M.test(name, fn)
-  M.test_count = M.test_count + 1
-  local success, err = pcall(fn)
-
-  if success then
-    M.passed_count = M.passed_count + 1
-    table.insert(M.test_results, { name = name, passed = true })
-    print(string.format("✓ %s", name))
-  else
-    M.failed_count = M.failed_count + 1
-    table.insert(M.test_results, { name = name, passed = false, error = err })
-    print(string.format("✗ %s", name))
-    print(string.format("  Error: %s", err))
-    M.cleanup_test_env()
-  end
-end
-
-function M.describe(description, fn)
-  print(string.format("\n%s", description))
-  fn()
-end
-
-function M.summary()
-  print(string.format("\n%s", string.rep("=", 60)))
-  print(string.format("Tests: %d total, %d passed, %d failed",
-    M.test_count, M.passed_count, M.failed_count))
-  print(string.rep("=", 60))
-
-  if M.failed_count > 0 then
-    print("\nFailed tests:")
-    for _, result in ipairs(M.test_results) do
-      if not result.passed then
-        print(string.format("  - %s", result.name))
-      end
-    end
-  end
-
-  return M.failed_count == 0
-end
+say:set('assertion.contains.positive', 'Expected table to contain value.\nTable:\n%s\nValue:\n%s')
+say:set('assertion.contains.negative', 'Expected table to not contain value.\nTable:\n%s\nValue:\n%s')
+luassert:register('assertion', 'contains', table_contains,
+  'assertion.contains.positive', 'assertion.contains.negative')
 
 function M.setup_test_env()
   _G.test_state = {
@@ -274,14 +198,6 @@ function M.cleanup_test_env()
       end
     end
   end
-end
-
-function M.track_plugin_load(plugin_name)
-  table.insert(_G.test_state.loaded_plugins, plugin_name)
-end
-
-function M.track_hook_execution(hook_name, plugin_src)
-  table.insert(_G.test_state.executed_hooks, { hook = hook_name, src = plugin_src })
 end
 
 function M.wait_for_condition(condition, timeout_ms, interval_ms)

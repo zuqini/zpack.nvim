@@ -3,6 +3,16 @@ local M = {}
 ---@type boolean
 M.is_setup = false
 
+---The fully merged config from the last successful `setup()`. Populated for
+---introspection (e.g. |zpack.health|); nil until `setup()` completes.
+---@type zpack.Config?
+M.config = nil
+
+---Names of deprecated/removed `setup()` options the user passed, recorded so
+---`:checkhealth zpack` can report them.
+---@type string[]
+M.deprecations = {}
+
 M.lazy_group = vim.api.nvim_create_augroup('LazyPack', { clear = true })
 M.startup_group = vim.api.nvim_create_augroup('StartupPack', { clear = true })
 M.lazy_build_group = vim.api.nvim_create_augroup('LazyBuildPack', { clear = true })

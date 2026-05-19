@@ -241,6 +241,29 @@ performance     (table, optional)
                 Performance-related settings.
                   - `vim_loader`: Enable vim.loader caching. Default: `true`
 
+------------------------------------------------------------------------------
+4.6 HEALTH CHECK                                              *zpack-health*
+
+zpack ships a healthcheck. Run it to diagnose a broken or unexpected setup: >
+
+    :checkhealth zpack
+<
+The report has these sections:
+
+Environment     Confirms Neovim is 0.12.0+ and that `vim.pack` is available.
+
+Setup           Whether |zpack.setup()| has been called. zpack is inactive
+                until it has.
+
+Configuration   Validates the resolved |zpack-setup-options| and lists any
+                deprecated or removed options still in use, with their
+                replacements.
+
+Plugins         A status summary of every registered plugin: how many are
+                loaded, lazy, pending, installing, or disabled by `cond`.
+
+Reporting a bug A minimal-config template and the steps for filing an issue.
+
 ==============================================================================
 5. WHY ZPACK?                                                *zpack-why-zpack*
 

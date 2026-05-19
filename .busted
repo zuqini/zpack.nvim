@@ -1,0 +1,9 @@
+return {
+  default = {
+    ROOT = { 'tests' },
+    -- Each tests/*_test.lua is a native busted spec. Match only those: the
+    -- pattern is anchored so shared modules like pack_update_test_helpers.lua
+    -- (which carries the substring `_test`) are not discovered as specs.
+    pattern = '_test%.lua$',
+  },
+}

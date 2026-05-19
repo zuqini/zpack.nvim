@@ -130,7 +130,9 @@ local function merge_and_cond(base, incoming)
       if type(incoming) == "function" then
         incoming_result = incoming(plugin)
       end
-      return base_result and incoming_result
+      -- Both results are booleans here (the function branches reassigned
+      -- them); the cast just states what the analyzer cannot narrow.
+      return base_result and incoming_result --[[@as boolean]]
     end
   end
 
@@ -159,7 +161,9 @@ local function merge_and_enabled(base, incoming)
       if type(incoming) == "function" then
         incoming_result = incoming()
       end
-      return base_result and incoming_result
+      -- Both results are booleans here (the function branches reassigned
+      -- them); the cast just states what the analyzer cannot narrow.
+      return base_result and incoming_result --[[@as boolean]]
     end
   end
 
@@ -178,28 +182,29 @@ function M.merge_specs(base, incoming)
   for k in pairs(incoming) do all_keys[k] = true end
 
   for key in pairs(all_keys) do
-    if key == "opts" then
-      -- Skip: opts is resolved lazily via resolve_opts at load time.
-      -- See the comment above M.field_strategies.
-    elseif internal_fields[key] then
-      result[key] = incoming[key] ~= nil and incoming[key] or base[key]
-    else
-      local strategy = M.field_strategies[key] or M.OVERRIDE
-      local base_val = base[key]
-      local incoming_val = incoming[key]
+    -- 'opts' is intentionally not merged here: it is resolved lazily via
+    -- resolve_opts at load time (see the comment above M.field_strategies).
+    if key ~= "opts" then
+      if internal_fields[key] then
+        result[key] = incoming[key] ~= nil and incoming[key] or base[key]
+      else
+        local strategy = M.field_strategies[key] or M.OVERRIDE
+        local base_val = base[key]
+        local incoming_val = incoming[key]
 
-      if incoming_val == nil then
-        result[key] = base_val
-      elseif base_val == nil then
-        result[key] = incoming_val
-      elseif strategy == M.OVERRIDE then
-        result[key] = incoming_val
-      elseif strategy == M.LIST_EXTEND then
-        result[key] = extend_unique(to_array(base_val), to_array(incoming_val))
-      elseif strategy == M.AND_LOGIC_COND then
-        result[key] = merge_and_cond(base_val, incoming_val)
-      elseif strategy == M.AND_LOGIC_ENABLED then
-        result[key] = merge_and_enabled(base_val, incoming_val)
+        if incoming_val == nil then
+          result[key] = base_val
+        elseif base_val == nil then
+          result[key] = incoming_val
+        elseif strategy == M.OVERRIDE then
+          result[key] = incoming_val
+        elseif strategy == M.LIST_EXTEND then
+          result[key] = extend_unique(to_array(base_val), to_array(incoming_val))
+        elseif strategy == M.AND_LOGIC_COND then
+          result[key] = merge_and_cond(base_val, incoming_val)
+        elseif strategy == M.AND_LOGIC_ENABLED then
+          result[key] = merge_and_enabled(base_val, incoming_val)
+        end
       end
     end
   end

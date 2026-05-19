@@ -101,7 +101,7 @@ M.process_all = function(ctx)
     end
 
     local entry = state.spec_registry[pack_spec.src]
-    local spec = entry.merged_spec
+    local spec = entry.merged_spec --[[@as zpack.Spec]]
     if spec.config or entry.has_opts then
       loader.run_config(pack_spec.src, entry.plugin, spec)
     end
@@ -109,7 +109,7 @@ M.process_all = function(ctx)
 
   for _, pack_spec in ipairs(sorted_packs) do
     local entry = state.spec_registry[pack_spec.src]
-    local spec = entry.merged_spec
+    local spec = entry.merged_spec --[[@as zpack.Spec]]
     local keys = util.resolve_field(spec.keys, entry.plugin)
     if keys then
       keymap.apply_keys(keys)

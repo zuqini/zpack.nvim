@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Neovim
         uses: rhysd/action-setup-vim@v1
@@ -21,9 +21,16 @@ jobs:
           neovim: true
           version: ${{ matrix.neovim-version }}
 
-      - name: Run tests
-        run: nvim --version && nvim -u NONE --headless -S run_tests.lua
+      - name: Set up LuaJIT
+        uses: leafo/gh-actions-lua@v13
+        with:
+          luaVersion: "luajit-2.1"
 
-      - name: Check test results
-        if: failure()
-        run: echo "Tests failed - check logs above"
+      - name: Set up LuaRocks
+        uses: leafo/gh-actions-luarocks@v6
+
+      - name: Install busted
+        run: luarocks install --tree .luarocks busted 2.3.0
+
+      - name: Run tests
+        run: nvim --version && nvim -u NONE -l tests/busted.lua

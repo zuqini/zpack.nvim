@@ -94,7 +94,8 @@ M.process_spec = function(pack_spec, opts)
 
   registry_entry.load_status = "loading"
 
-  local spec = registry_entry.merged_spec
+  -- merged_spec is always populated post-resolve_all, when plugins load.
+  local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
   local plugin = registry_entry.plugin
 
   if not plugin then
@@ -102,7 +103,8 @@ M.process_spec = function(pack_spec, opts)
     return
   end
 
-  local name = plugin.spec.name
+  -- vim.pack.add's load callback has populated spec.name by this point.
+  local name = plugin.spec.name --[[@as string]]
   vim.cmd.packadd({ name, bang = opts.bang })
 
   -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.

@@ -8,7 +8,8 @@ local M = {}
 ---@return boolean
 M.try_call_hook = function(src, hook_name)
   local registry_entry = state.spec_registry[src]
-  local spec = registry_entry.merged_spec
+  -- merged_spec is always populated post-resolve_all, when hooks run.
+  local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
 
   local hook = spec[hook_name] --[[@as fun(plugin: zpack.Plugin)]]
   if not hook then
@@ -30,7 +31,7 @@ M.try_call_hook = function(src, hook_name)
   return true
 end
 
----@param build string|fun(plugin: zpack.Plugin)
+---@param build string|fun(plugin: zpack.Plugin?)
 ---@param plugin zpack.Plugin?
 M.execute_build = function(build, plugin)
   if type(build) == "string" then

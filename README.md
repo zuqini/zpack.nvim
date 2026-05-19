@@ -93,6 +93,14 @@ On Neovim 0.13+, several subcommands map to native `vim.pack` commands you can u
 `clean`, `build`, and `load` have no native equivalent. The `:ZPack` subcommands are concise, consistent shortcuts — reach for the native commands when you want their extra flags (e.g. `:packupdate ++offline`).
 
 
+#### Health Check
+
+Run `:checkhealth zpack` to diagnose a broken or unexpected setup. It verifies
+the Neovim version and `vim.pack` availability, whether `setup()` was called,
+validates your configuration (flagging deprecated options), and prints a
+status summary of every registered plugin.
+
+
 #### Configurations
 
 ```lua

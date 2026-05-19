@@ -1,2 +1,5 @@
 .DS_Store
 .claude/
+
+# Project-local LuaRocks tree (busted and its dependencies for tests)
+.luarocks/

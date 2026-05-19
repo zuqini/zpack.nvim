@@ -55,6 +55,8 @@ end
 ---@field plugins_dir? string @deprecated Use { import = 'dir' } in spec instead
 ---@field confirm? boolean @deprecated Use defaults.confirm instead
 ---@field disable_vim_loader? boolean @deprecated Use performance.vim_loader instead
+---@field cmd_prefix? string @deprecated Legacy :<Prefix><Suffix> commands; use :<cmd_name> <subcommand>
+---@field auto_import? any @deprecated Removed; pass specs to setup() instead
 
 local config = {
   cmd_name = 'ZPack',
@@ -98,24 +100,46 @@ M.setup = function(opts)
     require('zpack.utils').schedule_notify('zpack.setup() has already been called', vim.log.levels.WARN)
     return
   end
-  state.is_setup = true
 
   opts = opts or {}
+
+  -- Report malformed options up front. Validation is advisory: setup
+  -- continues, and the `type(...) == 'table'` guards on the section merges
+  -- below ignore a bad field instead of crashing in `vim.tbl_extend`.
+  local config_errors = require('zpack.validate').validate_config(opts)
+  if #config_errors > 0 then
+    require('zpack.utils').schedule_notify(
+      'zpack.setup: invalid options:\n  ' .. table.concat(config_errors, '\n  '),
+      vim.log.levels.ERROR
+    )
+  end
+
+  state.is_setup = true
+
   local deprecation = require('zpack.deprecation')
+
+  -- Record deprecated/removed options for :checkhealth zpack. Assigned fresh
+  -- so the list reflects only this setup() call.
+  state.deprecations = {}
+  for _, key in ipairs(deprecation.deprecated_option_keys) do
+    if opts[key] ~= nil then
+      state.deprecations[#state.deprecations + 1] = key
+    end
+  end
 
   if opts.cmd_name ~= nil then
     config.cmd_name = opts.cmd_name
   end
 
-  if opts.defaults ~= nil then
+  if type(opts.defaults) == 'table' then
     config.defaults = vim.tbl_extend('force', config.defaults, opts.defaults)
   end
 
-  if opts.performance ~= nil then
+  if type(opts.performance) == 'table' then
     config.performance = vim.tbl_extend('force', config.performance, opts.performance)
   end
 
-  if opts.profiling ~= nil then
+  if type(opts.profiling) == 'table' then
     config.profiling = vim.tbl_extend('force', config.profiling, opts.profiling)
   end
 
@@ -131,6 +155,12 @@ M.setup = function(opts)
     config.performance.vim_loader = not opts.disable_vim_loader
   end
 
+  -- Expose the fully merged config so :checkhealth and other tooling can
+  -- introspect it. Sections are flat one-level tables, so the `tbl_extend`
+  -- merges above are sufficient (no `tbl_deep_extend` needed). This is the
+  -- same table `setup()` works from, not a copy — treat it as read-only.
+  state.config = config
+
   if config.performance.vim_loader then
     vim.loader.enable()
   end
@@ -145,12 +175,12 @@ M.setup = function(opts)
   local ctx = create_context({ confirm = config.defaults.confirm, defaults = config.defaults })
   local import = require('zpack.import')
 
-  local spec = opts.spec or (opts[1] and opts) or nil
+  local spec = (type(opts.spec) == 'table' and opts.spec) or (opts[1] and opts) or nil
   if spec then
     import.import_specs(spec, ctx)
   end
 
-  if opts.plugins_dir ~= nil then
+  if type(opts.plugins_dir) == 'string' then
     deprecation.notify_deprecated('plugins_dir')
     import.import_specs({ import = opts.plugins_dir }, ctx)
   elseif not spec then
@@ -174,15 +204,13 @@ M.VERSION = api.VERSION
 
 ---Return a snapshot of every plugin zpack knows about. Plugins disabled by
 ---`enabled = false` are pruned during setup and will not appear. See
----|zpack.PluginInfo| for the returned shape. Alias for |zpack.api.get_plugins|.
----@return zpack.PluginInfo[]
+---|zpack.PluginInfo| for the returned shape. Alias for |zpack.api.get_plugins|;
+---the signature is inherited from there.
 M.get_plugins = api.get_plugins
 
 ---Look up a single plugin by its resolved name. Returns nil when no plugin
----with that name is registered; never throws. Alias for
----|zpack.api.get_plugin|.
----@param name string
----@return zpack.PluginInfo?
+---with that name is registered; never throws. Alias for |zpack.api.get_plugin|;
+---the signature is inherited from there.
 M.get_plugin = api.get_plugin
 
 return M

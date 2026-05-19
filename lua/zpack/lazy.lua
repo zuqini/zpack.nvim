@@ -42,7 +42,7 @@ local function has_lazy_parent(dep_src)
   for parent_src in pairs(parents) do
     local parent_entry = state.spec_registry[parent_src]
     if parent_entry and parent_entry.merged_spec then
-      local parent_spec = parent_entry.merged_spec
+      local parent_spec = parent_entry.merged_spec --[[@as zpack.Spec]]
       if parent_spec.lazy == true then
         state.lazy_parent_cache[dep_src] = true
         return true
@@ -97,22 +97,20 @@ M.process_all = function(ctx)
 
   for _, pack_spec in ipairs(ctx.registered_lazy_packs) do
     local registry_entry = state.spec_registry[pack_spec.src]
-    if not registry_entry or not registry_entry.merged_spec then
-      goto continue
-    end
-    local spec = registry_entry.merged_spec
-    local plugin = registry_entry.plugin
+    if registry_entry and registry_entry.merged_spec then
+      local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
+      local plugin = registry_entry.plugin
 
-    local event = utils.resolve_field(spec.event, plugin)
-    local ft = utils.resolve_field(spec.ft, plugin)
+      local event = utils.resolve_field(spec.event, plugin)
+      local ft = utils.resolve_field(spec.ft, plugin)
 
-    if event then
-      event_handler.setup(pack_spec, spec, event)
+      if event then
+        event_handler.setup(pack_spec, spec, event)
+      end
+      if ft then
+        ft_handler.setup(pack_spec, ft)
+      end
     end
-    if ft then
-      ft_handler.setup(pack_spec, ft)
-    end
-    ::continue::
   end
   cmd_handler.setup(ctx.registered_lazy_packs)
   keys_handler.setup(ctx.registered_lazy_packs)

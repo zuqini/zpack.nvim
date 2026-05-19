@@ -1,5 +1,6 @@
 local utils = require('zpack.utils')
 local state = require('zpack.state')
+local validate = require('zpack.validate')
 
 local M = {}
 
@@ -10,7 +11,10 @@ local imported_modules = {}
 ---@return string|nil source URL/path, or nil if invalid
 ---@return string|nil error message if validation fails
 local normalize_source = function(spec)
-  if spec[1] then
+  -- `[1]` must be a string: a non-string (an over-nested spec, a typo) would
+  -- crash the concat or coerce to a garbage URL. Fall through to the nil/err
+  -- result so import_one_spec skips it instead of aborting setup().
+  if type(spec[1]) == 'string' then
     return 'https://github.com/' .. spec[1]
   elseif spec.src then
     return spec.src
@@ -21,17 +25,6 @@ local normalize_source = function(spec)
   else
     return nil, "spec must provide one of: [1], src, dir, or url"
   end
-end
-
----@param spec zpack.Spec
----@return string
-local get_source_url = function(spec)
-  local src, err = normalize_source(spec)
-  if not src then
-    utils.schedule_notify(err, vim.log.levels.ERROR)
-    error(err)
-  end
-  return src
 end
 
 ---Check if a table has any non-integer keys
@@ -150,6 +143,92 @@ local import_from_module = function(module_path, ctx)
   end
 end
 
+---Register a spec's dependencies into the dependency graph and import them.
+---@param spec zpack.Spec
+---@param src string Normalized source of the parent spec
+---@param ctx zpack.ProcessContext
+local register_dependencies = function(spec, src, ctx)
+  local dep_specs = normalize_dependencies(spec.dependencies, src)
+  state.dependency_graph[src] = state.dependency_graph[src] or {}
+  local dep_ctx = vim.tbl_extend('force', ctx, { is_dependency = true })
+  for _, dep_spec in ipairs(dep_specs) do
+    local dep_src, err = normalize_source(dep_spec)
+    if not dep_src then
+      if err then
+        utils.schedule_notify(("Invalid dependency for %s: %s"):format(src, err), vim.log.levels.WARN)
+      end
+    else
+      if not state.dependency_graph[src][dep_src] then
+        state.dependency_graph[src][dep_src] = true
+        state.reverse_dependency_graph[dep_src] = state.reverse_dependency_graph[dep_src] or {}
+        state.reverse_dependency_graph[dep_src][src] = true
+      end
+      M.import_specs(dep_spec, dep_ctx)
+    end
+  end
+end
+
+---Process one spec: an import spec recurses into a module directory; a plugin
+---spec is registered into spec_registry and has its dependencies walked.
+---@param spec zpack.Spec
+---@param ctx zpack.ProcessContext
+local import_one_spec = function(spec, ctx)
+  local spec_errors = validate.validate_spec(spec)
+  if #spec_errors > 0 then
+    local label = type(spec) == 'table' and validate.spec_label(spec) or tostring(spec)
+    utils.schedule_notify(
+      ('zpack: invalid spec "%s":\n  %s'):format(label, table.concat(spec_errors, '\n  ')),
+      vim.log.levels.WARN
+    )
+    -- A non-table spec cannot be processed further; the warning is the
+    -- actionable signal. A table spec continues: a bad field is advisory and
+    -- the spec still imports, while a missing source is caught downstream.
+    if type(spec) ~= 'table' then
+      return
+    end
+  end
+
+  if is_import_spec(spec) then
+    -- A non-string `import` cannot name a module directory; it was already
+    -- reported by validate_spec above. Skip it rather than crashing in
+    -- import_from_module's path arithmetic.
+    if type(spec.import) ~= 'string' then
+      return
+    end
+    if spec.enabled == false or (type(spec.enabled) == "function" and not spec.enabled()) then
+      return
+    end
+    import_from_module(spec.import, ctx)
+    return
+  end
+
+  -- A sourceless spec was already reported by validate_spec above; skip it
+  -- rather than letting the loader abort setup() partway through.
+  local src = normalize_source(spec)
+  if not src then
+    return
+  end
+  local is_dep = ctx.is_dependency or false
+
+  spec._import_order = state.import_order
+  state.import_order = state.import_order + 1
+  spec._is_dependency = is_dep
+
+  if state.spec_registry[src] then
+    table.insert(state.spec_registry[src].specs, spec)
+  else
+    state.spec_registry[src] = { specs = { spec }, load_status = "pending" }
+  end
+
+  -- Walk dependencies unconditionally. `enabled` is evaluated post-merge
+  -- in resolve_all; gating the dep walk on the raw pre-merge spec would
+  -- call function-form `enabled` eagerly at import time and diverge from
+  -- the merged truth. prune_disabled_subtrees handles cleanup afterward.
+  if spec.dependencies then
+    register_dependencies(spec, src, ctx)
+  end
+end
+
 ---@param spec_item_or_list zpack.Spec|zpack.Spec[]
 ---@param ctx zpack.ProcessContext
 M.import_specs = function(spec_item_or_list, ctx)
@@ -158,54 +237,7 @@ M.import_specs = function(spec_item_or_list, ctx)
       or spec_item_or_list --[[@as zpack.Spec[] ]]
 
   for _, spec in ipairs(specs) do
-    if is_import_spec(spec) then
-      if spec.enabled == false or (type(spec.enabled) == "function" and not spec.enabled()) then
-        goto continue
-      end
-      import_from_module(spec.import, ctx)
-      goto continue
-    end
-
-    local src = get_source_url(spec)
-    local is_dep = ctx.is_dependency or false
-
-    spec._import_order = state.import_order
-    state.import_order = state.import_order + 1
-    spec._is_dependency = is_dep
-
-    if state.spec_registry[src] then
-      table.insert(state.spec_registry[src].specs, spec)
-    else
-      state.spec_registry[src] = { specs = { spec }, load_status = "pending" }
-    end
-
-    -- Walk dependencies unconditionally. `enabled` is evaluated post-merge
-    -- in resolve_all; gating the dep walk on the raw pre-merge spec would
-    -- call function-form `enabled` eagerly at import time and diverge from
-    -- the merged truth. prune_disabled_subtrees handles cleanup afterward.
-    if spec.dependencies then
-      local dep_specs = normalize_dependencies(spec.dependencies, src)
-      state.dependency_graph[src] = state.dependency_graph[src] or {}
-      local dep_ctx = vim.tbl_extend('force', ctx, { is_dependency = true })
-      for _, dep_spec in ipairs(dep_specs) do
-        local dep_src, err = normalize_source(dep_spec)
-        if not dep_src then
-          if err then
-            utils.schedule_notify(("Invalid dependency for %s: %s"):format(src, err), vim.log.levels.WARN)
-          end
-          goto skip_dep
-        end
-        if not state.dependency_graph[src][dep_src] then
-          state.dependency_graph[src][dep_src] = true
-          state.reverse_dependency_graph[dep_src] = state.reverse_dependency_graph[dep_src] or {}
-          state.reverse_dependency_graph[dep_src][src] = true
-        end
-        M.import_specs(dep_spec, dep_ctx)
-        ::skip_dep::
-      end
-    end
-
-    ::continue::
+    import_one_spec(spec, ctx)
   end
 end
 

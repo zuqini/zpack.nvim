@@ -1,209 +1,186 @@
 local helpers = require('helpers')
 
-return function()
-  helpers.describe("ZPack load", function()
-    helpers.test("lazy plugin is tracked as unloaded", function()
-      helpers.setup_test_env()
-      local state = require('zpack.state')
+describe("ZPack load", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
 
-      require('zpack').setup({
-        spec = {
-          {
-            'test/lazy-plugin',
-            cmd = 'TestCommand',
-          },
+  it("lazy plugin is tracked as unloaded", function()
+    local state = require('zpack.state')
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/lazy-plugin',
+          cmd = 'TestCommand',
         },
-        defaults = { confirm = false },
-      })
+      },
+      defaults = { confirm = false },
+    })
 
-      helpers.flush_pending()
-      helpers.assert_true(
-        state.unloaded_plugin_names['lazy-plugin'] == true,
-        "Lazy plugin should be tracked as unloaded"
-      )
-
-      helpers.cleanup_test_env()
-    end)
-
-    helpers.test("startup plugin is not tracked as unloaded", function()
-      helpers.setup_test_env()
-      local state = require('zpack.state')
-
-      require('zpack').setup({
-        spec = {
-          {
-            'test/startup-plugin',
-            config = function() end,
-          },
-        },
-        defaults = { confirm = false },
-      })
-
-      helpers.flush_pending()
-      helpers.assert_nil(
-        state.unloaded_plugin_names['startup-plugin'],
-        "Startup plugin should not be in unloaded list"
-      )
-
-      helpers.cleanup_test_env()
-    end)
-
-    helpers.test("plugin is removed from unloaded list when loaded", function()
-      helpers.setup_test_env()
-      local state = require('zpack.state')
-
-      require('zpack').setup({
-        spec = {
-          {
-            'test/lazy-plugin',
-            cmd = 'TestCommand',
-          },
-        },
-        defaults = { confirm = false },
-      })
-
-      helpers.flush_pending()
-      helpers.assert_true(
-        state.unloaded_plugin_names['lazy-plugin'] == true,
-        "Plugin should be unloaded initially"
-      )
-
-      pcall(vim.cmd, 'TestCommand')
-      helpers.flush_pending()
-
-      helpers.assert_nil(
-        state.unloaded_plugin_names['lazy-plugin'],
-        "Plugin should be removed from unloaded list after loading"
-      )
-
-      helpers.cleanup_test_env()
-    end)
-
-    helpers.test("load without bang shows warning", function()
-      helpers.setup_test_env()
-
-      require('zpack').setup({
-        spec = {
-          {
-            'test/lazy-plugin',
-            cmd = 'TestCommand',
-          },
-        },
-        defaults = { confirm = false },
-      })
-
-      helpers.flush_pending()
-      _G.test_state.notifications = {}
-
-      pcall(vim.cmd, 'ZPack load')
-      helpers.flush_pending()
-
-      local found_warning = false
-      for _, notif in ipairs(_G.test_state.notifications) do
-        if notif.msg:find(':ZPack! load', 1, true) and notif.level == vim.log.levels.WARN then
-          found_warning = true
-          break
-        end
-      end
-      helpers.assert_true(found_warning, "Should show warning about using :ZPack! load")
-
-      helpers.cleanup_test_env()
-    end)
-
-    helpers.test("ZPack! load loads all unloaded plugins", function()
-      helpers.setup_test_env()
-      local state = require('zpack.state')
-      local config_called = {}
-
-      require('zpack').setup({
-        spec = {
-          {
-            'test/plugin-a',
-            cmd = 'TestA',
-            config = function() config_called['plugin-a'] = true end,
-          },
-          {
-            'test/plugin-b',
-            cmd = 'TestB',
-            config = function() config_called['plugin-b'] = true end,
-          },
-        },
-        defaults = { confirm = false },
-      })
-
-      helpers.flush_pending()
-      helpers.assert_equal(vim.tbl_count(state.unloaded_plugin_names), 2, "Should have 2 unloaded plugins")
-
-      vim.cmd('ZPack! load')
-      helpers.flush_pending()
-
-      helpers.assert_equal(vim.tbl_count(state.unloaded_plugin_names), 0, "Should have 0 unloaded plugins")
-      helpers.assert_true(config_called['plugin-a'], "Plugin A config should be called")
-      helpers.assert_true(config_called['plugin-b'], "Plugin B config should be called")
-
-      helpers.cleanup_test_env()
-    end)
-
-    helpers.test("ZPack! load with no unloaded plugins shows info message", function()
-      helpers.setup_test_env()
-
-      require('zpack').setup({
-        spec = {
-          {
-            'test/startup-plugin',
-            config = function() end,
-          },
-        },
-        defaults = { confirm = false },
-      })
-
-      helpers.flush_pending()
-      _G.test_state.notifications = {}
-
-      vim.cmd('ZPack! load')
-      helpers.flush_pending()
-
-      local found_info = false
-      for _, notif in ipairs(_G.test_state.notifications) do
-        if notif.msg:find('All plugins are already loaded') and notif.level == vim.log.levels.INFO then
-          found_info = true
-          break
-        end
-      end
-      helpers.assert_true(found_info, "Should show info that all plugins are loaded")
-
-      helpers.cleanup_test_env()
-    end)
-
-    helpers.test("load already-loaded plugin shows info message", function()
-      helpers.setup_test_env()
-
-      require('zpack').setup({
-        spec = {
-          {
-            'test/startup-plugin',
-            config = function() end,
-          },
-        },
-        defaults = { confirm = false },
-      })
-
-      helpers.flush_pending()
-      _G.test_state.notifications = {}
-
-      pcall(vim.cmd, 'ZPack load startup-plugin')
-      helpers.flush_pending()
-
-      local found_info = false
-      for _, notif in ipairs(_G.test_state.notifications) do
-        if notif.msg:find('already loaded') and notif.level == vim.log.levels.INFO then
-          found_info = true
-          break
-        end
-      end
-      helpers.assert_true(found_info, "Should show info that plugin is already loaded")
-
-      helpers.cleanup_test_env()
-    end)
+    helpers.flush_pending()
+    assert.is_truthy(
+      state.unloaded_plugin_names['lazy-plugin'] == true,
+      "Lazy plugin should be tracked as unloaded"
+    )
   end)
-end
+
+  it("startup plugin is not tracked as unloaded", function()
+    local state = require('zpack.state')
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/startup-plugin',
+          config = function() end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.is_nil(
+      state.unloaded_plugin_names['startup-plugin'],
+      "Startup plugin should not be in unloaded list"
+    )
+  end)
+
+  it("plugin is removed from unloaded list when loaded", function()
+    local state = require('zpack.state')
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/lazy-plugin',
+          cmd = 'TestCommand',
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.is_truthy(
+      state.unloaded_plugin_names['lazy-plugin'] == true,
+      "Plugin should be unloaded initially"
+    )
+
+    pcall(vim.cmd, 'TestCommand')
+    helpers.flush_pending()
+
+    assert.is_nil(
+      state.unloaded_plugin_names['lazy-plugin'],
+      "Plugin should be removed from unloaded list after loading"
+    )
+  end)
+
+  it("load without bang shows warning", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/lazy-plugin',
+          cmd = 'TestCommand',
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    _G.test_state.notifications = {}
+
+    pcall(vim.cmd, 'ZPack load')
+    helpers.flush_pending()
+
+    local found_warning = false
+    for _, notif in ipairs(_G.test_state.notifications) do
+      if notif.msg:find(':ZPack! load', 1, true) and notif.level == vim.log.levels.WARN then
+        found_warning = true
+        break
+      end
+    end
+    assert.is_truthy(found_warning, "Should show warning about using :ZPack! load")
+  end)
+
+  it("ZPack! load loads all unloaded plugins", function()
+    local state = require('zpack.state')
+    local config_called = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin-a',
+          cmd = 'TestA',
+          config = function() config_called['plugin-a'] = true end,
+        },
+        {
+          'test/plugin-b',
+          cmd = 'TestB',
+          config = function() config_called['plugin-b'] = true end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.are.equal(2, vim.tbl_count(state.unloaded_plugin_names))
+
+    vim.cmd('ZPack! load')
+    helpers.flush_pending()
+
+    assert.are.equal(0, vim.tbl_count(state.unloaded_plugin_names))
+    assert.is_truthy(config_called['plugin-a'], "Plugin A config should be called")
+    assert.is_truthy(config_called['plugin-b'], "Plugin B config should be called")
+  end)
+
+  it("ZPack! load with no unloaded plugins shows info message", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/startup-plugin',
+          config = function() end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    _G.test_state.notifications = {}
+
+    vim.cmd('ZPack! load')
+    helpers.flush_pending()
+
+    local found_info = false
+    for _, notif in ipairs(_G.test_state.notifications) do
+      if notif.msg:find('All plugins are already loaded') and notif.level == vim.log.levels.INFO then
+        found_info = true
+        break
+      end
+    end
+    assert.is_truthy(found_info, "Should show info that all plugins are loaded")
+  end)
+
+  it("load already-loaded plugin shows info message", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/startup-plugin',
+          config = function() end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    _G.test_state.notifications = {}
+
+    pcall(vim.cmd, 'ZPack load startup-plugin')
+    helpers.flush_pending()
+
+    local found_info = false
+    for _, notif in ipairs(_G.test_state.notifications) do
+      if notif.msg:find('already loaded') and notif.level == vim.log.levels.INFO then
+        found_info = true
+        break
+      end
+    end
+    assert.is_truthy(found_info, "Should show info that plugin is already loaded")
+  end)
+end)
