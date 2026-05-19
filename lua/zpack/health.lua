@@ -2,8 +2,8 @@
 ---
 ---Surfaces, in the editor, what a misconfigured setup otherwise only reveals
 ---as a runtime error: an unsupported Neovim version, a missing `vim.pack`,
----`setup()` never being called, malformed config, deprecated options still
----in use, or specs that never resolved.
+---`setup()` never being called, malformed config, or specs that never
+---resolved.
 ---
 ---Discovered automatically by `:checkhealth zpack` — nothing registers it.
 
@@ -66,32 +66,6 @@ local function check_config()
   else
     for _, err in ipairs(errors) do
       vim.health.error('Invalid option: ' .. err)
-    end
-  end
-
-  if #state.deprecations == 0 then
-    vim.health.ok('No deprecated options in use')
-  else
-    local deprecation = require('zpack.deprecation')
-    -- A replacement snippet can span several lines; split it so each renders
-    -- as its own advice line instead of one bullet with embedded newlines.
-    local function advice(entry)
-      local lines = { entry.message }
-      vim.list_extend(lines, vim.split(entry.replacement, '\n', { trimempty = true }))
-      return lines
-    end
-    for _, key in ipairs(state.deprecations) do
-      local removed = deprecation.removed[key]
-      local deprecated = deprecation.deprecated[key]
-      if removed then
-        vim.health.warn(('Removed option still passed: %s'):format(key), advice(removed))
-      elseif deprecated then
-        vim.health.warn(('Deprecated option in use: %s'):format(key), advice(deprecated))
-      else
-        -- cmd_prefix is in deprecated_option_keys but has no static
-        -- removed/deprecated entry (its notice is computed) — warn bare.
-        vim.health.warn(('Deprecated option in use: %s'):format(key))
-      end
     end
   end
 end

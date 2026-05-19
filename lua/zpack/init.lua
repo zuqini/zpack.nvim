@@ -63,11 +63,6 @@ end
 ---@field performance? zpack.Config.Performance
 ---@field profiling? zpack.Config.Profiling
 ---@field dev? zpack.Config.Dev
----@field plugins_dir? string @deprecated Use { import = 'dir' } in spec instead
----@field confirm? boolean @deprecated Use defaults.confirm instead
----@field disable_vim_loader? boolean @deprecated Use performance.vim_loader instead
----@field cmd_prefix? string @deprecated Legacy :<Prefix><Suffix> commands; use :<cmd_name> <subcommand>
----@field auto_import? any @deprecated Removed; pass specs to setup() instead
 
 local config = {
   cmd_name = 'ZPack',
@@ -128,17 +123,6 @@ M.setup = function(opts)
 
   state.is_setup = true
 
-  local deprecation = require('zpack.deprecation')
-
-  -- Record deprecated/removed options for :checkhealth zpack. Assigned fresh
-  -- so the list reflects only this setup() call.
-  state.deprecations = {}
-  for _, key in ipairs(deprecation.deprecated_option_keys) do
-    if opts[key] ~= nil then
-      state.deprecations[#state.deprecations + 1] = key
-    end
-  end
-
   if opts.cmd_name ~= nil then
     config.cmd_name = opts.cmd_name
   end
@@ -159,18 +143,6 @@ M.setup = function(opts)
     config.dev = vim.tbl_extend('force', config.dev, opts.dev)
   end
 
-  -- Handle deprecated opts.confirm
-  if opts.confirm ~= nil then
-    deprecation.notify_deprecated('confirm')
-    config.defaults.confirm = opts.confirm
-  end
-
-  -- Handle deprecated opts.disable_vim_loader
-  if opts.disable_vim_loader ~= nil then
-    deprecation.notify_deprecated('disable_vim_loader')
-    config.performance.vim_loader = not opts.disable_vim_loader
-  end
-
   -- Expose the fully merged config so :checkhealth and other tooling can
   -- introspect it. Sections are flat one-level tables, so the `tbl_extend`
   -- merges above are sufficient (no `tbl_deep_extend` needed). This is the
@@ -181,13 +153,6 @@ M.setup = function(opts)
     vim.loader.enable()
   end
 
-  if opts.auto_import ~= nil then
-    deprecation.notify_removed('auto_import')
-  end
-
-  -- `cmd_prefix` is deprecated but will still work for a while
-  local legacy_prefix = opts.cmd_prefix ~= nil and opts.cmd_prefix or 'Z'
-
   local ctx = create_context({ confirm = config.defaults.confirm, defaults = config.defaults })
   local import = require('zpack.import')
 
@@ -196,22 +161,13 @@ M.setup = function(opts)
     import.import_specs(spec, ctx)
   end
 
-  if type(opts.plugins_dir) == 'string' then
-    deprecation.notify_deprecated('plugins_dir')
-    import.import_specs({ import = opts.plugins_dir }, ctx)
-  elseif not spec then
+  if not spec then
     import.import_specs({ import = 'plugins' }, ctx)
   end
 
   process_all(ctx)
 
   require('zpack.commands').setup(config.cmd_name)
-  require('zpack.commands').setup_legacy(legacy_prefix, config.cmd_name)
-end
-
----@deprecated Use setup({ spec = { ... } }) instead
-M.add = function()
-  require('zpack.deprecation').notify_removed('add')
 end
 
 ---Public API contract version. Alias for |zpack.api.VERSION|.

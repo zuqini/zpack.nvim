@@ -109,25 +109,10 @@ describe("Health Check", function()
 
     local config = section(report, 'Configuration')
     assert.is_truthy(has_item(config, 'ok', { 'valid' }), "Configuration should be valid")
-    assert.is_truthy(has_item(config, 'ok', { 'No deprecated options' }),
-      "no deprecated options should be reported")
 
     local plugins = section(report, 'Plugins')
     assert.is_truthy(has_item(plugins, 'ok', { 'plugin(s) registered' }),
       "Plugins section should report a registered count")
-  end)
-
-  it("surfaces deprecated options in use", function()
-    require('zpack').setup({ spec = {}, confirm = false })
-    helpers.flush_pending()
-
-    local report, restore = capture_health()
-    run_check()
-    restore()
-
-    local config = section(report, 'Configuration')
-    assert.is_truthy(has_item(config, 'warn', { 'confirm' }),
-      "Configuration section should warn about the deprecated confirm option")
   end)
 
   it("surfaces an invalid merged config", function()

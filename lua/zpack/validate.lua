@@ -32,12 +32,12 @@ end
 ---Validates the raw `opts` (rather than the post-merge config) because the
 ---per-section `vim.tbl_extend('force', ...)` merges in `setup()` themselves
 ---throw when handed a non-table — validation has to run first. It is also
----safe to call on a merged `zpack.Config`: the legacy/`spec` fields are
----simply absent and pass as optional, which is how |zpack.health| reuses it.
+---safe to call on a merged `zpack.Config`: the `spec` field is simply absent
+---and passes as optional, which is how |zpack.health| reuses it.
 ---
----`cmd_name`/`cmd_prefix` are intentionally excluded: `zpack.commands`
----validates them (type *and* naming rule) and degrades gracefully, so
----re-checking here would only double up the notification.
+---`cmd_name` is intentionally excluded: `zpack.commands` validates it (type
+---*and* naming rule) and degrades gracefully, so re-checking here would only
+---double up the notification.
 ---@param opts any The table passed to `zpack.setup()`
 ---@return string[] errors Field-path messages; empty when valid
 function M.validate_config(opts)
@@ -71,11 +71,6 @@ function M.validate_config(opts)
     check(errors, 'profiling.loader', opts.profiling.loader, 'boolean')
     check(errors, 'profiling.require', opts.profiling.require, 'boolean')
   end
-
-  -- Legacy options: deprecated but still honored, so still type-checked.
-  check(errors, 'confirm', opts.confirm, 'boolean')
-  check(errors, 'disable_vim_loader', opts.disable_vim_loader, 'boolean')
-  check(errors, 'plugins_dir', opts.plugins_dir, 'string')
 
   return errors
 end
