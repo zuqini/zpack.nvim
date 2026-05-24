@@ -277,4 +277,85 @@ describe("Lazy Loading - FileType", function()
     local src = 'https://github.com/test/plugin'
     assert.are.equal("pending", state.spec_registry[src].load_status)
   end)
+
+  -- nvim#25526 (https://github.com/neovim/neovim/issues/25526): `once = true`
+  -- autocmds can fire twice in the same tick when the plugin's own ftplugin/*
+  -- (sourced during packadd) nest-fires FileType before load_status flips.
+  -- Mirrors the event-side guard test.
+  it("ft proxy callback only refires once on synchronous double-invocation", function()
+    local refire = require('zpack.lazy_trigger.refire')
+    local state = require('zpack.state')
+    local exec_call_count = 0
+    local original_exec = refire.exec
+    refire.exec = function(...)
+      exec_call_count = exec_call_count + 1
+      return original_exec(...)
+    end
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          ft = 'lua',
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local target
+    for _, au in ipairs(vim.api.nvim_get_autocmds({ group = state.lazy_group })) do
+      if au.event == 'FileType' then
+        target = au
+        break
+      end
+    end
+    assert.is_not_nil(target, "FileType autocmd should be registered")
+    assert.is_not_nil(target.callback, "Callback must be exposed for the test")
+
+    local ev = { event = 'FileType', buf = vim.api.nvim_get_current_buf(), match = 'lua' }
+    target.callback(ev)
+    target.callback(ev)
+
+    refire.exec = original_exec
+
+    assert.are.equal(1, exec_call_count,
+      "refire.exec must fire exactly once across two callback invocations")
+  end)
+
+  -- A plugin that ships its own filetype detection (e.g. `ftdetect/foo.vim`)
+  -- specced as `ft = 'foo'` must have its ftdetect sourced at registration —
+  -- otherwise opening a `.foo` file never sets `ft = foo`, so the FileType
+  -- autocmd never fires, and the plugin silently never loads.
+  it("ft trigger sources the plugin's ftdetect/ files at registration", function()
+    local plugin_name = 'plugin'
+    local plugin_dir = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. plugin_name
+    vim.fn.mkdir(plugin_dir .. '/ftdetect', 'p')
+    local marker_file = vim.fn.tempname()
+    local ftdetect_file = plugin_dir .. '/ftdetect/zpackmark.vim'
+    local f = assert(io.open(ftdetect_file, 'w'))
+    f:write(("call writefile(['sourced'], '%s')\n"):format(marker_file))
+    f:close()
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          ft = 'zpackmark',
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local sourced = vim.fn.filereadable(marker_file) == 1
+    vim.fn.delete(ftdetect_file)
+    vim.fn.delete(marker_file)
+    vim.fn.delete(plugin_dir, 'rf')
+
+    assert.is_true(sourced,
+      "Plugin's ftdetect/*.vim should be sourced at ft-trigger registration")
+  end)
 end)

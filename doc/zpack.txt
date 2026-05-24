@@ -715,6 +715,11 @@ event           (string|string[]|EventSpec|(string|EventSpec)[]|fn(plugin),
                 "BufReadPre *.lua". See |zpack.EventSpec|. Auto-sets
                 `lazy=true`.
 
+                Note: zpack emits `User VeryLazy` once on UIEnter (or
+                immediately after setup when vim has already entered), so
+                user configs can hook |autocmd| `User VeryLazy` for
+                post-setup delayed init.
+
                                                          *zpack-Spec.pattern*
 pattern         (string|string[], optional)
                 Global fallback pattern(s) applied to all events. If an

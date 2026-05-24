@@ -10,10 +10,29 @@ local M = {}
 M.setup = function(pack_spec, ft)
   local filetypes = util.normalize_string_list(ft)
 
+  -- Source the plugin's ftdetect/* now so its filetype rules are active
+  -- before any file is opened. Without this, `ft = '<custom>'` for a plugin
+  -- that ships its own filetype detection (e.g. `ftdetect/rust.vim`) silently
+  -- never triggers, because vim.pack defers the rules behind `:packadd`.
+  local registry_entry = state.spec_registry[pack_spec.src]
+  local plugin_path = registry_entry and registry_entry.plugin and registry_entry.plugin.path
+  if plugin_path then
+    util.source_ftdetect_files(plugin_path)
+  end
+
+  -- `done` guards against nvim#25526 (same `once = true` autocmd firing
+   -- twice in the same tick). Mirrors lazy_trigger/event.lua's guard;
+   -- needed here because the plugin's own `ftplugin/*` sourced during
+   -- packadd can nest-fire FileType on the same buffer before load_status
+   -- flips.
+  local done = false
   util.autocmd("FileType", function(ev)
-    -- Same gate as lazy_trigger/event.lua: skip when a sibling already
-    -- loaded (avoid double-fire) or is mid-load (avoid spurious circular-
-    -- dependency notify).
+    if done then
+      return
+    end
+    done = true
+    -- Skip when a sibling already loaded (avoid double-fire) or is
+    -- mid-load (avoid spurious circular-dependency notify).
     local entry = state.spec_registry[pack_spec.src]
     if entry and entry.load_status ~= "pending" then
       return

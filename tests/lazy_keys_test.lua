@@ -875,6 +875,36 @@ describe("Lazy Loading - Keymaps", function()
       "Plugin must remain unloaded after pressing a <Nop>-mapped key")
   end)
 
+  -- `<Nop>` rhs must install a literal-string `<Nop>` map; `expr` /
+  -- `replace_keycodes` on the KeySpec are stripped so vim does not try to
+  -- evaluate the literal `<Nop>` as a vimscript expression.
+  it("KeySpec with <Nop> rhs strips expr/replace_keycodes opts", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tne', '<Nop>', expr = true, replace_keycodes = false },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found_map
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      if map.lhs == ' tne' then
+        found_map = map
+        break
+      end
+    end
+    assert.is_not_nil(found_map, "Real <Nop> keymap should be installed")
+    assert.are_not.equal(1, found_map.expr,
+      "<Nop> install must strip expr=true so the rhs isn't evaluated")
+  end)
+
   -- Bead zpack_nvim-eyo: case-insensitive match for `<Nop>`.
   it("KeySpec with <nop> (lowercase) rhs also installs real keymap", function()
     require('zpack').setup({

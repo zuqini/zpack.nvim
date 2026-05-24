@@ -136,9 +136,14 @@ M.setup = function(registered_pack_specs)
         local modes = util.normalize_string_list(mode) --[[@as string[] ]]
 
         -- <Nop> rhs never needs the proxy: install as a real no-op so the
-        -- key acts as a true no-op without loading the plugin.
+        -- key acts as a true no-op without loading the plugin. `expr` /
+        -- `replace_keycodes` are stripped: the rhs is the literal string
+        -- '<Nop>', so eval'ing it as an expression contradicts the intent.
         if is_nop_rhs(key[2]) then
-          local ok, err = pcall(keymap.map, lhs, '<Nop>', key)
+          local nop_opts = vim.deepcopy(key)
+          nop_opts.expr = nil
+          nop_opts.replace_keycodes = nil
+          local ok, err = pcall(keymap.map, lhs, '<Nop>', nop_opts)
           if not ok then
             util.schedule_notify(
               ("Failed to map %s for %s: %s"):format(lhs, pack_spec.name or pack_spec.src, tostring(err)),

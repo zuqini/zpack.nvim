@@ -352,4 +352,31 @@ M.source_after_plugin_files = function(plugin_path)
   sourced_plugin_paths[plugin_path] = true
 end
 
+---Track which plugin paths have had their ftdetect/ files sourced
+---@type { [string]: true }
+local sourced_ftdetect_paths = {}
+
+---Source ftdetect/ files for a lazy plugin so its filetype rules are in
+---place before any file is opened. Without this a plugin specced as
+---`ft = 'rust'` would never load on `:edit foo.rs`, because the rules that
+---set `&ft = 'rust'` live in the plugin's un-sourced `ftdetect/rust.vim`.
+---@param plugin_path string
+M.source_ftdetect_files = function(plugin_path)
+  if sourced_ftdetect_paths[plugin_path] then
+    return
+  end
+  sourced_ftdetect_paths[plugin_path] = true
+
+  local files = vim.fn.glob(plugin_path .. '/ftdetect/*.{vim,lua}', false, true)
+  -- ftdetect files must execute inside the `filetypedetect` augroup so their
+  -- autocmds register there (matches Neovim's standard ftdetect sourcing).
+  for _, file in ipairs(files) do
+    local ok, err = pcall(vim.cmd,
+      ('augroup filetypedetect | source %s | augroup END'):format(vim.fn.fnameescape(file)))
+    if not ok then
+      M.schedule_notify(("Failed to source %s: %s"):format(file, tostring(err)), vim.log.levels.ERROR)
+    end
+  end
+end
+
 return M
