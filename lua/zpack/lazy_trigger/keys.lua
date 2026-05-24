@@ -8,10 +8,10 @@ local M = {}
 ---@param ft any
 ---@return string
 local ft_key_part = function(ft)
-  if type(ft) ~= 'string' and type(ft) ~= 'table' then
+  local ft_list = util.normalize_ft_scope(ft)
+  if not ft_list then
     return ''
   end
-  local ft_list = util.normalize_string_list(ft) --[[@as string[] ]]
   local sorted = vim.list_slice(ft_list)
   table.sort(sorted)
   return '-ft:' .. table.concat(sorted, ',')

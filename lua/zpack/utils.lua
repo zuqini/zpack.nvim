@@ -160,8 +160,9 @@ M.latch_first_call = function(callback)
     if done then
       return
     end
+    local result = callback(...)
     done = true
-    return callback(...)
+    return result
   end
 end
 

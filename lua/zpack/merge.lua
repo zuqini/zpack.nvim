@@ -1,3 +1,5 @@
+local util = require('zpack.utils')
+
 local M = {}
 
 M.OVERRIDE = "override"
@@ -78,10 +80,9 @@ local function get_unique_key(v)
     mode = table.concat(sorted, ",")
   end
   local ft = ""
-  if type(v.ft) == "string" and v.ft ~= "" then
-    ft = ":ft=" .. v.ft
-  elseif type(v.ft) == "table" and next(v.ft) ~= nil then
-    local sorted = vim.list_slice(v.ft)
+  local ft_list = util.normalize_ft_scope(v.ft)
+  if ft_list then
+    local sorted = vim.list_slice(ft_list)
     table.sort(sorted)
     ft = ":ft=" .. table.concat(sorted, ",")
   end
