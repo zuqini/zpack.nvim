@@ -32,18 +32,25 @@ M.setup = function(registered_pack_specs)
   -- is silently dropped on the first lazy invocation of a register-accepting
   -- command — subsequent calls go through the real command directly.
   for cmd, pack_specs in pairs(cmd_to_pack_specs) do
-    vim.api.nvim_create_user_command(cmd, function(cmd_args)
+    -- Loading the claiming plugins tears down the proxy and lets the real
+    -- command's callback/complete take over. Shared by the invocation
+    -- callback and the tab-completion callback so first-tab completions
+    -- come from the real command, not an empty proxy.
+    local function load_plugins()
       pcall(vim.api.nvim_del_user_command, cmd)
-
       local any_ok = false
       for _, pack_spec in ipairs(pack_specs) do
         if loader.try_process_spec(pack_spec) then
           any_ok = true
         end
       end
+      return any_ok
+    end
+
+    vim.api.nvim_create_user_command(cmd, function(cmd_args)
       -- Proxy already self-deleted; nvim_cmd would error with "Not an
       -- editor command" on top of the per-plugin load-failure notify.
-      if not any_ok then
+      if not load_plugins() then
         return
       end
 
@@ -62,7 +69,20 @@ M.setup = function(registered_pack_specs)
       if not ok then
         util.schedule_notify(("Failed to re-fire :%s: %s"):format(cmd, tostring(err)), vim.log.levels.ERROR)
       end
-    end, { nargs = '*', bang = true, count = -1 })
+    end, {
+      nargs = '*',
+      bang = true,
+      count = -1,
+      -- Tabbing at the cmdline loads the plugin so the real command's
+      -- complete handler can return actual completions on the first press,
+      -- matching lazy.nvim's UX (handler/cmd.lua complete callback).
+      complete = function(_, line)
+        if not load_plugins() then
+          return {}
+        end
+        return vim.fn.getcompletion(line, 'cmdline')
+      end,
+    })
   end
 end
 

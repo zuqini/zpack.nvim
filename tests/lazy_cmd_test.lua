@@ -264,4 +264,94 @@ describe("Lazy Loading - Commands", function()
     assert.is_false(saw_refire_notify,
       "Proxy must not attempt nvim_cmd re-fire when every claiming plugin failed to load")
   end)
+
+  -- Bead zpack_nvim-6n2: tab-completion on the lazy proxy must load the
+  -- plugin so the user gets real completions on the first <Tab>, matching
+  -- lazy.nvim's UX (handler/cmd.lua complete callback).
+  it("Lazy proxy command loads plugin on tab-completion", function()
+    local loaded = false
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          cmd = 'TestCompleteLoad',
+          config = function() loaded = true end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    -- vim.fn.getcompletion invokes the user command's complete callback.
+    vim.fn.getcompletion('TestCompleteLoad ', 'cmdline')
+    helpers.flush_pending()
+
+    assert.is_true(loaded,
+      "Plugin should load when tab-completion is requested on the proxy")
+  end)
+
+  -- Bead zpack_nvim-6n2: after the proxy fires its complete callback, the
+  -- real command's completions take over so the user sees actual suggestions.
+  it("Lazy proxy command returns real completions after load", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          cmd = 'TestRealComplete',
+          config = function()
+            vim.api.nvim_create_user_command('TestRealComplete', function() end, {
+              nargs = '*',
+              complete = function() return { 'apple', 'banana', 'cherry' } end,
+            })
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local results = vim.fn.getcompletion('TestRealComplete ', 'cmdline')
+    helpers.flush_pending()
+
+    assert.is_true(vim.tbl_contains(results, 'apple'),
+      "real command's completions should be returned after proxy loads it")
+    assert.is_true(vim.tbl_contains(results, 'banana'),
+      "real command's completions should be returned after proxy loads it")
+
+    pcall(vim.api.nvim_del_user_command, 'TestRealComplete')
+  end)
+
+  -- Bead zpack_nvim-6n2: the proxy is torn down so the real command's
+  -- subsequent invocations bypass the proxy entirely.
+  it("Lazy proxy command tears itself down after tab-completion fires", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          cmd = 'TestTearDownOnComplete',
+          config = function()
+            vim.api.nvim_create_user_command('TestTearDownOnComplete', function() end, {
+              nargs = '*',
+            })
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    vim.fn.getcompletion('TestTearDownOnComplete ', 'cmdline')
+    helpers.flush_pending()
+
+    -- After tab-complete loads the plugin, the real command (registered by
+    -- the plugin's config) replaces the proxy. Verifying it exists and is
+    -- callable is the load-path's post-condition.
+    local commands = vim.api.nvim_get_commands({})
+    assert.is_not_nil(commands.TestTearDownOnComplete,
+      "Real command should be present after proxy fires its complete callback")
+
+    pcall(vim.api.nvim_del_user_command, 'TestTearDownOnComplete')
+  end)
 end)

@@ -835,4 +835,281 @@ describe("Lazy Loading - Keymaps", function()
     vim.api.nvim_buf_delete(buf, { force = true })
     pcall(vim.keymap.del, 'n', '<leader>tn')
   end)
+
+  -- Bead zpack_nvim-eyo: a <Nop> rhs should install a real <Nop> keymap
+  -- (no proxy, no plugin load) so the key acts as a true no-op.
+  it("KeySpec with <Nop> rhs installs real keymap and skips proxy", function()
+    local state = require('zpack.state')
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tnp', '<Nop>' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found_map
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      if map.lhs == ' tnp' then
+        found_map = map
+        break
+      end
+    end
+    assert.is_not_nil(found_map, "Real <Nop> keymap should be installed")
+    -- Real keymap has rhs '<Nop>'; the lazy proxy would have a callback instead.
+    assert.is_nil(found_map.callback,
+      "<Nop> spec must install a non-proxy keymap (no callback)")
+
+    -- Pressing the key must not load the plugin.
+    vim.api.nvim_feedkeys(' tnp', 'mx', false)
+    helpers.flush_pending()
+
+    local src = 'https://github.com/test/plugin'
+    assert.are.equal("pending", state.spec_registry[src].load_status,
+      "Plugin must remain unloaded after pressing a <Nop>-mapped key")
+  end)
+
+  -- Bead zpack_nvim-eyo: case-insensitive match for `<Nop>`.
+  it("KeySpec with <nop> (lowercase) rhs also installs real keymap", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tnl', '<nop>' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found_map
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      if map.lhs == ' tnl' then
+        found_map = map
+        break
+      end
+    end
+    assert.is_not_nil(found_map, "Real <nop> keymap should be installed")
+    assert.is_nil(found_map.callback,
+      "<nop> spec must install a non-proxy keymap (no callback)")
+  end)
+
+  -- Bead zpack_nvim-sdu: abbreviation modes (ia/ca/!a) need <C-]> appended
+  -- on the re-fed lhs for the abbreviation to actually expand on first press.
+  it("Lazy proxy appends <C-]> on re-feed for abbreviation modes", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { 'teh', function() end, mode = 'ia' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local feed_captured
+    local original_feedkeys = vim.api.nvim_feedkeys
+    vim.api.nvim_feedkeys = function(keys, _, _)
+      feed_captured = keys
+    end
+
+    -- maparg's {mode} only accepts single-char modes; abbreviations are
+    -- queried via {abbr}=true on the underlying base mode ('i' for 'ia').
+    local maparg = vim.fn.maparg('teh', 'i', true, true)
+    assert.is_not_nil(maparg.callback, "Proxy should be installed as insert-mode abbreviation")
+    maparg.callback()
+
+    vim.api.nvim_feedkeys = original_feedkeys
+
+    assert.is_not_nil(feed_captured, "Proxy must call feedkeys on first press")
+    local ctrl_close = vim.keycode('<C-]>')
+    assert.is_truthy(feed_captured:find(ctrl_close, 1, true),
+      "Re-fed string must contain <C-]> for abbreviation modes")
+  end)
+
+  -- Bead zpack_nvim-sdu: non-abbrev modes (n/i/v/etc.) must not add <C-]>.
+  it("Lazy proxy does not append <C-]> for non-abbreviation modes", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tab', function() end, mode = 'n' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local feed_captured
+    local original_feedkeys = vim.api.nvim_feedkeys
+    vim.api.nvim_feedkeys = function(keys, _, _)
+      feed_captured = keys
+    end
+
+    local maparg = vim.fn.maparg(' tab', 'n', false, true)
+    assert.is_not_nil(maparg.callback, "Proxy should be installed for n mode")
+    maparg.callback()
+
+    vim.api.nvim_feedkeys = original_feedkeys
+
+    assert.is_not_nil(feed_captured)
+    local ctrl_close = vim.keycode('<C-]>')
+    assert.is_falsy(feed_captured:find(ctrl_close, 1, true),
+      "Non-abbreviation modes must not have <C-]> appended")
+  end)
+
+  -- Bead zpack_nvim-n3g: ft-scoped keys must not install a global proxy and
+  -- must register a FileType autocmd for the requested filetypes.
+  it("KeySpec with ft does not install global proxy", function()
+    local state = require('zpack.state')
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tfg', function() end, ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found_global
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      if map.lhs == ' tfg' then
+        found_global = map
+      end
+    end
+    assert.is_nil(found_global, "ft-scoped key must not install a global proxy")
+
+    local autocmds = vim.api.nvim_get_autocmds({ group = state.lazy_group })
+    local ft_autocmd = helpers.find_autocmd(autocmds, 'FileType', 'lua')
+    assert.is_not_nil(ft_autocmd,
+      "FileType autocmd must be registered for the ft-scoped key")
+  end)
+
+  -- Bead zpack_nvim-n3g: when a buffer enters the requested ft, the proxy
+  -- installs buffer-locally.
+  it("KeySpec with ft installs buffer-local proxy on matching FileType", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tfb', function() end, ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = 'lua'
+    helpers.flush_pending()
+
+    local found_local
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if map.lhs == ' tfb' then
+        found_local = map
+      end
+    end
+    assert.is_not_nil(found_local,
+      "Buffer-local proxy should be installed on matching FileType")
+    assert.are.equal(buf, found_local.buffer, "Mapping must be buffer-local to buf")
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  -- Bead zpack_nvim-n3g: non-matching filetypes must not get the proxy.
+  it("KeySpec with ft skips non-matching filetypes", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tfm', function() end, ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = 'rust'
+    helpers.flush_pending()
+
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      assert.are_not.equal(' tfm', map.lhs,
+        "Non-matching filetype must not receive the proxy")
+    end
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  -- Bead zpack_nvim-n3g: pressing the ft-scoped key triggers plugin load.
+  -- Invokes the captured proxy callback directly (instead of feedkeys) to
+  -- avoid headless-mode feedkeys quirks with buffer-local mappings.
+  it("KeySpec with ft loads plugin on buffer-local proxy fire", function()
+    local loaded = false
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tfl', function() end, ft = 'lua' },
+          },
+          config = function() loaded = true end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = 'lua'
+    helpers.flush_pending()
+
+    local proxy
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if map.lhs == ' tfl' then
+        proxy = map
+      end
+    end
+    assert.is_not_nil(proxy, "buffer-local proxy should be installed")
+    assert.is_not_nil(proxy.callback, "proxy must have a Lua callback")
+    proxy.callback()
+    helpers.flush_pending()
+
+    assert.is_true(loaded,
+      "Plugin must load when ft-scoped buffer-local proxy fires")
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
 end)

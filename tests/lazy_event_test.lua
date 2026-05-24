@@ -808,4 +808,51 @@ describe("Lazy Loading - Events", function()
     loader.process_spec = original_process_spec
     vim.api.nvim_del_augroup_by_id(test_group)
   end)
+
+  -- Bead zpack_nvim-8k9: per-autocmd `done` flag guards against nvim#25526
+  -- (https://github.com/neovim/neovim/issues/25526), where a `once = true`
+  -- autocmd can fire twice in the same tick. The visible contract: invoking
+  -- the lazy-load callback twice in a row dispatches refire exactly once,
+  -- even if the load_status gate hasn't yet committed `loaded`.
+  it("event proxy callback only refires once on synchronous double-invocation", function()
+    local refire = require('zpack.lazy_trigger.refire')
+    local state = require('zpack.state')
+    local exec_call_count = 0
+    local original_exec = refire.exec
+    refire.exec = function(...)
+      exec_call_count = exec_call_count + 1
+      return original_exec(...)
+    end
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          event = 'BufReadPost',
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local target
+    for _, au in ipairs(vim.api.nvim_get_autocmds({ group = state.lazy_group })) do
+      if au.event == 'BufReadPost' then
+        target = au
+        break
+      end
+    end
+    assert.is_not_nil(target, "BufReadPost autocmd should be registered")
+    assert.is_not_nil(target.callback, "Callback must be exposed for the test")
+
+    local ev = { event = 'BufReadPost', buf = vim.api.nvim_get_current_buf(), match = '' }
+    target.callback(ev)
+    target.callback(ev)
+
+    refire.exec = original_exec
+
+    assert.are.equal(1, exec_call_count,
+      "refire.exec must fire exactly once across two callback invocations")
+  end)
 end)

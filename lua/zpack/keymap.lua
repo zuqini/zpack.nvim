@@ -2,7 +2,7 @@ local util = require('zpack.utils')
 
 local M = {}
 
-local SUPPORTED_OPTS = { 'desc', 'remap', 'nowait', 'expr', 'silent', 'replace_keycodes' }
+local SUPPORTED_OPTS = { 'desc', 'remap', 'nowait', 'expr', 'silent', 'replace_keycodes', 'buffer' }
 
 ---@param lhs string
 ---@param rhs string|fun()

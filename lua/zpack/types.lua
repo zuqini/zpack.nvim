@@ -6,11 +6,13 @@
 ---@field expr? boolean
 ---@field silent? boolean
 ---@field replace_keycodes? boolean
+---@field buffer? integer|boolean
 
 ---@class zpack.KeySpec : zpack.KeymapOpts
 ---@field [1] string
 ---@field [2]? string|fun()
 ---@field noremap? boolean
+---@field ft? string|string[] FileType scope (lazy.nvim parity); install proxy buffer-locally on matching FileType only
 
 ---@class zpack.EventSpec
 ---@field event string|string[] Event name(s) to trigger on

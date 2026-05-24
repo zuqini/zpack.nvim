@@ -76,7 +76,14 @@ M.setup = function(pack_spec, spec, event)
 
     if has_very_lazy then
       -- VeryLazy is synthetic (UIEnter-only); no real event to re-fire.
+      -- `done` guards against the same `once = true` autocmd firing twice
+      -- in the same tick (https://github.com/neovim/neovim/issues/25526).
+      local done = false
       util.autocmd("UIEnter", function()
+        if done then
+          return
+        end
+        done = true
         vim.schedule(function()
           loader.try_process_spec(pack_spec)
         end)
@@ -84,11 +91,17 @@ M.setup = function(pack_spec, spec, event)
     end
 
     if #other_events > 0 then
+      local done = false
       util.autocmd(other_events, function(ev)
-        -- Skip when a sibling event/ft has already loaded (or is mid-load,
-        -- when plugin/ files synchronously fire a matching autocmd during
-        -- packadd). "loaded" prevents double-firing via refire's FileType
-        -- branch; "loading" prevents spurious "Circular dependency" notify.
+        -- `done` guards against nvim#25526 (same `once = true` autocmd
+        -- firing twice in the same tick). Set before any further work so
+        -- the second fire bails before refire.exec can double-fire user
+        -- autocmds. The load_status gate below handles other races (sibling
+        -- event/ft already loaded, plugin/ files re-entering synchronously).
+        if done then
+          return
+        end
+        done = true
         local entry = state.spec_registry[pack_spec.src]
         if entry and entry.load_status ~= "pending" then
           return

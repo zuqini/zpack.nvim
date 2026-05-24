@@ -854,6 +854,7 @@ pattern         (string|string[], optional)
       [2] = function() end,           -- RHS function
       desc = "description",           -- Keymap description
       mode = "n"|{"n","v"},           -- Mode(s), default: "n"
+      ft = "lua"|{"lua","vim"},       -- FileType scope; install proxy buffer-locally only
       remap = true|false,             -- Allow remapping, default: false
       nowait = true|false,            -- Default: false
       expr = true|false,              -- RHS is an expression, default: false
@@ -911,6 +912,21 @@ noremap         (boolean, optional)
 replace_keycodes (boolean, optional)
                 When `expr` is true, replace keycodes in the resulting
                 string. Default: true when `expr` is true; otherwise unused.
+
+                                                          *zpack.KeySpec.ft*
+ft              (string|string[], optional)
+                FileType scope (lazy.nvim parity). When set, the lazy
+                proxy is installed buffer-locally on a matching FileType
+                event instead of being installed globally up-front. After
+                the plugin loads, the real keymap is installed globally
+                via the spec's `[2]` rhs.
+
+                                                       *zpack.KeySpec.nop*
+A KeySpec whose `[2]` is `'<Nop>'` (any case) or the empty string is
+installed as a real no-op keymap rather than a lazy proxy. The plugin
+will not be loaded when the key is pressed, matching lazy.nvim's
+`Util.is_nop` behavior — useful for suppressing default mappings the
+plugin would otherwise install.
 
 ==============================================================================
 11. TIPS & MIGRATION                                *zpack-tips-and-migration*
