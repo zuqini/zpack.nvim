@@ -81,19 +81,18 @@ M.apply_keys = function(keys, src)
       -- plugin that claimed the same lhs under a disjoint ft.
       local has_ft = type(key.ft) == 'string'
           or (type(key.ft) == 'table' and next(key.ft --[[@as table]]) ~= nil)
+      -- pcall per key so one malformed spec doesn't strand its siblings.
+      local ok, err
       if has_ft then
-        apply_ft_scoped(key, src)
+        ok, err = pcall(apply_ft_scoped, key, src)
       else
-        -- pcall per key so one malformed spec doesn't strand its siblings.
-        -- lazy_trigger/keys.lua's post-load maparg gate ensures an unmapped
-        -- lhs doesn't fall through to bare keystrokes typed in the buffer.
-        local ok, err = pcall(M.map, key[1], key[2], key)
-        if not ok then
-          util.schedule_notify(
-            ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
-            vim.log.levels.ERROR
-          )
-        end
+        ok, err = pcall(M.map, key[1], key[2], key)
+      end
+      if not ok then
+        util.schedule_notify(
+          ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
+          vim.log.levels.ERROR
+        )
       end
     end
   end

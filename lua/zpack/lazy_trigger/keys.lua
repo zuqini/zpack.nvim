@@ -180,12 +180,22 @@ M.setup = function(registered_pack_specs)
         -- suppression is scoped, matching lazy.nvim's ft-on-Nop behavior.
         if is_nop_rhs(key[2]) then
           if ft_scope then
+            local patterns = util.normalize_string_list(ft_scope) --[[@as string[] ]]
             util.autocmd("FileType", function(ev)
               install_nop(key, src, ev.buf)
             end, {
               group = state.lazy_group,
-              pattern = util.normalize_string_list(ft_scope),
+              pattern = patterns,
             })
+            -- Currently-matching buffers already fired FileType; install
+            -- for them too. Mirrors apply_ft_scoped.
+            local pat_set = {}
+            for _, p in ipairs(patterns) do pat_set[p] = true end
+            for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+              if vim.api.nvim_buf_is_loaded(buf) and pat_set[vim.bo[buf].filetype] then
+                install_nop(key, src, buf)
+              end
+            end
           else
             install_nop(key, src, nil)
           end
