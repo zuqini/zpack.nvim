@@ -732,7 +732,9 @@ pattern         (string|string[], optional)
 cmd             (string|string[]|function(plugin), optional)
                 Command(s) to create that trigger lazy loading. Can be a
                 function receiving |zpack.Plugin| that returns the value.
-                Auto-sets `lazy=true`.
+                Auto-sets `lazy=true`. Tab-completion on the command also
+                triggers the load so the real command's completer can
+                answer on the first press.
 
                                                             *zpack-Spec.keys*
 keys            (zpack.KeySpec|zpack.KeySpec[]|function(plugin), optional)

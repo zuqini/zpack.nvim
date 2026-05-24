@@ -31,18 +31,22 @@ M.map = function(lhs, rhs, opts)
   vim.keymap.set(opts.mode or { 'n' }, lhs, rhs, set_opts)
 end
 
----@param key zpack.KeySpec
----@param buf integer
----@param src string
-local function install_buffer_local(key, buf, src)
-  local opts = vim.tbl_extend('force', {}, key, { buffer = buf })
-  local ok, err = pcall(M.map, key[1], key[2], opts)
+---Wrap `M.map` with pcall + structured notify. Used at every map site so
+---one bad key spec never strands siblings or recurs as autocmd-dispatch noise.
+---@param lhs string
+---@param rhs string|fun()
+---@param opts? table
+---@param src string Plugin identifier for the failure notify
+---@return boolean ok
+M.try_map = function(lhs, rhs, opts, src)
+  local ok, err = pcall(M.map, lhs, rhs, opts)
   if not ok then
     util.schedule_notify(
-      ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
+      ("Failed to map %s for %s: %s"):format(lhs, src, tostring(err)),
       vim.log.levels.ERROR
     )
   end
+  return ok
 end
 
 ---@param key zpack.KeySpec
@@ -50,7 +54,8 @@ end
 local function apply_ft_scoped(key, src)
   local patterns = util.normalize_string_list(key.ft) --[[@as string[] ]]
   util.install_on_ft(patterns, function(buf)
-    install_buffer_local(key, buf, src)
+    local opts = vim.tbl_extend('force', {}, key, { buffer = buf })
+    M.try_map(key[1], key[2], opts, src)
   end, { group = state.lazy_group })
 end
 
@@ -65,20 +70,17 @@ M.apply_keys = function(keys, src)
       -- already-matching buffers so the real keymap stays buffer-local.
       -- Without this, a global apply_keys could silently overwrite a sibling
       -- plugin that claimed the same lhs under a disjoint ft.
-      local has_ft = (type(key.ft) == 'string' and key.ft ~= '')
-          or (type(key.ft) == 'table' and next(key.ft --[[@as table]]) ~= nil)
-      -- pcall per key so one malformed spec doesn't strand its siblings.
-      local ok, err
-      if has_ft then
-        ok, err = pcall(apply_ft_scoped, key, src)
+      if util.normalize_ft_scope(key.ft) then
+        -- pcall the registration plumbing; per-buffer try_map handles its own throws.
+        local ok, err = pcall(apply_ft_scoped, key, src)
+        if not ok then
+          util.schedule_notify(
+            ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
+            vim.log.levels.ERROR
+          )
+        end
       else
-        ok, err = pcall(M.map, key[1], key[2], key)
-      end
-      if not ok then
-        util.schedule_notify(
-          ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
-          vim.log.levels.ERROR
-        )
+        M.try_map(key[1], key[2], key, src)
       end
     end
   end

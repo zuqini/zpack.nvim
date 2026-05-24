@@ -12,7 +12,7 @@ local ft_key_part = function(ft)
     return ''
   end
   local ft_list = util.normalize_string_list(ft) --[[@as string[] ]]
-  local sorted = { unpack(ft_list) }
+  local sorted = vim.list_slice(ft_list)
   table.sort(sorted)
   return '-ft:' .. table.concat(sorted, ',')
 end
@@ -62,14 +62,15 @@ end
 ---Install a (buffer-local when `buf` is non-nil) proxy that lazy-loads the
 ---plugins claiming this lhs on first press.
 ---@param key_info table
+---@param src string
 ---@param buf? integer
-local install_proxy = function(key_info, buf)
+local install_proxy = function(key_info, src, buf)
   local lhs = key_info.key_spec[1]
   local key_spec = key_info.key_spec
   -- ft path forces buffer-local in `buf`; otherwise honor the user's
   -- `key_spec.buffer` (lazy.nvim parity for unscoped buffer-local keys).
   local proxy_buffer = buf or key_spec.buffer
-  keymap.map(lhs, function()
+  keymap.try_map(lhs, function()
     -- Mirror the install scope: a global proxy must delete the global
     -- mapping; a buffer-local proxy must delete the buffer-local one
     -- (otherwise vim.keymap.del finds nothing and the stale buffer-local
@@ -120,7 +121,7 @@ local install_proxy = function(key_info, buf)
     remap = key_spec.remap,
     noremap = key_spec.noremap,
     buffer = proxy_buffer,
-  })
+  }, src)
 end
 
 ---@param key_info table
@@ -149,13 +150,7 @@ local function install_nop(key, src, buf)
   if buf then
     nop_opts.buffer = buf
   end
-  local ok, err = pcall(keymap.map, key[1], '<Nop>', nop_opts)
-  if not ok then
-    util.schedule_notify(
-      ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
-      vim.log.levels.ERROR
-    )
-  end
+  keymap.try_map(key[1], '<Nop>', nop_opts, src)
 end
 
 ---@param registered_pack_specs vim.pack.Spec[]
@@ -176,12 +171,7 @@ M.setup = function(registered_pack_specs)
 
         -- Empty ft → no scope, so the autocmd doesn't register an
         -- unmatchable empty pattern list and silently drop the key.
-        local ft_scope
-        if type(key.ft) == 'string' and key.ft ~= '' then
-          ft_scope = key.ft
-        elseif type(key.ft) == 'table' and next(key.ft --[[@as table]]) ~= nil then
-          ft_scope = key.ft
-        end
+        local ft_patterns = util.normalize_ft_scope(key.ft)
         local src = pack_spec.name or pack_spec.src
 
         -- <Nop> rhs never needs the proxy: install as a real no-op so the
@@ -189,9 +179,8 @@ M.setup = function(registered_pack_specs)
         -- <Nop> installs buffer-locally on matching FileType so the
         -- suppression is scoped, matching lazy.nvim's ft-on-Nop behavior.
         if is_nop_rhs(key[2]) then
-          if ft_scope then
-            local patterns = util.normalize_string_list(ft_scope) --[[@as string[] ]]
-            util.install_on_ft(patterns, function(buf)
+          if ft_patterns then
+            util.install_on_ft(ft_patterns, function(buf)
               install_nop(key, src, buf)
             end, { group = state.lazy_group })
           else
@@ -199,13 +188,14 @@ M.setup = function(registered_pack_specs)
           end
         else
           for _, m in ipairs(modes) do
-            local key_id = create_key_id(lhs, m, ft_scope, key.buffer)
+            local key_id = create_key_id(lhs, m, ft_patterns, key.buffer)
             if not key_to_info[key_id] then
               key_to_info[key_id] = {
                 split_mode = m,
                 pack_specs = {},
                 key_spec = key,
-                ft = ft_scope,
+                src = src,
+                ft = ft_patterns,
               }
             end
             table.insert(key_to_info[key_id].pack_specs, pack_spec)
@@ -224,7 +214,7 @@ M.setup = function(registered_pack_specs)
       -- branch never fires before `autocmd_id` is assigned.
       local autocmd_id
       autocmd_id = util.install_on_ft(
-        util.normalize_string_list(key_info.ft) --[[@as string[] ]],
+        key_info.ft,
         function(buf)
           if not any_pack_pending(key_info) then
             if autocmd_id then
@@ -233,12 +223,12 @@ M.setup = function(registered_pack_specs)
             end
             return
           end
-          install_proxy(key_info, buf)
+          install_proxy(key_info, key_info.src, buf)
         end,
         { group = state.lazy_group }
       )
     else
-      install_proxy(key_info, nil)
+      install_proxy(key_info, key_info.src, nil)
     end
   end
 end

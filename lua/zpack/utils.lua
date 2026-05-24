@@ -120,6 +120,20 @@ M.normalize_string_list = function(val)
   return type(val) == "string" and { val } or val --[[@as string[] ]]
 end
 
+---Returns the normalized pattern list (nil when unscoped) for a KeySpec's
+---`ft`. Shared by keys.lua's proxy install + keymap.lua's apply_ft_scoped.
+---@param ft any
+---@return string[]? patterns nil when `ft` is not an effective scope
+M.normalize_ft_scope = function(ft)
+  if type(ft) == 'string' and ft ~= '' then
+    return { ft }
+  end
+  if type(ft) == 'table' and next(ft) ~= nil then
+    return ft
+  end
+  return nil
+end
+
 ---Create an autocmd with callback
 ---@param event string|string[]
 ---@param callback function
@@ -151,9 +165,13 @@ M.latch_first_call = function(callback)
   end
 end
 
----Register a `FileType` autocmd for `patterns` AND call `installer(buf)`
----for every already-loaded matching buffer — their FileType has already
----fired and won't re-fire.
+---Register a `FileType` autocmd + synchronously call `installer(buf)` for
+---already-loaded matching buffers. Installer must catch its own throws —
+---a throwing installer strands the autocmd in the caller's group. The
+---sweep runs before the id is returned, so callers' self-deleting closures
+---can rely on `autocmd_id` still being nil during the sweep. Sweep matches
+---by literal filetype; globs (`markdown.*`) work in the autocmd path but
+---skip the sweep.
 ---@param patterns string[]
 ---@param installer fun(buf: integer)
 ---@param opts? table Extra opts merged into the autocmd (group, etc.)

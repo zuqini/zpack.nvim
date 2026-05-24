@@ -65,29 +65,33 @@ local split_very_lazy = function(events)
   return has_very_lazy, other_events
 end
 
+---Schedule `cb` on the next tick (if vim has entered) or on the next
+---UIEnter (latched against nvim#25526). Shared by the per-plugin VeryLazy
+---load and the `User VeryLazy` emit so the latch lives in one place.
+---@param cb function
+local function on_ui_enter_or_now(cb)
+  if vim.v.vim_did_enter == 1 then
+    vim.schedule(cb)
+  else
+    vim.api.nvim_create_autocmd('UIEnter', {
+      group = state.lazy_group,
+      once = true,
+      callback = util.latch_first_call(function()
+        vim.schedule(cb)
+      end),
+    })
+  end
+end
+
 ---Fire `User VeryLazy` once on UIEnter (or immediately if vim has already
 ---entered). Matches lazy.nvim's contract so user autocmds keyed on
 ---`User VeryLazy` work in configs ported from lazy.nvim. Called from
 ---lazy.process_all AFTER per-plugin UIEnter handlers register so VeryLazy
 ---plugins are loaded by the time User VeryLazy fires.
 M.fire_very_lazy = function()
-  local function emit()
+  on_ui_enter_or_now(function()
     vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy', modeline = false })
-  end
-  if vim.v.vim_did_enter == 1 then
-    vim.schedule(emit)
-  else
-    -- latch_first_call guards against nvim#25526 (nested UIEnter in the
-    -- same tick fires twice before once=true deletion takes effect) so
-    -- `User VeryLazy` only emits once.
-    vim.api.nvim_create_autocmd('UIEnter', {
-      group = state.lazy_group,
-      once = true,
-      callback = util.latch_first_call(function()
-        vim.schedule(emit)
-      end),
-    })
-  end
+  end)
 end
 
 ---@param pack_spec vim.pack.Spec
@@ -105,17 +109,9 @@ M.setup = function(pack_spec, spec, event)
       -- UIEnter autocmd would never fire — schedule the load directly so
       -- the plugin still loads before lazy.fire_very_lazy's User VeryLazy
       -- emit (which also fast-paths on vim_did_enter).
-      if vim.v.vim_did_enter == 1 then
-        vim.schedule(function()
-          loader.try_process_spec(pack_spec)
-        end)
-      else
-        util.autocmd("UIEnter", util.latch_first_call(function()
-          vim.schedule(function()
-            loader.try_process_spec(pack_spec)
-          end)
-        end), { group = state.lazy_group, once = true })
-      end
+      on_ui_enter_or_now(function()
+        loader.try_process_spec(pack_spec)
+      end)
     end
 
     if #other_events > 0 then
