@@ -76,32 +76,29 @@ M.setup = function(pack_spec, spec, event)
 
     if has_very_lazy then
       -- VeryLazy is synthetic (UIEnter-only); no real event to re-fire.
-      -- `done` guards against the same `once = true` autocmd firing twice
-      -- in the same tick (https://github.com/neovim/neovim/issues/25526).
-      local done = false
-      util.autocmd("UIEnter", function()
-        if done then
-          return
-        end
-        done = true
+      -- When setup() runs after UIEnter (`:luafile`, config reload), the
+      -- UIEnter autocmd would never fire — schedule the load directly so
+      -- the plugin still loads before lazy.fire_very_lazy's User VeryLazy
+      -- emit (which also fast-paths on vim_did_enter).
+      if vim.v.vim_did_enter == 1 then
         vim.schedule(function()
           loader.try_process_spec(pack_spec)
         end)
-      end, { group = state.lazy_group, once = true })
+      else
+        util.autocmd("UIEnter", util.once_per_tick(function()
+          vim.schedule(function()
+            loader.try_process_spec(pack_spec)
+          end)
+        end), { group = state.lazy_group, once = true })
+      end
     end
 
     if #other_events > 0 then
-      local done = false
-      util.autocmd(other_events, function(ev)
-        -- `done` guards against nvim#25526 (same `once = true` autocmd
-        -- firing twice in the same tick). Set before any further work so
-        -- the second fire bails before refire.exec can double-fire user
-        -- autocmds. The load_status gate below handles other races (sibling
-        -- event/ft already loaded, plugin/ files re-entering synchronously).
-        if done then
-          return
-        end
-        done = true
+      -- once_per_tick latches before the load_status gate so a second fire
+      -- in the same tick bails before refire.exec can double-fire user
+      -- autocmds. The load_status gate handles other races (sibling
+      -- event/ft already loaded, plugin/ files re-entering synchronously).
+      util.autocmd(other_events, util.once_per_tick(function(ev)
         local entry = state.spec_registry[pack_spec.src]
         if entry and entry.load_status ~= "pending" then
           return
@@ -111,7 +108,7 @@ M.setup = function(pack_spec, spec, event)
           return
         end
         refire.exec(ev, snap)
-      end, { group = state.lazy_group, once = true, pattern = normalized_event.pattern })
+      end), { group = state.lazy_group, once = true, pattern = normalized_event.pattern })
     end
   end
 end

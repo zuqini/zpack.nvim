@@ -61,7 +61,11 @@ local function to_array(val)
   return { val }
 end
 
----Get unique key for a value (handles KeySpec with mode)
+---Get unique key for a value (handles KeySpec with mode + ft).
+---ft is included so two specs with the same lhs/mode but disjoint ft
+---scopes (`{<leader>x, ..., ft='lua'}` + `{<leader>x, ..., ft='rust'}`)
+---survive merge instead of the second silently dropping. Matches the
+---ft-aware dedup in lazy_trigger/keys.lua's create_key_id.
 ---@param v any
 ---@return string
 local function get_unique_key(v)
@@ -75,7 +79,15 @@ local function get_unique_key(v)
     table.sort(sorted)
     mode = table.concat(sorted, ",")
   end
-  return lhs .. ":" .. mode
+  local ft = ""
+  if type(v.ft) == "string" then
+    ft = ":ft=" .. v.ft
+  elseif type(v.ft) == "table" then
+    local sorted = vim.list_slice(v.ft)
+    table.sort(sorted)
+    ft = ":ft=" .. table.concat(sorted, ",")
+  end
+  return lhs .. ":" .. mode .. ft
 end
 
 ---Extend list with unique values

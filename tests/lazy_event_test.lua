@@ -94,8 +94,14 @@ describe("Lazy Loading - Events", function()
     )
   end)
 
-  it("VeryLazy event creates UIEnter autocmd", function()
+  it("VeryLazy plugin loads when setup runs post-UIEnter", function()
+    -- Test environment has vim_did_enter == 1, so the per-plugin UIEnter
+    -- autocmd path is skipped and the load is scheduled directly. Without
+    -- this fast-path, `event = 'VeryLazy'` plugins would never load after
+    -- a `:luafile` / config reload because UIEnter is already in the past.
     local state = require('zpack.state')
+    assert.are.equal(1, vim.v.vim_did_enter,
+      "Test prerequisite: this test exercises the post-UIEnter setup path")
 
     require('zpack').setup({
       spec = {
@@ -108,11 +114,10 @@ describe("Lazy Loading - Events", function()
     })
 
     helpers.flush_pending()
-    local autocmds = vim.api.nvim_get_autocmds({ group = state.lazy_group })
-    assert.is_not_nil(
-      helpers.find_autocmd(autocmds, 'UIEnter'),
-      "VeryLazy should create UIEnter autocmd"
-    )
+
+    local src = 'https://github.com/test/plugin'
+    assert.are.equal('loaded', state.spec_registry[src].load_status,
+      "VeryLazy plugin should be loaded via the post-UIEnter fast-path")
   end)
 
   it("multiple EventSpecs with different patterns", function()

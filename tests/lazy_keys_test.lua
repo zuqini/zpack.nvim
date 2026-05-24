@@ -1142,4 +1142,92 @@ describe("Lazy Loading - Keymaps", function()
 
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
+
+  -- ft-scoped <Nop>: the suppression must be buffer-local to the matching
+  -- ft, not global. lazy.nvim honors ft on Nop maps; without scoping, a
+  -- `{ '<leader>x', '<Nop>', ft = 'lua' }` would silently mask the key in
+  -- every buffer.
+  it("KeySpec with <Nop> + ft installs no global keymap", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tnft', '<Nop>', ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      assert.are_not.equal(' tnft', map.lhs,
+        "ft-scoped <Nop> must not install a global keymap")
+    end
+  end)
+
+  it("KeySpec with <Nop> + ft installs buffer-locally on matching FileType", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tnb', '<Nop>', ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = 'lua'
+    helpers.flush_pending()
+
+    local found
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if map.lhs == ' tnb' then
+        found = map
+      end
+    end
+    assert.is_not_nil(found,
+      "Buffer-local <Nop> should be installed on matching FileType")
+    assert.is_nil(found.callback,
+      "<Nop> install must be a real keymap (no callback), not a proxy")
+    assert.are.equal(buf, found.buffer, "Mapping must be buffer-local to buf")
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  it("KeySpec with <Nop> + ft skips non-matching filetypes", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tnm', '<Nop>', ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = 'rust'
+    helpers.flush_pending()
+
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      assert.are_not.equal(' tnm', map.lhs,
+        "Non-matching filetype must not receive the <Nop> install")
+    end
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
 end)

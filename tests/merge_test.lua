@@ -394,4 +394,44 @@ describe("Merge Module Unit Tests", function()
 
     assert.are.equal(1, #merged.keys)
   end)
+
+  -- Two specs declaring the same lhs/mode but disjoint ft scopes are NOT
+  -- duplicates — the user wants both keys, scoped to different filetypes.
+  -- get_unique_key must include ft so the second spec survives merge and
+  -- reaches lazy_trigger/keys.lua's ft-aware dedup.
+  it("keys with same lhs/mode but different ft scopes both survive merge", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/plugin', keys = { { '<leader>a', '<cmd>Lua<cr>', ft = 'lua' } } },
+        { 'test/plugin', keys = { { '<leader>a', '<cmd>Rust<cr>', ft = 'rust' } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    local src = 'https://github.com/test/plugin'
+    local merged = state.spec_registry[src].merged_spec
+
+    assert.are.equal(2, #merged.keys,
+      "Both ft-scoped keys should survive merge")
+  end)
+
+  it("keys with ft as list in different order are deduplicated", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/plugin', keys = { { '<leader>a', ft = { 'lua', 'rust' }, desc = 'first' } } },
+        { 'test/plugin', keys = { { '<leader>a', ft = { 'rust', 'lua' }, desc = 'second' } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    local src = 'https://github.com/test/plugin'
+    local merged = state.spec_registry[src].merged_spec
+
+    assert.are.equal(1, #merged.keys,
+      "Ft lists with same members in different order should dedup")
+  end)
 end)

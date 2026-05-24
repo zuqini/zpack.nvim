@@ -119,6 +119,26 @@ local function any_pack_pending(key_info)
   return false
 end
 
+---Install a (buffer-local when `buf` is non-nil) real `<Nop>` keymap from
+---the user's KeySpec. `expr` is stripped so vim does not eval the literal
+---string `<Nop>` as an expression; `keymap.map` nulls `replace_keycodes`
+---when `expr` is unset, so it does not need a separate strip.
+---@param key zpack.KeySpec
+---@param src string
+---@param buf? integer
+local function install_nop(key, src, buf)
+  local nop_opts = vim.deepcopy(key)
+  nop_opts.expr = nil
+  nop_opts.buffer = buf
+  local ok, err = pcall(keymap.map, key[1], '<Nop>', nop_opts)
+  if not ok then
+    util.schedule_notify(
+      ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
+      vim.log.levels.ERROR
+    )
+  end
+end
+
 ---@param registered_pack_specs vim.pack.Spec[]
 M.setup = function(registered_pack_specs)
   local key_to_info = {}
@@ -135,33 +155,35 @@ M.setup = function(registered_pack_specs)
         local mode = key.mode or 'n'
         local modes = util.normalize_string_list(mode) --[[@as string[] ]]
 
+        -- Only string/table ft is honored as a scope; anything else is a
+        -- type error best treated as "no ft" so the proxy/nop stays global.
+        local ft_scope = (type(key.ft) == 'string' or type(key.ft) == 'table') and key.ft or nil
+        local src = pack_spec.name or pack_spec.src
+
         -- <Nop> rhs never needs the proxy: install as a real no-op so the
-        -- key acts as a true no-op without loading the plugin. `expr` /
-        -- `replace_keycodes` are stripped: the rhs is the literal string
-        -- '<Nop>', so eval'ing it as an expression contradicts the intent.
+        -- key acts as a true no-op without loading the plugin. ft-scoped
+        -- <Nop> installs buffer-locally on matching FileType so the
+        -- suppression is scoped, matching lazy.nvim's ft-on-Nop behavior.
         if is_nop_rhs(key[2]) then
-          local nop_opts = vim.deepcopy(key)
-          nop_opts.expr = nil
-          nop_opts.replace_keycodes = nil
-          local ok, err = pcall(keymap.map, lhs, '<Nop>', nop_opts)
-          if not ok then
-            util.schedule_notify(
-              ("Failed to map %s for %s: %s"):format(lhs, pack_spec.name or pack_spec.src, tostring(err)),
-              vim.log.levels.ERROR
-            )
+          if ft_scope then
+            util.autocmd("FileType", function(ev)
+              install_nop(key, src, ev.buf)
+            end, {
+              group = state.lazy_group,
+              pattern = util.normalize_string_list(ft_scope),
+            })
+          else
+            install_nop(key, src, nil)
           end
         else
-          -- Only string/table ft is honored as a scope; anything else is a
-          -- type error best treated as "no ft" so the proxy stays global.
-          local ft = (type(key.ft) == 'string' or type(key.ft) == 'table') and key.ft or nil
           for _, m in ipairs(modes) do
-            local key_id = create_key_id(lhs, m, ft)
+            local key_id = create_key_id(lhs, m, ft_scope)
             if not key_to_info[key_id] then
               key_to_info[key_id] = {
                 split_mode = m,
                 pack_specs = {},
                 key_spec = key,
-                ft = ft,
+                ft = ft_scope,
               }
             end
             table.insert(key_to_info[key_id].pack_specs, pack_spec)

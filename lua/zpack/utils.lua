@@ -132,6 +132,23 @@ M.autocmd = function(event, callback, opts)
   }, opts))
 end
 
+---Wrap a callback so a synchronous second invocation no-ops. Guards against
+---nvim#25526 (https://github.com/neovim/neovim/issues/25526) — a `once = true`
+---autocmd that nested-fires in the same tick is dispatched twice before the
+---autocmd-deletion takes effect.
+---@param callback function
+---@return function
+M.once_per_tick = function(callback)
+  local done = false
+  return function(...)
+    if done then
+      return
+    end
+    done = true
+    return callback(...)
+  end
+end
+
 ---Resolve a function-form spec field; a throw becomes a structured notify
 ---and a nil return instead of aborting the caller.
 ---@param field any

@@ -20,17 +20,10 @@ M.setup = function(pack_spec, ft)
     util.source_ftdetect_files(plugin_path)
   end
 
-  -- `done` guards against nvim#25526 (same `once = true` autocmd firing
-   -- twice in the same tick). Mirrors lazy_trigger/event.lua's guard;
-   -- needed here because the plugin's own `ftplugin/*` sourced during
-   -- packadd can nest-fire FileType on the same buffer before load_status
-   -- flips.
-  local done = false
-  util.autocmd("FileType", function(ev)
-    if done then
-      return
-    end
-    done = true
+  -- once_per_tick guards against nvim#25526; needed here because the
+  -- plugin's own `ftplugin/*` sourced during packadd can nest-fire FileType
+  -- on the same buffer before load_status flips.
+  util.autocmd("FileType", util.once_per_tick(function(ev)
     -- Skip when a sibling already loaded (avoid double-fire) or is
     -- mid-load (avoid spurious circular-dependency notify).
     local entry = state.spec_registry[pack_spec.src]
@@ -42,7 +35,7 @@ M.setup = function(pack_spec, ft)
       return
     end
     refire.exec(ev, snap)
-  end, { group = state.lazy_group, pattern = filetypes, once = true })
+  end), { group = state.lazy_group, pattern = filetypes, once = true })
 end
 
 return M
