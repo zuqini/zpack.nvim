@@ -1230,4 +1230,158 @@ describe("Lazy Loading - Keymaps", function()
 
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
+
+  -- An empty-string rhs is treated as a no-op by `is_nop_rhs` for lazy.nvim
+  -- parity; verify it installs a real keymap and skips the proxy.
+  it("KeySpec with empty-string rhs installs real keymap and skips proxy", function()
+    local state = require('zpack.state')
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tne', '' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found_map
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      if map.lhs == ' tne' then
+        found_map = map
+        break
+      end
+    end
+    assert.is_not_nil(found_map, "Empty-string rhs should install a real keymap")
+    assert.is_nil(found_map.callback,
+      "empty-string rhs must install a non-proxy keymap (no callback)")
+
+    vim.api.nvim_feedkeys(' tne', 'mx', false)
+    helpers.flush_pending()
+
+    local src = 'https://github.com/test/plugin'
+    assert.are.equal("pending", state.spec_registry[src].load_status,
+      "Plugin must remain unloaded after pressing an empty-rhs key")
+  end)
+
+  -- Regression: two plugins claiming the same lhs under disjoint ft scopes
+  -- must not collide globally. Before apply_keys honored `key.ft`, the second
+  -- plugin to load would install a *global* real keymap that silently
+  -- overwrote the first plugin's keymap in every buffer (including the first
+  -- plugin's own ft buffers).
+  it("ft-scoped real keymap stays buffer-local after lazy-load", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tfx', function() _G._test_ft_real_cb = 'A' end, ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = 'lua'
+    helpers.flush_pending()
+
+    local proxy
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if map.lhs == ' tfx' then
+        proxy = map
+      end
+    end
+    assert.is_not_nil(proxy, "buffer-local proxy must be installed on FileType lua")
+    proxy.callback()
+    helpers.flush_pending()
+
+    -- After load, no global keymap should exist — the post-load keymap is
+    -- installed via apply_keys's own FileType autocmd, buffer-local only.
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      assert.are_not.equal(' tfx', map.lhs,
+        "ft-scoped real keymap must not install globally after load")
+    end
+
+    -- A real (non-proxy) keymap should exist in the matching ft buffer.
+    local real
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if map.lhs == ' tfx' then real = map end
+    end
+    assert.is_not_nil(real, "real keymap must be installed buffer-local in matching ft")
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+    _G._test_ft_real_cb = nil
+  end)
+
+  -- KeySpec.buffer (lazy.nvim parity) must flow through the lazy proxy when
+  -- no ft scope is set; previously the proxy hardcoded `buffer = nil` and
+  -- silently dropped the user's intent.
+  it("KeySpec.buffer scopes the lazy proxy to the requested buffer", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tbb', function() end, buffer = buf },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found_local
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if map.lhs == ' tbb' then found_local = map end
+    end
+    assert.is_not_nil(found_local,
+      "Buffer-scoped key must install the proxy in the requested buffer")
+    assert.are.equal(buf, found_local.buffer, "Proxy must be buffer-local to buf")
+
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      assert.are_not.equal(' tbb', map.lhs,
+        "Buffer-scoped key must not also install a global proxy")
+    end
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
+  -- ft = {} normalizes to "no ft scope" — installing an autocmd with an
+  -- empty pattern list would silently never match, dropping the key.
+  it("KeySpec with empty ft = {} falls back to a global proxy", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tfe', function() end, ft = {} },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found_global
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      if map.lhs == ' tfe' then found_global = map end
+    end
+    assert.is_not_nil(found_global,
+      "Empty `ft = {}` must not silently disable the key — install globally")
+    assert.is_not_nil(found_global.callback,
+      "Empty `ft = {}` key should still register as a lazy proxy (callback present)")
+  end)
 end)

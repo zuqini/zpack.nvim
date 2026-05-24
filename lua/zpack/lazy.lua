@@ -89,29 +89,6 @@ M.is_lazy = function(spec, plugin, src)
   return false
 end
 
----Fire `User VeryLazy` once on UIEnter (or immediately if vim has already
----entered). Matches lazy.nvim's contract so user autocmds keyed on
----`User VeryLazy` work in configs ported from lazy.nvim. Registered AFTER
----per-plugin UIEnter handlers so VeryLazy plugins are loaded by the time
----User VeryLazy fires.
-local function fire_very_lazy()
-  local function emit()
-    vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy', modeline = false })
-  end
-  if vim.v.vim_did_enter == 1 then
-    vim.schedule(emit)
-  else
-    vim.api.nvim_create_autocmd('UIEnter', {
-      group = state.lazy_group,
-      once = true,
-      nested = true,
-      callback = function()
-        vim.schedule(emit)
-      end,
-    })
-  end
-end
-
 ---@param ctx zpack.ProcessContext
 M.process_all = function(ctx)
   if next(state.src_with_pending_build) ~= nil then
@@ -138,7 +115,9 @@ M.process_all = function(ctx)
   end
   cmd_handler.setup(ctx.registered_lazy_packs)
   keys_handler.setup(ctx.registered_lazy_packs)
-  fire_very_lazy()
+  -- Producer of the User VeryLazy emit lives next to its per-plugin VeryLazy
+  -- consumer (event_handler) so the synthetic-event protocol stays in one file.
+  event_handler.fire_very_lazy()
 end
 
 return M

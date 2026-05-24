@@ -1,4 +1,5 @@
 local util = require('zpack.utils')
+local state = require('zpack.state')
 
 local M = {}
 
@@ -30,6 +31,43 @@ M.map = function(lhs, rhs, opts)
   vim.keymap.set(opts.mode or { 'n' }, lhs, rhs, set_opts)
 end
 
+---@param key zpack.KeySpec
+---@param buf integer
+---@param src string
+local function install_buffer_local(key, buf, src)
+  local opts = vim.tbl_extend('force', {}, key, { buffer = buf })
+  local ok, err = pcall(M.map, key[1], key[2], opts)
+  if not ok then
+    util.schedule_notify(
+      ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
+      vim.log.levels.ERROR
+    )
+  end
+end
+
+---@param key zpack.KeySpec
+---@param src string
+local function apply_ft_scoped(key, src)
+  local patterns = util.normalize_string_list(key.ft) --[[@as string[] ]]
+  local pat_set = {}
+  for _, p in ipairs(patterns) do pat_set[p] = true end
+  -- Catch future matching buffers.
+  vim.api.nvim_create_autocmd("FileType", {
+    group = state.lazy_group,
+    pattern = patterns,
+    callback = function(ev)
+      install_buffer_local(key, ev.buf, src)
+    end,
+  })
+  -- Install in currently-matching buffers — their FileType has already
+  -- fired, so the autocmd above won't reach them.
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and pat_set[vim.bo[buf].filetype] then
+      install_buffer_local(key, buf, src)
+    end
+  end
+end
+
 ---@param keys zpack.KeySpec|zpack.KeySpec[]|string
 ---@param src string Plugin identifier for the failure notify
 M.apply_keys = function(keys, src)
@@ -37,15 +75,25 @@ M.apply_keys = function(keys, src)
 
   for _, key in ipairs(key_list) do
     if key[2] ~= nil then
-      -- pcall per key so one malformed spec doesn't strand its siblings.
-      -- lazy_trigger/keys.lua's post-load maparg gate ensures an unmapped
-      -- lhs doesn't fall through to bare keystrokes typed in the buffer.
-      local ok, err = pcall(M.map, key[1], key[2], key)
-      if not ok then
-        util.schedule_notify(
-          ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
-          vim.log.levels.ERROR
-        )
+      -- ft scope (lazy.nvim parity): install via FileType autocmd + iterate
+      -- already-matching buffers so the real keymap stays buffer-local.
+      -- Without this, a global apply_keys could silently overwrite a sibling
+      -- plugin that claimed the same lhs under a disjoint ft.
+      local has_ft = type(key.ft) == 'string'
+          or (type(key.ft) == 'table' and next(key.ft --[[@as table]]) ~= nil)
+      if has_ft then
+        apply_ft_scoped(key, src)
+      else
+        -- pcall per key so one malformed spec doesn't strand its siblings.
+        -- lazy_trigger/keys.lua's post-load maparg gate ensures an unmapped
+        -- lhs doesn't fall through to bare keystrokes typed in the buffer.
+        local ok, err = pcall(M.map, key[1], key[2], key)
+        if not ok then
+          util.schedule_notify(
+            ("Failed to map %s for %s: %s"):format(key[1], src, tostring(err)),
+            vim.log.levels.ERROR
+          )
+        end
       end
     end
   end

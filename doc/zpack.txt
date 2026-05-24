@@ -859,7 +859,8 @@ pattern         (string|string[], optional)
       [2] = function() end,           -- RHS function
       desc = "description",           -- Keymap description
       mode = "n"|{"n","v"},           -- Mode(s), default: "n"
-      ft = "lua"|{"lua","vim"},       -- FileType scope; install proxy buffer-locally only
+      ft = "lua"|{"lua","vim"},       -- FileType scope; install buffer-locally on matching FileType only
+      buffer = true|0|7,              -- Buffer scope: true/0 = current buffer; integer = specific buffer
       remap = true|false,             -- Allow remapping, default: false
       nowait = true|false,            -- Default: false
       expr = true|false,              -- RHS is an expression, default: false
@@ -918,13 +919,19 @@ replace_keycodes (boolean, optional)
                 When `expr` is true, replace keycodes in the resulting
                 string. Default: true when `expr` is true; otherwise unused.
 
+                                                      *zpack.KeySpec.buffer*
+buffer          (integer|boolean, optional)
+                Buffer scope (lazy.nvim parity). `true` or `0` installs the
+                keymap buffer-locally in the current buffer; an integer
+                installs it in that specific buffer. Honored by both the
+                lazy proxy and the real keymap.
+
                                                           *zpack.KeySpec.ft*
 ft              (string|string[], optional)
-                FileType scope (lazy.nvim parity). When set, the lazy
-                proxy is installed buffer-locally on a matching FileType
-                event instead of being installed globally up-front. After
-                the plugin loads, the real keymap is installed globally
-                via the spec's `[2]` rhs.
+                FileType scope (lazy.nvim parity). The keymap (both the
+                lazy proxy and the real keymap installed on load) is
+                buffer-local to buffers matching the given filetype, via
+                a FileType autocmd that also catches future buffers.
 
                                                        *zpack.KeySpec.nop*
 A KeySpec whose `[2]` is `'<Nop>'` (any case) or the empty string is

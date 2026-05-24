@@ -20,10 +20,10 @@ M.setup = function(pack_spec, ft)
     util.source_ftdetect_files(plugin_path)
   end
 
-  -- once_per_tick guards against nvim#25526; needed here because the
+  -- latch_first_call guards against nvim#25526; needed here because the
   -- plugin's own `ftplugin/*` sourced during packadd can nest-fire FileType
   -- on the same buffer before load_status flips.
-  util.autocmd("FileType", util.once_per_tick(function(ev)
+  util.autocmd("FileType", util.latch_first_call(function(ev)
     -- Skip when a sibling already loaded (avoid double-fire) or is
     -- mid-load (avoid spurious circular-dependency notify).
     local entry = state.spec_registry[pack_spec.src]

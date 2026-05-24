@@ -29,7 +29,7 @@
 
   -- Lazy loading triggers (auto-sets lazy=true unless overridden)
   -- All triggers can also be functions that receive zpack.Plugin and return the respective type
-  event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]|function(plugin), -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua"
+  event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]|function(plugin), -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua". zpack auto-emits `User VeryLazy` once on UIEnter so user-config `autocmd User VeryLazy` hooks fire.
   pattern = string|string[],            -- Global fallback pattern(s) for all events
   cmd = string|string[]|function(plugin), -- Command(s) to create
   keys = zpack.KeySpec|zpack.KeySpec[]|function(plugin), -- Keymap(s) to create
@@ -83,7 +83,8 @@ The plugin data object passed to hooks and trigger functions:
   [2] = function() end,           -- RHS function
   desc = "description",           -- Keymap description
   mode = "n"|{"n","v"},           -- Mode(s), default: "n"
-  ft = "lua"|{"lua","vim"},       -- FileType scope; proxy installs buffer-locally only
+  ft = "lua"|{"lua","vim"},       -- FileType scope; keymap installs buffer-locally on matching FileType only
+  buffer = true|0|7,              -- Buffer scope: true/0 = current buffer; integer = specific buffer
   remap = true|false,             -- Allow remapping, default: false
   nowait = true|false,            -- Default: false
   expr = true|false,              -- RHS is an expression, default: false

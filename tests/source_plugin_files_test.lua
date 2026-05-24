@@ -194,3 +194,122 @@ describe("source_after_plugin_files", function()
     vim.fn.delete(tmpdir, "rf")
   end)
 end)
+
+describe("source_ftdetect_files", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  it("sources lua files from ftdetect/ directory", function()
+    local utils = require('zpack.utils')
+    local tmpdir = vim.fn.tempname()
+    local ftdetect_dir = tmpdir .. "/ftdetect"
+    vim.fn.mkdir(ftdetect_dir, "p")
+
+    local f = io.open(ftdetect_dir .. "/zztest.lua", "w")
+    f:write("_G._test_ftdetect_ran = true\n")
+    f:close()
+
+    _G._test_ftdetect_ran = nil
+    utils.source_ftdetect_files(tmpdir)
+
+    assert.is_true(_G._test_ftdetect_ran == true,
+      "ftdetect/ lua file should be sourced")
+
+    _G._test_ftdetect_ran = nil
+    vim.fn.delete(tmpdir, "rf")
+  end)
+
+  it("does not source same path twice", function()
+    local utils = require('zpack.utils')
+    local tmpdir = vim.fn.tempname()
+    local ftdetect_dir = tmpdir .. "/ftdetect"
+    vim.fn.mkdir(ftdetect_dir, "p")
+
+    local f = io.open(ftdetect_dir .. "/counter.lua", "w")
+    f:write("_G._test_ftdetect_count = (_G._test_ftdetect_count or 0) + 1\n")
+    f:close()
+
+    _G._test_ftdetect_count = nil
+    utils.source_ftdetect_files(tmpdir)
+    utils.source_ftdetect_files(tmpdir)
+
+    assert.are.equal(1, _G._test_ftdetect_count)
+
+    _G._test_ftdetect_count = nil
+    vim.fn.delete(tmpdir, "rf")
+  end)
+
+  it("handles missing ftdetect/ directory gracefully", function()
+    local utils = require('zpack.utils')
+    local tmpdir = vim.fn.tempname()
+    vim.fn.mkdir(tmpdir, "p")
+
+    local ok, err = pcall(utils.source_ftdetect_files, tmpdir)
+    assert.is_true(ok, "should not error on missing ftdetect/: " .. tostring(err))
+
+    vim.fn.delete(tmpdir, "rf")
+  end)
+
+  it("continues sourcing later files when one throws", function()
+    local utils = require('zpack.utils')
+    local tmpdir = vim.fn.tempname()
+    local ftdetect_dir = tmpdir .. "/ftdetect"
+    vim.fn.mkdir(ftdetect_dir, "p")
+
+    local f = io.open(ftdetect_dir .. "/a_throws.lua", "w")
+    f:write("error('intentional throw from a_throws.lua')\n")
+    f:close()
+
+    f = io.open(ftdetect_dir .. "/b_ok.lua", "w")
+    f:write("_G._test_ftdetect_b_ran = true\n")
+    f:close()
+
+    _G._test_ftdetect_b_ran = nil
+    utils.source_ftdetect_files(tmpdir)
+    helpers.flush_pending()
+
+    assert.is_true(_G._test_ftdetect_b_ran == true,
+      "later file must still source after an earlier file throws")
+
+    local saw_notify = false
+    for _, n in ipairs(_G.test_state.notifications) do
+      if n.msg:find("Failed to source.*a_throws%.lua") then
+        saw_notify = true
+        break
+      end
+    end
+    assert.is_true(saw_notify, "throwing file should surface a structured notify")
+
+    _G._test_ftdetect_b_ran = nil
+    vim.fn.delete(tmpdir, "rf")
+  end)
+
+  -- Regression: a throwing ftdetect file used to leak the `filetypedetect`
+  -- augroup (the `augroup END` was `|`-chained with the `source` and never
+  -- ran on throw). Any subsequent vimscript `autocmd` then landed in
+  -- `filetypedetect` instead of the default group.
+  it("throwing ftdetect file does not leak filetypedetect augroup", function()
+    local utils = require('zpack.utils')
+    local tmpdir = vim.fn.tempname()
+    local ftdetect_dir = tmpdir .. "/ftdetect"
+    vim.fn.mkdir(ftdetect_dir, "p")
+
+    local f = io.open(ftdetect_dir .. "/boom.lua", "w")
+    f:write("error('intentional throw')\n")
+    f:close()
+
+    utils.source_ftdetect_files(tmpdir)
+    helpers.flush_pending()
+
+    -- Register a vimscript autocmd with no explicit group; if the augroup
+    -- leaked, this would be reported under `filetypedetect`.
+    vim.cmd([[autocmd BufRead *.zz_augroup_check echo "test"]])
+    local listing = vim.fn.execute("autocmd BufRead *.zz_augroup_check")
+
+    assert.is_nil(listing:match("filetypedetect"),
+      "subsequent autocmd must not land in the filetypedetect augroup")
+
+    vim.cmd([[autocmd! BufRead *.zz_augroup_check]])
+    vim.fn.delete(tmpdir, "rf")
+  end)
+end)

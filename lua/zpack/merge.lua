@@ -64,8 +64,9 @@ end
 ---Get unique key for a value (handles KeySpec with mode + ft).
 ---ft is included so two specs with the same lhs/mode but disjoint ft
 ---scopes (`{<leader>x, ..., ft='lua'}` + `{<leader>x, ..., ft='rust'}`)
----survive merge instead of the second silently dropping. Matches the
----ft-aware dedup in lazy_trigger/keys.lua's create_key_id.
+---survive merge instead of the second silently dropping. Mirrors the
+---ft-aware dedup *intent* of lazy_trigger/keys.lua's create_key_id (each
+---module owns its own format; only the (lhs, mode, ft) identity is shared).
 ---@param v any
 ---@return string
 local function get_unique_key(v)

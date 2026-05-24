@@ -65,6 +65,29 @@ local split_very_lazy = function(events)
   return has_very_lazy, other_events
 end
 
+---Fire `User VeryLazy` once on UIEnter (or immediately if vim has already
+---entered). Matches lazy.nvim's contract so user autocmds keyed on
+---`User VeryLazy` work in configs ported from lazy.nvim. Called from
+---lazy.process_all AFTER per-plugin UIEnter handlers register so VeryLazy
+---plugins are loaded by the time User VeryLazy fires.
+M.fire_very_lazy = function()
+  local function emit()
+    vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy', modeline = false })
+  end
+  if vim.v.vim_did_enter == 1 then
+    vim.schedule(emit)
+  else
+    vim.api.nvim_create_autocmd('UIEnter', {
+      group = state.lazy_group,
+      once = true,
+      nested = true,
+      callback = function()
+        vim.schedule(emit)
+      end,
+    })
+  end
+end
+
 ---@param pack_spec vim.pack.Spec
 ---@param spec zpack.Spec
 ---@param event zpack.EventValue
@@ -85,7 +108,7 @@ M.setup = function(pack_spec, spec, event)
           loader.try_process_spec(pack_spec)
         end)
       else
-        util.autocmd("UIEnter", util.once_per_tick(function()
+        util.autocmd("UIEnter", util.latch_first_call(function()
           vim.schedule(function()
             loader.try_process_spec(pack_spec)
           end)
@@ -94,11 +117,11 @@ M.setup = function(pack_spec, spec, event)
     end
 
     if #other_events > 0 then
-      -- once_per_tick latches before the load_status gate so a second fire
-      -- in the same tick bails before refire.exec can double-fire user
-      -- autocmds. The load_status gate handles other races (sibling
+      -- latch_first_call gates before the load_status check so a second
+      -- nested fire in the same tick bails before refire.exec can double-fire
+      -- user autocmds. The load_status gate handles other races (sibling
       -- event/ft already loaded, plugin/ files re-entering synchronously).
-      util.autocmd(other_events, util.once_per_tick(function(ev)
+      util.autocmd(other_events, util.latch_first_call(function(ev)
         local entry = state.spec_registry[pack_spec.src]
         if entry and entry.load_status ~= "pending" then
           return

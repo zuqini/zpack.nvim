@@ -54,12 +54,15 @@ end
 local install_proxy = function(key_info, buf)
   local lhs = key_info.key_spec[1]
   local key_spec = key_info.key_spec
+  -- ft path forces buffer-local in `buf`; otherwise honor the user's
+  -- `key_spec.buffer` (lazy.nvim parity for unscoped buffer-local keys).
+  local proxy_buffer = buf or key_spec.buffer
   keymap.map(lhs, function()
     -- Mirror the install scope: a global proxy must delete the global
     -- mapping; a buffer-local proxy must delete the buffer-local one
     -- (otherwise vim.keymap.del finds nothing and the stale buffer-local
     -- proxy fires forever on the re-fed lhs).
-    if buf then
+    if proxy_buffer then
       pcall(vim.keymap.del, key_info.split_mode, lhs, { buffer = 0 })
     else
       pcall(vim.keymap.del, key_info.split_mode, lhs)
@@ -104,7 +107,7 @@ local install_proxy = function(key_info, buf)
     silent = key_spec.silent,
     remap = key_spec.remap,
     noremap = key_spec.noremap,
-    buffer = buf,
+    buffer = proxy_buffer,
   })
 end
 
@@ -129,7 +132,11 @@ end
 local function install_nop(key, src, buf)
   local nop_opts = vim.deepcopy(key)
   nop_opts.expr = nil
-  nop_opts.buffer = buf
+  -- ft path forces `buf`; otherwise leave user's `key.buffer` intact (already
+  -- copied above) so e.g. `{ 'X', '<Nop>', buffer = true }` stays scoped.
+  if buf then
+    nop_opts.buffer = buf
+  end
   local ok, err = pcall(keymap.map, key[1], '<Nop>', nop_opts)
   if not ok then
     util.schedule_notify(
@@ -155,9 +162,16 @@ M.setup = function(registered_pack_specs)
         local mode = key.mode or 'n'
         local modes = util.normalize_string_list(mode) --[[@as string[] ]]
 
-        -- Only string/table ft is honored as a scope; anything else is a
-        -- type error best treated as "no ft" so the proxy/nop stays global.
-        local ft_scope = (type(key.ft) == 'string' or type(key.ft) == 'table') and key.ft or nil
+        -- Only string/non-empty-table ft is honored as a scope; an empty
+        -- table or non-string non-table is treated as "no ft" so the
+        -- proxy/nop stays global rather than registering an autocmd with
+        -- an unmatchable empty pattern list.
+        local ft_scope
+        if type(key.ft) == 'string' then
+          ft_scope = key.ft
+        elseif type(key.ft) == 'table' and next(key.ft --[[@as table]]) ~= nil then
+          ft_scope = key.ft
+        end
         local src = pack_spec.name or pack_spec.src
 
         -- <Nop> rhs never needs the proxy: install as a real no-op so the
@@ -197,17 +211,23 @@ M.setup = function(registered_pack_specs)
   for _, key_info in pairs(key_to_info) do
     if key_info.ft then
       -- ft-scoped: install the proxy buffer-locally each time a matching
-      -- buffer enters the filetype. Once every claiming plugin has loaded,
-      -- the autocmd no-ops; the global keymap from apply_keys handles
-      -- subsequent presses.
-      util.autocmd("FileType", function(ev)
-        if not any_pack_pending(key_info) then
-          return
-        end
-        install_proxy(key_info, ev.buf)
-      end, {
+      -- buffer enters the filetype. Self-delete once every claiming plugin
+      -- has loaded — apply_keys's own FileType autocmd then handles the
+      -- real keymap for future matching buffers.
+      local autocmd_id
+      autocmd_id = vim.api.nvim_create_autocmd("FileType", {
         group = state.lazy_group,
         pattern = util.normalize_string_list(key_info.ft),
+        callback = function(ev)
+          if not any_pack_pending(key_info) then
+            if autocmd_id then
+              pcall(vim.api.nvim_del_autocmd, autocmd_id)
+              autocmd_id = nil
+            end
+            return
+          end
+          install_proxy(key_info, ev.buf)
+        end,
       })
     else
       install_proxy(key_info, nil)

@@ -132,13 +132,15 @@ M.autocmd = function(event, callback, opts)
   }, opts))
 end
 
----Wrap a callback so a synchronous second invocation no-ops. Guards against
----nvim#25526 (https://github.com/neovim/neovim/issues/25526) — a `once = true`
----autocmd that nested-fires in the same tick is dispatched twice before the
----autocmd-deletion takes effect.
+---Wrap a callback so the second (and subsequent) calls no-op. Used to guard
+---an autocmd against nvim#25526 (https://github.com/neovim/neovim/issues/25526)
+---— a `once = true` autocmd that nested-fires in the same tick is dispatched
+---twice before the autocmd-deletion takes effect. The latch is permanent (no
+---per-tick reset); call sites combine this with `once = true` so the wrapping
+---autocmd self-deletes after the first dispatch.
 ---@param callback function
 ---@return function
-M.once_per_tick = function(callback)
+M.latch_first_call = function(callback)
   local done = false
   return function(...)
     if done then
@@ -387,9 +389,14 @@ M.source_ftdetect_files = function(plugin_path)
   local files = vim.fn.glob(plugin_path .. '/ftdetect/*.{vim,lua}', false, true)
   -- ftdetect files must execute inside the `filetypedetect` augroup so their
   -- autocmds register there (matches Neovim's standard ftdetect sourcing).
+  -- The augroup begin/end are issued as separate ex-commands rather than
+  -- `|`-chained with the `source`, because a throw inside the chained source
+  -- skips the trailing `augroup END` and leaves Neovim in `filetypedetect`
+  -- — subsequent vimscript `autocmd` statements would silently land there.
   for _, file in ipairs(files) do
-    local ok, err = pcall(vim.cmd,
-      ('augroup filetypedetect | source %s | augroup END'):format(vim.fn.fnameescape(file)))
+    vim.cmd('augroup filetypedetect')
+    local ok, err = pcall(vim.cmd.source, file)
+    vim.cmd('augroup END')
     if not ok then
       M.schedule_notify(("Failed to source %s: %s"):format(file, tostring(err)), vim.log.levels.ERROR)
     end

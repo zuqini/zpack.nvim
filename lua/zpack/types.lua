@@ -12,7 +12,7 @@
 ---@field [1] string
 ---@field [2]? string|fun()
 ---@field noremap? boolean
----@field ft? string|string[] FileType scope (lazy.nvim parity); install proxy buffer-locally on matching FileType only
+---@field ft? string|string[] FileType scope (lazy.nvim parity); keymap installs buffer-locally on matching FileType only (both proxy and real keymap)
 
 ---@class zpack.EventSpec
 ---@field event string|string[] Event name(s) to trigger on
