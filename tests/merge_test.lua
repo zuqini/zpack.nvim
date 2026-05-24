@@ -434,4 +434,52 @@ describe("Merge Module Unit Tests", function()
     assert.are.equal(1, #merged.keys,
       "Ft lists with same members in different order should dedup")
   end)
+
+  -- Symmetric with the ft case above: two specs declaring the same lhs/mode
+  -- but disjoint `buffer` scopes are NOT duplicates — get_unique_key must
+  -- include buffer so the second spec survives merge.
+  it("keys with same lhs/mode but different buffer scopes both survive merge", function()
+    local buf_a = vim.api.nvim_create_buf(true, false)
+    local buf_b = vim.api.nvim_create_buf(true, false)
+
+    require('zpack').setup({
+      spec = {
+        { 'test/plugin', keys = { { '<leader>b', '<cmd>A<cr>', buffer = buf_a } } },
+        { 'test/plugin', keys = { { '<leader>b', '<cmd>B<cr>', buffer = buf_b } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    local src = 'https://github.com/test/plugin'
+    local merged = state.spec_registry[src].merged_spec
+
+    assert.are.equal(2, #merged.keys,
+      "Both buffer-scoped keys should survive merge")
+
+    vim.api.nvim_buf_delete(buf_a, { force = true })
+    vim.api.nvim_buf_delete(buf_b, { force = true })
+  end)
+
+  -- lazy.nvim parity: `buffer = true` and `buffer = 0` both mean "current
+  -- buffer at registration time", so they MUST collapse to one entry —
+  -- otherwise a user toggling between the two forms gets a duplicate.
+  it("keys with buffer = true and buffer = 0 are deduplicated", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/plugin', keys = { { '<leader>c', '<cmd>A<cr>', buffer = true } } },
+        { 'test/plugin', keys = { { '<leader>c', '<cmd>B<cr>', buffer = 0 } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    local src = 'https://github.com/test/plugin'
+    local merged = state.spec_registry[src].merged_spec
+
+    assert.are.equal(1, #merged.keys,
+      "buffer = true and buffer = 0 should hash to the same entry")
+  end)
 end)

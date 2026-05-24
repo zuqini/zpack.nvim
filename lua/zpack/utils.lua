@@ -151,6 +151,35 @@ M.latch_first_call = function(callback)
   end
 end
 
+---Register a `FileType` autocmd for `patterns` AND call `installer(buf)`
+---for every already-loaded matching buffer — their FileType has already
+---fired and won't re-fire.
+---@param patterns string[]
+---@param installer fun(buf: integer)
+---@param opts? table Extra opts merged into the autocmd (group, etc.)
+---@return integer autocmd_id
+M.install_on_ft = function(patterns, installer, opts)
+  local pat_set = {}
+  local deduped = {}
+  for _, p in ipairs(patterns) do
+    if not pat_set[p] then
+      pat_set[p] = true
+      table.insert(deduped, p)
+    end
+  end
+  local autocmd_opts = vim.tbl_extend("force", opts or {}, {
+    pattern = deduped,
+    callback = function(ev) installer(ev.buf) end,
+  })
+  local id = vim.api.nvim_create_autocmd("FileType", autocmd_opts)
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and pat_set[vim.bo[buf].filetype] then
+      installer(buf)
+    end
+  end
+  return id
+end
+
 ---Resolve a function-form spec field; a throw becomes a structured notify
 ---and a nil return instead of aborting the caller.
 ---@param field any

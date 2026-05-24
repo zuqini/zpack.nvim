@@ -161,3 +161,34 @@ describe("is_semver_like utility", function()
     assert.are.equal(false, utils.is_semver_like({}))
   end)
 end)
+
+describe('latch_first_call', function()
+  it("invokes the inner callback exactly once across repeated calls", function()
+    local utils = require('zpack.utils')
+    local count = 0
+    local latched = utils.latch_first_call(function() count = count + 1 end)
+
+    latched()
+    latched()
+    latched()
+
+    assert.are.equal(1, count,
+      "Latch must absorb every call after the first (guards nvim#25526 double-dispatch)")
+  end)
+
+  it("forwards args and the return value on the first call", function()
+    local utils = require('zpack.utils')
+    local seen
+    local latched = utils.latch_first_call(function(a, b)
+      seen = { a, b }
+      return a + b
+    end)
+
+    local result = latched(2, 3)
+    assert.are.same({ 2, 3 }, seen)
+    assert.are.equal(5, result)
+
+    assert.is_nil(latched(99, 1),
+      "Subsequent calls must not invoke the inner — return nil")
+  end)
+end)

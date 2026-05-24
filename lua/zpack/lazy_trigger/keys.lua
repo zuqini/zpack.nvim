@@ -17,13 +17,25 @@ local ft_key_part = function(ft)
   return '-ft:' .. table.concat(sorted, ',')
 end
 
----Create a unique key identifier from lhs, mode, and (optional) ft scope.
----@param lhs string The key mapping (e.g., "<leader>ff")
----@param mode string The mode (e.g., "n", "v")
----@param ft string|string[]|nil Optional filetype scope
----@return string Unique identifier
-local create_key_id = function(lhs, mode, ft)
-  return lhs .. '-' .. mode .. ft_key_part(ft)
+---@param buffer any
+---@return string
+local buffer_key_part = function(buffer)
+  if buffer == nil then
+    return ''
+  end
+  -- lazy.nvim parity: `buffer = true` and `buffer = 0` both mean "current
+  -- buffer" — coerce so they share an entry.
+  local b = buffer == true and 0 or buffer
+  return '-buf:' .. tostring(b)
+end
+
+---@param lhs string
+---@param mode string
+---@param ft string|string[]|nil
+---@param buffer integer|boolean|nil
+---@return string
+local create_key_id = function(lhs, mode, ft, buffer)
+  return lhs .. '-' .. mode .. ft_key_part(ft) .. buffer_key_part(buffer)
 end
 
 ---@param rhs any
@@ -122,18 +134,18 @@ local function any_pack_pending(key_info)
   return false
 end
 
----Install a (buffer-local when `buf` is non-nil) real `<Nop>` keymap from
----the user's KeySpec. `expr` is stripped so vim does not eval the literal
----string `<Nop>` as an expression; `keymap.map` nulls `replace_keycodes`
----when `expr` is unset, so it does not need a separate strip.
+---Install a (buffer-local when `buf` is non-nil) real `<Nop>` keymap.
+---`expr`/`replace_keycodes` are stripped (vim.keymap.set raises when
+---`replace_keycodes` is set without `expr`).
 ---@param key zpack.KeySpec
 ---@param src string
 ---@param buf? integer
 local function install_nop(key, src, buf)
   local nop_opts = vim.deepcopy(key)
   nop_opts.expr = nil
-  -- ft path forces `buf`; otherwise leave user's `key.buffer` intact (already
-  -- copied above) so e.g. `{ 'X', '<Nop>', buffer = true }` stays scoped.
+  nop_opts.replace_keycodes = nil
+  -- ft path forces `buf`; otherwise leave the user's `key.buffer` intact
+  -- so e.g. `{ 'X', '<Nop>', buffer = true }` stays scoped.
   if buf then
     nop_opts.buffer = buf
   end
@@ -162,12 +174,10 @@ M.setup = function(registered_pack_specs)
         local mode = key.mode or 'n'
         local modes = util.normalize_string_list(mode) --[[@as string[] ]]
 
-        -- Only string/non-empty-table ft is honored as a scope; an empty
-        -- table or non-string non-table is treated as "no ft" so the
-        -- proxy/nop stays global rather than registering an autocmd with
-        -- an unmatchable empty pattern list.
+        -- Empty ft → no scope, so the autocmd doesn't register an
+        -- unmatchable empty pattern list and silently drop the key.
         local ft_scope
-        if type(key.ft) == 'string' then
+        if type(key.ft) == 'string' and key.ft ~= '' then
           ft_scope = key.ft
         elseif type(key.ft) == 'table' and next(key.ft --[[@as table]]) ~= nil then
           ft_scope = key.ft
@@ -181,27 +191,15 @@ M.setup = function(registered_pack_specs)
         if is_nop_rhs(key[2]) then
           if ft_scope then
             local patterns = util.normalize_string_list(ft_scope) --[[@as string[] ]]
-            util.autocmd("FileType", function(ev)
-              install_nop(key, src, ev.buf)
-            end, {
-              group = state.lazy_group,
-              pattern = patterns,
-            })
-            -- Currently-matching buffers already fired FileType; install
-            -- for them too. Mirrors apply_ft_scoped.
-            local pat_set = {}
-            for _, p in ipairs(patterns) do pat_set[p] = true end
-            for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-              if vim.api.nvim_buf_is_loaded(buf) and pat_set[vim.bo[buf].filetype] then
-                install_nop(key, src, buf)
-              end
-            end
+            util.install_on_ft(patterns, function(buf)
+              install_nop(key, src, buf)
+            end, { group = state.lazy_group })
           else
             install_nop(key, src, nil)
           end
         else
           for _, m in ipairs(modes) do
-            local key_id = create_key_id(lhs, m, ft_scope)
+            local key_id = create_key_id(lhs, m, ft_scope, key.buffer)
             if not key_to_info[key_id] then
               key_to_info[key_id] = {
                 split_mode = m,
@@ -220,15 +218,14 @@ M.setup = function(registered_pack_specs)
   -- Create keymaps
   for _, key_info in pairs(key_to_info) do
     if key_info.ft then
-      -- ft-scoped: install the proxy buffer-locally each time a matching
-      -- buffer enters the filetype. Self-delete once every claiming plugin
-      -- has loaded — apply_keys's own FileType autocmd then handles the
-      -- real keymap for future matching buffers.
+      -- Proxy self-deletes once every claiming plugin has loaded —
+      -- apply_keys's own FileType autocmd takes over for future buffers.
+      -- During the sweep all packs are still `pending`, so the self-delete
+      -- branch never fires before `autocmd_id` is assigned.
       local autocmd_id
-      autocmd_id = vim.api.nvim_create_autocmd("FileType", {
-        group = state.lazy_group,
-        pattern = util.normalize_string_list(key_info.ft),
-        callback = function(ev)
+      autocmd_id = util.install_on_ft(
+        util.normalize_string_list(key_info.ft) --[[@as string[] ]],
+        function(buf)
           if not any_pack_pending(key_info) then
             if autocmd_id then
               pcall(vim.api.nvim_del_autocmd, autocmd_id)
@@ -236,9 +233,10 @@ M.setup = function(registered_pack_specs)
             end
             return
           end
-          install_proxy(key_info, ev.buf)
+          install_proxy(key_info, buf)
         end,
-      })
+        { group = state.lazy_group }
+      )
     else
       install_proxy(key_info, nil)
     end

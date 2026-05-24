@@ -61,12 +61,9 @@ local function to_array(val)
   return { val }
 end
 
----Get unique key for a value (handles KeySpec with mode + ft).
----ft is included so two specs with the same lhs/mode but disjoint ft
----scopes (`{<leader>x, ..., ft='lua'}` + `{<leader>x, ..., ft='rust'}`)
----survive merge instead of the second silently dropping. Mirrors the
----ft-aware dedup *intent* of lazy_trigger/keys.lua's create_key_id (each
----module owns its own format; only the (lhs, mode, ft) identity is shared).
+---Identity is (lhs, mode, ft, buffer) so disjoint-scope specs (same lhs
+---under different ft/buffer) both survive merge. Format is private — only
+---the identity is shared with lazy_trigger/keys.lua's create_key_id.
 ---@param v any
 ---@return string
 local function get_unique_key(v)
@@ -81,14 +78,21 @@ local function get_unique_key(v)
     mode = table.concat(sorted, ",")
   end
   local ft = ""
-  if type(v.ft) == "string" then
+  if type(v.ft) == "string" and v.ft ~= "" then
     ft = ":ft=" .. v.ft
-  elseif type(v.ft) == "table" then
+  elseif type(v.ft) == "table" and next(v.ft) ~= nil then
     local sorted = vim.list_slice(v.ft)
     table.sort(sorted)
     ft = ":ft=" .. table.concat(sorted, ",")
   end
-  return lhs .. ":" .. mode .. ft
+  local buf = ""
+  if v.buffer ~= nil then
+    -- lazy.nvim parity: `buffer = true` and `buffer = 0` both mean "current
+    -- buffer" — coerce so they share a key.
+    local b = v.buffer == true and 0 or v.buffer
+    buf = ":buf=" .. tostring(b)
+  end
+  return lhs .. ":" .. mode .. ft .. buf
 end
 
 ---Extend list with unique values

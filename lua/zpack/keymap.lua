@@ -49,23 +49,9 @@ end
 ---@param src string
 local function apply_ft_scoped(key, src)
   local patterns = util.normalize_string_list(key.ft) --[[@as string[] ]]
-  local pat_set = {}
-  for _, p in ipairs(patterns) do pat_set[p] = true end
-  -- Catch future matching buffers.
-  vim.api.nvim_create_autocmd("FileType", {
-    group = state.lazy_group,
-    pattern = patterns,
-    callback = function(ev)
-      install_buffer_local(key, ev.buf, src)
-    end,
-  })
-  -- Install in currently-matching buffers — their FileType has already
-  -- fired, so the autocmd above won't reach them.
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(buf) and pat_set[vim.bo[buf].filetype] then
-      install_buffer_local(key, buf, src)
-    end
-  end
+  util.install_on_ft(patterns, function(buf)
+    install_buffer_local(key, buf, src)
+  end, { group = state.lazy_group })
 end
 
 ---@param keys zpack.KeySpec|zpack.KeySpec[]|string
@@ -79,7 +65,7 @@ M.apply_keys = function(keys, src)
       -- already-matching buffers so the real keymap stays buffer-local.
       -- Without this, a global apply_keys could silently overwrite a sibling
       -- plugin that claimed the same lhs under a disjoint ft.
-      local has_ft = type(key.ft) == 'string'
+      local has_ft = (type(key.ft) == 'string' and key.ft ~= '')
           or (type(key.ft) == 'table' and next(key.ft --[[@as table]]) ~= nil)
       -- pcall per key so one malformed spec doesn't strand its siblings.
       local ok, err

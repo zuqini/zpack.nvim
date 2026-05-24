@@ -1358,6 +1358,87 @@ describe("Lazy Loading - Keymaps", function()
     vim.api.nvim_buf_delete(buf, { force = true })
   end)
 
+  -- Two DIFFERENT plugins claiming the same lhs+mode but with disjoint
+  -- `buffer` scopes must each get their own buffer-local proxy. Before
+  -- create_key_id was buffer-aware, both plugins collapsed into one
+  -- `key_to_info` entry, the first plugin's `buffer` won, and the second
+  -- plugin's intended buffer never got a proxy (silent miss).
+  it("KeySpec.buffer disambiguates the proxy across plugin sources", function()
+    local buf_a = vim.api.nvim_create_buf(true, false)
+    local buf_b = vim.api.nvim_create_buf(true, false)
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin-a',
+          keys = { { '<leader>tbx', function() end, buffer = buf_a } },
+        },
+        {
+          'test/plugin-b',
+          keys = { { '<leader>tbx', function() end, buffer = buf_b } },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local function has_lhs(buf)
+      for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+        if m.lhs == ' tbx' then return true end
+      end
+      return false
+    end
+
+    assert.is_true(has_lhs(buf_a),
+      "plugin-a's buffer must get its own proxy")
+    assert.is_true(has_lhs(buf_b),
+      "plugin-b's buffer must get its own proxy (silent-miss regression)")
+
+    for _, map in ipairs(vim.api.nvim_get_keymap('n')) do
+      assert.are_not.equal(' tbx', map.lhs,
+        "Buffer-scoped keys must not also install a global proxy")
+    end
+
+    vim.api.nvim_buf_delete(buf_a, { force = true })
+    vim.api.nvim_buf_delete(buf_b, { force = true })
+  end)
+
+  -- ft-scoped lazy proxy must install in buffers that ALREADY match the
+  -- filetype at setup() time — their FileType event already fired in the
+  -- past, so the autocmd alone never reaches them. Without the sweep,
+  -- `:luafile %` (config reload while a matching buffer is current) would
+  -- leave the lhs untriggerable in that buffer.
+  it("ft-scoped lazy proxy installs in existing matching buffers at setup", function()
+    local buf = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_set_current_buf(buf)
+    vim.bo[buf].filetype = 'lua'
+    helpers.flush_pending()
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          keys = {
+            { '<leader>tff', function() end, ft = 'lua' },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    local found
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, 'n')) do
+      if map.lhs == ' tff' then found = map end
+    end
+    assert.is_not_nil(found,
+      "Proxy must install in a buffer already at the ft when setup() runs")
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end)
+
   -- ft = {} normalizes to "no ft scope" — installing an autocmd with an
   -- empty pattern list would silently never match, dropping the key.
   it("KeySpec with empty ft = {} falls back to a global proxy", function()

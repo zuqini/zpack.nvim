@@ -77,13 +77,15 @@ M.fire_very_lazy = function()
   if vim.v.vim_did_enter == 1 then
     vim.schedule(emit)
   else
+    -- latch_first_call guards against nvim#25526 (nested UIEnter in the
+    -- same tick fires twice before once=true deletion takes effect) so
+    -- `User VeryLazy` only emits once.
     vim.api.nvim_create_autocmd('UIEnter', {
       group = state.lazy_group,
       once = true,
-      nested = true,
-      callback = function()
+      callback = util.latch_first_call(function()
         vim.schedule(emit)
-      end,
+      end),
     })
   end
 end
