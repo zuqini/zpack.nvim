@@ -84,11 +84,9 @@ M.setup = function(registered_pack_specs)
       -- arguments" on first invocation only.
       local info = vim.api.nvim_get_commands({})[cmd]
           or vim.api.nvim_buf_get_commands(0, {})[cmd]
-      if info then
-        command.nargs = info.nargs
-        if cmd_args.args and cmd_args.args ~= "" and info.nargs and info.nargs:find("[1?]") then
-          command.args = { cmd_args.args }
-        end
+      if info and cmd_args.args and cmd_args.args ~= ""
+          and info.nargs and info.nargs:find("[1?]") then
+        command.args = { cmd_args.args }
       end
 
       local ok, err = pcall(vim.api.nvim_cmd, command, {})

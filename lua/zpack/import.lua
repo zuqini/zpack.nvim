@@ -246,10 +246,13 @@ local import_one_spec = function(spec, ctx)
     if type(spec.import) == 'string' then
       import_from_module(spec.import --[[@as string]], ctx)
     else
-      -- lazy.nvim parity (LazySpecImport.import as function): invoke and
-      -- treat the return value as a spec (or spec list) to recurse into.
-      -- A throw surfaces as a structured notify; an empty/non-table return
-      -- is a no-op rather than an error.
+      -- Per-setup() visited set guards against
+      -- `f = function() return { { import = f } } end` self-recursion.
+      ctx._imported_functions = ctx._imported_functions or {}
+      if ctx._imported_functions[spec.import] then
+        return
+      end
+      ctx._imported_functions[spec.import] = true
       local ok, result = pcall(spec.import --[[@as fun(): any]])
       if not ok then
         utils.schedule_notify(

@@ -77,9 +77,7 @@ is recommended for ease of use.
 - `:ZPack[!] load [plugin]` - Load a specific unloaded plugin, or all unloaded plugins with `!` (supports tab completion)
 - `:ZPack[!] delete [plugin]` - Remove a specific plugin, or all plugins with `!` (supports tab completion)
   - Deleting active plugins in your spec can result in errors in your current session. Restart Neovim to re-install them.
-- `:ZPack[!] sync` - Bulk update + clean in one step. `!` force-applies updates. lazy.nvim parity for `:Lazy sync`
-- `:ZPack check [plugin]` - Preview pending updates without applying them. lazy.nvim parity for `:Lazy check`
-- `:ZPack log {plugin}` - Show recent git log for a plugin in a scratch buffer. lazy.nvim parity for `:Lazy log`
+- `:ZPack sync` - Bulk update + clean in one step (always force-applies; use `:ZPack update` without `!` for a preview). lazy.nvim parity for `:Lazy sync`
 - `:ZPack reload {plugin}` - Re-source a plugin (runs `deactivate`, clears `package.loaded`, re-runs config). lazy.nvim parity for `:Lazy reload`
 
 On Neovim 0.13+, several subcommands map to native `vim.pack` commands you can use interchangeably:

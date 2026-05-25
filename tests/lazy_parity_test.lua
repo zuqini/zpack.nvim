@@ -225,28 +225,11 @@ describe(":ZPack sync (zpack_nvim-0sp)", function()
     vim.cmd('ZPack sync')
     helpers.flush_pending()
     assert.are.equal(1, #_G.test_state.vim_pack_update_calls, "sync must update")
+    local opts = _G.test_state.vim_pack_update_calls[1].opts
+    assert.is_true(opts and opts.force == true,
+      "sync must force-apply (no-force would race clean ahead of confirm)")
     assert.is_true(#_G.test_state.vim_pack_del_calls >= 1,
       "sync must clean unused plugins")
-  end)
-end)
-
-describe(":ZPack check (zpack_nvim-xrx)", function()
-  before_each(helpers.setup_test_env)
-  after_each(helpers.cleanup_test_env)
-
-  it("check delegates to vim.pack.update without force", function()
-    require('zpack').setup({
-      spec = { { 'test/p' } },
-      defaults = { confirm = false },
-    })
-    helpers.flush_pending()
-    _G.test_state.vim_pack_update_calls = {}
-    vim.cmd('ZPack check')
-    assert.are.equal(1, #_G.test_state.vim_pack_update_calls)
-    local opts = _G.test_state.vim_pack_update_calls[1].opts
-    -- Either nil (no opts) or { force = false } / unset. Must NOT be true.
-    local force = opts and opts.force or false
-    assert.is_false(force, "check must NOT force-apply")
   end)
 end)
 
@@ -284,5 +267,109 @@ describe("deactivate hook (zpack_nvim-aht) + :ZPack reload (zpack_nvim-dpl)", fu
     -- Order: deactivate first (teardown), then config (fresh load).
     assert.are.same({ 'deactivate', 'config' }, lifecycle,
       ("Reload must call deactivate then config; got: %s"):format(vim.inspect(lifecycle)))
+  end)
+
+  it("reload clears package.loaded for plugin modules under its lua/", function()
+    -- Plant a fake plugin on disk so the sweep has a real lua/ tree to fs_stat
+    -- against. Mock vim.pack.get to point at it so reload resolves a real path.
+    local tmp = vim.fn.tempname()
+    local plugin_path = tmp .. '/sweepy'
+    vim.fn.mkdir(plugin_path .. '/lua/sweepy/sub', 'p')
+    local f = io.open(plugin_path .. '/lua/sweepy/init.lua', 'w')
+    f:write('return { x = 1 }'); f:close()
+    f = io.open(plugin_path .. '/lua/sweepy/sub/inner.lua', 'w')
+    f:write('return { y = 2 }'); f:close()
+
+    require('zpack').setup({
+      spec = { { 'test/sweepy', lazy = false, main = 'sweepy' } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    -- Override path from the helpers' default stdpath('data')/... to the
+    -- tmpdir we just populated, so the sweep's fs_stat actually finds files.
+    local state = require('zpack.state')
+    local src = 'https://github.com/test/sweepy'
+    local pack_spec = _G.test_state.registered_pack_specs.sweepy
+    state.spec_registry[src].plugin.path = plugin_path
+    _G.test_state.original_vim_pack_get = vim.pack.get
+    vim.pack.get = function() return { { spec = pack_spec, path = plugin_path } } end
+
+    package.loaded['sweepy'] = { stale = true }
+    package.loaded['sweepy.sub.inner'] = { stale = true }
+    package.loaded['sweepy.absent'] = { stale = true } -- no file on disk
+    package.loaded['unrelated'] = { stale = true }
+
+    vim.cmd('ZPack reload sweepy')
+    helpers.flush_pending()
+
+    assert.is_nil(package.loaded['sweepy'], "reload must clear main module")
+    assert.is_nil(package.loaded['sweepy.sub.inner'],
+      "reload must clear submodule with on-disk file")
+    assert.are.same({ stale = true }, package.loaded['sweepy.absent'],
+      "reload must NOT clear keys with no on-disk file (sibling-plugin safety)")
+    assert.are.same({ stale = true }, package.loaded['unrelated'],
+      "reload must NOT touch keys outside the plugin's main namespace")
+  end)
+end)
+
+describe("dev = true source rewrite (zpack_nvim-lkb)", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  it("dev = true rewrites source to <dev.path>/<name> when dir exists", function()
+    local dev_root = vim.fn.tempname()
+    local plugin_dir = dev_root .. '/devplug.nvim'
+    vim.fn.mkdir(plugin_dir, 'p')
+
+    require('zpack').setup({
+      spec = { { 'me/devplug.nvim', dev = true } },
+      dev = { path = dev_root },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local found
+    for _, call in ipairs(_G.test_state.vim_pack_calls) do
+      for _, pack_spec in ipairs(call) do
+        if pack_spec.src == plugin_dir then found = pack_spec end
+      end
+    end
+    assert.is_not_nil(found, "dev = true must rewrite src to the local dir")
+  end)
+
+  it("dev.fallback = true falls back to remote when local dir is missing", function()
+    require('zpack').setup({
+      spec = { { 'me/devplug.nvim', dev = true } },
+      dev = { path = vim.fn.tempname() .. '/missing', fallback = true },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local saw_remote
+    for _, call in ipairs(_G.test_state.vim_pack_calls) do
+      for _, pack_spec in ipairs(call) do
+        if pack_spec.src == 'https://github.com/me/devplug.nvim' then
+          saw_remote = true
+        end
+      end
+    end
+    assert.is_true(saw_remote, "fallback = true must use the remote source when local dir is missing")
+  end)
+
+  it("dev = true with no source field notifies and skips", function()
+    require('zpack').setup({
+      spec = { { dev = true, config = function() end } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local saw
+    for _, n in ipairs(_G.test_state.notifications) do
+      if type(n.msg) == 'string' and n.msg:find('dev = true requires a source field', 1, true) then
+        saw = true
+      end
+    end
+    assert.is_true(saw, "dev=true without a source field must notify")
   end)
 end)

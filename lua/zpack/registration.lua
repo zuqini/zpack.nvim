@@ -35,10 +35,14 @@ M.register_all = function(ctx)
       if dep_set then
         local dep_names = {}
         for dep_src in pairs(dep_set) do
+          -- Skip deps that prune_disabled dropped (e.g. `optional = true`
+          -- with no required reference) so the user doesn't see a name
+          -- they can never load.
           local dep_entry = state.spec_registry[dep_src]
-          local dep_name = (dep_entry and dep_entry.merged_spec and dep_entry.merged_spec.name)
-              or utils.derive_name_from_src(dep_src)
-          table.insert(dep_names, dep_name)
+          if dep_entry and dep_entry.merged_spec then
+            table.insert(dep_names, dep_entry.merged_spec.name
+              or utils.derive_name_from_src(dep_src))
+          end
         end
         table.sort(dep_names)
         plugin.dependencies = dep_names

@@ -61,12 +61,13 @@ local function execute_build_string(build, plugin, notify_failure, on_done)
   end
 
   vim.schedule(function()
-    -- vim.system spawns asynchronously; on_exit fires off the main loop, so
-    -- the on_done callback chains to vim.schedule too. Matches lazy.nvim's
-    -- B.shell which spawns via task:spawn.
-    local shell = vim.env.SHELL or vim.o.shell
-    local shell_flag = (type(shell) == 'string' and shell:find('cmd.exe', 1, true)) and '/c' or '-c'
-    local ok, sys_err = pcall(vim.system, { shell, shell_flag, build }, { cwd = cwd, text = true }, function(res)
+    -- Hard-code `sh -c` / `cmd.exe /c` rather than `$SHELL` / `&shell`:
+    -- those commonly carry args (e.g. `bash --login`) which vim.system
+    -- treats as a literal argv[0] and fails with ENOENT.
+    local argv = vim.fn.has('win32') == 1
+        and { 'cmd.exe', '/c', build }
+        or { 'sh', '-c', build }
+    local ok, sys_err = pcall(vim.system, argv, { cwd = cwd, text = true }, function(res)
       if res.code ~= 0 then
         local detail = (res.stderr and res.stderr ~= '' and res.stderr)
             or (res.stdout and res.stdout ~= '' and res.stdout)

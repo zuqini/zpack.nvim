@@ -148,21 +148,9 @@ command name is configurable via |zpack-setup-cmd_name| — a short name like
                 `:packdel! ++all` — though the native command also removes
                 any installed plugins absent from your spec.
 
-:ZPack[!] sync  Bulk update followed by clean. Equivalent to running
-                `:ZPack update` and then `:ZPack clean`. With `!`, applies
-                updates immediately (skips the confirmation buffer). lazy.nvim
-                parity for `:Lazy sync`.
-
-:ZPack check [plugin]
-                Preview pending updates without applying them. Opens
-                |vim.pack.update()|'s confirmation buffer the same way
-                `:ZPack update` does without the bang — useful as a "what
-                would update?" check. Supports tab completion of installed
-                plugin names. lazy.nvim parity for `:Lazy check`.
-
-:ZPack log {plugin}
-                Show the last 40 commits for a plugin in a scratch buffer
-                (git filetype). lazy.nvim parity for `:Lazy log <plugin>`.
+:ZPack sync     Bulk update + clean in one step (always force-applies; use
+                `:ZPack update` without `!` for a preview). lazy.nvim parity
+                for `:Lazy sync`.
 
 :ZPack reload {plugin}
                 Re-source a plugin: runs the plugin's `deactivate` hook (if
@@ -340,7 +328,10 @@ zpack might be for you if:
 
 As a thin layer, zpack does not provide:
 - UI dashboard for your plugins (see |zpack-extensions|)
-- Advanced profiling, dev mode, change-detection, etc.
+- Advanced profiling, file-watch / auto-reload, change-detection, etc.
+  (`dev = true` rewrites a spec's source to a local checkout under
+  `setup({ dev = { path } })`; live file-watch is out of scope. `:ZPack
+  reload {plugin}` is a manual command, not an autocmd-driven reload.)
 
 If you're a lazy.nvim user, see |zpack-migrating-lazy|. If something you
 need isn't achievable natively or through zpack, please submit an issue
@@ -1073,8 +1064,12 @@ version pinning           lazy.nvim's `version` field maps to zpack's
                           `sem_version`. See |zpack-example-version|.
 
                                                         *zpack-migration-dev*
-dev mode                  Use `src = vim.fn.expand('~/projects/my_plugin.nvim')`
-                          for local development.
+dev mode                  Set `dev = true` on a spec and configure
+                          `setup({ dev = { path = '~/projects' } })` —
+                          the source is rewritten to `<path>/<plugin-name>`.
+                          See |zpack-Spec.dev| and |zpack-setup-dev|.
+                          Live file-watch / auto-reload is out of scope;
+                          use `:ZPack reload {plugin}` to manually re-source.
 
                                                   *zpack-migration-profiling*
 profiling                 Use `nvim --startuptime startuptime.log`.

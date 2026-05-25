@@ -30,29 +30,35 @@ local is_registered_or_notify = function(plugin_name)
   return true
 end
 
----Collect names of registered plugins that are NOT pinned (`pin = true`).
----zpack.nvim itself is included so a bulk update still keeps the bootstrap
----in sync. Returns nil when no plugin is pinned, so callers can take the
----fast path of letting vim.pack.update default to "update everything".
+---Names of registered plugins that are NOT `pin = true`. zpack.nvim is
+---seeded unless the user's own spec pins it. Returns nil when nothing is
+---pinned so callers can take vim.pack.update's default "everything" path.
 ---@return string[]? names nil when nothing is pinned
 local function names_for_bulk_update()
   local has_pin = false
+  local zpack_pinned_by_user = false
   for _, entry in pairs(state.spec_registry) do
     if entry.merged_spec and entry.merged_spec.pin == true then
       has_pin = true
-      break
+      local name = entry.merged_spec.name
+          or (entry.plugin and entry.plugin.spec and entry.plugin.spec.name)
+      if name == 'zpack.nvim' then
+        zpack_pinned_by_user = true
+      end
     end
   end
   if not has_pin then
     return nil
   end
 
-  local names = { 'zpack.nvim' }
+  local names = {}
+  if not zpack_pinned_by_user then
+    table.insert(names, 'zpack.nvim')
+  end
   for _, entry in pairs(state.spec_registry) do
     if entry.merged_spec and entry.merged_spec.pin ~= true then
       local name = (entry.plugin and entry.plugin.spec and entry.plugin.spec.name)
           or entry.merged_spec.name
-      -- 'zpack.nvim' is already seeded above.
       if name and name ~= 'zpack.nvim' then
         table.insert(names, name)
       end
@@ -309,76 +315,13 @@ Sub.delete = {
   end,
 }
 
--- lazy.nvim parity: `:ZPack sync` chains update + clean (LazyVim users
--- type :Lazy sync as the routine reconcile). Install is implicit via the
--- next setup() so sync does not need an install step.
+-- Always force-applies: vim.pack.update's confirm buffer returns immediately,
+-- so a no-force form would race clean_unused ahead of the user's response.
+-- For a preview, use `:ZPack update` (no bang) first.
 Sub.sync = {
-  bang = true,
-  run = function(ctx)
-    local opts
-    if ctx.bang then opts = { force = true } end
-    run_pack_update('', opts, 'Sync update failed')
+  run = function()
+    run_pack_update('', { force = true }, 'Sync update failed')
     M.clean_unused()
-  end,
-}
-
--- lazy.nvim parity: `:ZPack check` previews pending updates without
--- applying them. vim.pack.update without `force = true` opens the
--- confirmation buffer that shows the same information lazy.nvim's :Lazy
--- check renders, so this is effectively `:ZPack update` minus the bang.
-Sub.check = {
-  takes_arg = true,
-  run = function(ctx)
-    run_pack_update(ctx.arg, nil, 'Check failed')
-  end,
-  complete = function(arg_lead)
-    return filter_completions(state.registered_plugin_names, arg_lead)
-  end,
-}
-
--- lazy.nvim parity: `:ZPack log <plugin>` shows recent git log for a
--- specific plugin in a scratch buffer (matches `:Lazy log <plugin>`).
-Sub.log = {
-  takes_arg = true,
-  run = function(ctx)
-    local plugin_name = ctx.arg
-    if plugin_name == '' then
-      util.schedule_notify(('Usage: :%s log <plugin>'):format(ctx.cmd_name), vim.log.levels.WARN)
-      return
-    end
-    local pack = get_installed_or_notify(plugin_name)
-    if not pack or not pack.path then return end
-
-    local res = vim.system(
-      { 'git', '-C', pack.path, 'log', '--oneline', '-n', '40' },
-      { text = true }
-    ):wait()
-    if res.code ~= 0 then
-      util.schedule_notify(
-        ('git log failed for %s: %s'):format(plugin_name, res.stderr or ''),
-        vim.log.levels.ERROR
-      )
-      return
-    end
-
-    local lines = vim.split(res.stdout or '', '\n', { plain = true, trimempty = true })
-    -- Scratch buffer with git syntax so commit hashes / messages get
-    -- highlighted the same way the user's other git buffers do. Use
-    -- nvim_set_option_value so the buffer-option writes go through the
-    -- API (vim.bo[buf].X = ... linter-trips on `vim` being read-only).
-    vim.cmd('botright new')
-    local buf = vim.api.nvim_get_current_buf()
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    local set_opt = vim.api.nvim_set_option_value
-    set_opt('buftype', 'nofile', { buf = buf })
-    set_opt('bufhidden', 'wipe', { buf = buf })
-    set_opt('swapfile', false, { buf = buf })
-    set_opt('modifiable', false, { buf = buf })
-    set_opt('filetype', 'git', { buf = buf })
-    pcall(vim.api.nvim_buf_set_name, buf, ('zpack-log://%s'):format(plugin_name))
-  end,
-  complete = function(arg_lead)
-    return filter_completions(state.registered_plugin_names, arg_lead)
   end,
 }
 
@@ -429,17 +372,20 @@ Sub.reload = {
       end
     end
 
-    -- Only drop modules whose on-disk file lives under THIS plugin's lua/ —
-    -- a prefix-match would also clear sibling plugins nested under the same
+    -- Drop only modules whose file lives under THIS plugin's lua/ — a bare
+    -- prefix match would clear sibling plugins nested under the same
     -- namespace (e.g. telescope-fzf-native's `telescope.extensions.fzf`).
-    local main = require('zpack.utils').resolve_main(plugin, spec)
-    local lua_dir = plugin.path and (plugin.path .. '/lua') or nil
+    -- Check fs paths directly; package.searchpath misses plugin modules
+    -- because Neovim's lua loader walks runtimepath, not package.path.
+    local lua_dir = plugin and plugin.path and (plugin.path .. '/lua') or nil
+    local main = plugin and require('zpack.utils').resolve_main(plugin, spec) or nil
     if main and main ~= '' and lua_dir then
       local prefix = main .. '.'
       for key in pairs(package.loaded) do
         if type(key) == 'string' and (key == main or key:sub(1, #prefix) == prefix) then
-          local file = package.searchpath(key, package.path)
-          if file and file:sub(1, #lua_dir) == lua_dir then
+          local rel = key:gsub('%.', '/')
+          if vim.uv.fs_stat(lua_dir .. '/' .. rel .. '.lua')
+              or vim.uv.fs_stat(lua_dir .. '/' .. rel .. '/init.lua') then
             package.loaded[key] = nil
           end
         end
@@ -464,7 +410,7 @@ Sub.reload = {
 }
 
 -- Ordered list used for completion and usage messages.
-local SUB_ORDER = { 'update', 'restore', 'clean', 'build', 'load', 'delete', 'sync', 'check', 'log', 'reload' }
+local SUB_ORDER = { 'update', 'restore', 'clean', 'build', 'load', 'delete', 'sync', 'reload' }
 
 -- Guard against SUB_ORDER drifting out of sync with the Sub table.
 do
