@@ -4,7 +4,7 @@
 
 Most of your lazy.nvim plugin specs will work as-is with zpack. However, zpack follows `vim.pack` conventions over lazy.nvim conventions, and is missing a few advanced features:
 - **version pinning**: lazy.nvim's `version` field maps to zpack's `sem_version`. See [Spec Reference](spec.md) and [version pinning examples](examples.md#version-pinning-for-lazynvim-compatibility)
-- **dev mode**: Use `src = vim.fn.expand('~/projects/my_plugin.nvim')` for local development
+- **dev mode**: Set `dev = true` on a spec and configure `setup({ dev = { path = '~/projects' } })` — the source is rewritten to `<path>/<plugin-name>`. Live file-watch / auto-reload is out of scope; use `:ZPack reload {plugin}` to manually re-source. See [Spec Reference](spec.md) for `dev`/`deactivate`
 - **profiling**: Use `nvim --startuptime startuptime.log`. Also refer to example [Neovim Profiler script](https://gist.github.com/zuqini/35993710f81983fbfa6baca67bdb32ed)
 - **default lazy plugins**: lazy.nvim's community specs silently default top-level specs for utility libraries like `plenary.nvim` to `lazy = true`, even without lazy triggers or a lazy parent. zpack respects your specs as-written, so set `lazy = true` explicitly on such specs if you want the same default
 

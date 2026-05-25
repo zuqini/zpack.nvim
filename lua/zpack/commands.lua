@@ -404,9 +404,12 @@ Sub.reload = {
       end
     end
 
-    -- init normally runs once at startup; reload's contract is "fresh load",
-    -- so re-run it. Matches lazy.nvim's :Lazy reload.
-    hooks.try_call_hook(pack.spec.src, 'init')
+    -- init runs once at startup; reload re-runs it (fresh-load contract).
+    -- Type-guard: try_call_hook ERRORs on a missing hook, and startup's
+    -- caller pre-filters via ctx.src_with_init.
+    if type(spec.init) == 'function' then
+      hooks.try_call_hook(pack.spec.src, 'init')
+    end
 
     -- Prefer src_to_pack_spec over pack.spec: process_spec keys on the
     -- former (the merged form), and pack.spec is the minimal vim.pack form.

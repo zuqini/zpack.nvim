@@ -44,13 +44,13 @@
   -- Source control (version for `vim.pack.add`, string|vim.VersionRange)
   version = "main",                     -- Git branch, tag, or commit
   -- version = vim.version.range("1.*"), -- Or semver range via vim.version.range()
+  -- version = false,                    -- Opt out of versioning (lazy.nvim escape hatch)
 
   -- Source control (lazy.nvim compat, mapped to version)
   sem_version = "^1.0.0",               -- Semver string (corresponds to lazy.nvim spec's version), auto-wrapped to vim.version.range()
   branch = "main",                      -- Git branch
   tag = "v1.0.0",                       -- Git tag
   commit = "abc123",                    -- Git commit
-  -- version = false,                    -- Opt out of versioning (lazy.nvim escape hatch)
 
   -- Plugin metadata
   name = "my-plugin",                   -- Custom plugin name (optional, overrides auto-derived name)

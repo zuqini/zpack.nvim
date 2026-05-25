@@ -190,6 +190,25 @@ describe("optional = true (zpack_nvim-sg0)", function()
     assert.is_not_nil(state.spec_registry['https://github.com/test/shared'],
       "Optional + dep-referent must survive")
   end)
+
+  -- Regression: a table-form dep `{ 'foo/x', optional = true }` was the
+  -- only contributor for `x` (string-form deps get wrapped fresh without
+  -- `optional`). Pre-fix the optional prune disabled `x` and cascade-
+  -- disabled the parent. `_is_dependency` now defeats `optional`.
+  it("optional written on a table-form dep does not prune the parent", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/dep-parent', dependencies = { { 'test/dep-child', optional = true } } },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    assert.is_not_nil(state.spec_registry['https://github.com/test/dep-parent'],
+      "Parent must not be cascade-disabled by an optional table-form dep")
+    assert.is_not_nil(state.spec_registry['https://github.com/test/dep-child'],
+      "Table-form dep with `optional = true` must survive as a dep reference")
+  end)
 end)
 
 describe("import = function() (zpack_nvim-fqs)", function()
@@ -427,6 +446,34 @@ describe(":ZPack reload edge cases", function()
 
     assert.are.same({ 'deactivate', 'init', 'config' }, lifecycle,
       ("Reload must run deactivate → init → config; got: %s"):format(vim.inspect(lifecycle)))
+  end)
+
+  -- Regression: reload called try_call_hook unconditionally, emitting
+  -- "expected init missing" ERROR for the common no-init case.
+  it("reload does not emit 'expected init missing' notify when spec has no init", function()
+    _G.test_state.notifications = {}
+    require('zpack').setup({
+      spec = {
+        {
+          'test/noinitrelo',
+          lazy = false,
+          config = function() end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    _G.test_state.notifications = {}
+
+    vim.cmd('ZPack reload noinitrelo')
+    helpers.flush_pending()
+
+    for _, n in ipairs(_G.test_state.notifications) do
+      assert.is_falsy(
+        type(n.msg) == 'string' and n.msg:find('expected init missing', 1, true),
+        ("Reload of a no-init spec must not emit 'expected init missing'; got: %s"):format(tostring(n.msg))
+      )
+    end
   end)
 
   it("reload skips deactivate when the plugin object is nil", function()

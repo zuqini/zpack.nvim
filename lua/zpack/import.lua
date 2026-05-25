@@ -20,11 +20,14 @@ local function resolve_dev_path(spec)
   -- defaults rather than feed vim.fn.expand(false) → 'v:false' as a path.
   local dev_config = state.config.dev or {}
   local dev_path_opt = type(dev_config.path) == 'string' and dev_config.path or '~/projects'
-  local dev_base = vim.fn.expand(dev_path_opt)
-  local source_for_name = spec[1] or spec.src or spec.url or spec.dir
+  -- Strip trailing slash so registry keys do not drift between sessions
+  -- with vs. without the trailing slash on `dev.path`.
+  local dev_base = vim.fn.expand(dev_path_opt):gsub('/+$', '')
+  -- `spec.name` first: lazy.nvim parity for overriding the derived dir.
+  local source_for_name = spec.name or spec[1] or spec.src or spec.url or spec.dir
   if type(source_for_name) ~= 'string' then
     require('zpack.utils').schedule_notify(
-      ('dev = true on spec "%s" requires a source field ([1]/src/url/dir) to derive the local checkout name')
+      ('dev = true on spec "%s" requires a source field (name/[1]/src/url/dir) to derive the local checkout name')
         :format(validate.spec_label(spec)),
       vim.log.levels.ERROR
     )
@@ -265,6 +268,12 @@ local import_one_spec = function(spec, ctx)
         )
       elseif type(result) == 'table' then
         M.import_specs(result, ctx)
+      else
+        -- Mirror load_spec_module's non-table-return notify.
+        utils.schedule_notify(
+          ('zpack: import function returned non-table (%s)'):format(type(result)),
+          vim.log.levels.WARN
+        )
       end
     end
     return
