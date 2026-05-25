@@ -30,20 +30,25 @@ local is_registered_or_notify = function(plugin_name)
   return true
 end
 
----Names of registered plugins that are NOT `pin = true`. zpack.nvim is
----seeded unless the user's own spec pins it. Returns nil when nothing is
----pinned so callers can take vim.pack.update's default "everything" path.
+---Build the explicit name list for `vim.pack.update` when any plugin is
+---pinned. Seeded from vim.pack.get so pinning one plugin doesn't narrow
+---the universe past zpack-managed plugins. Returns nil when nothing is
+---pinned so callers take vim.pack.update's default "everything" path.
 ---@return string[]? names nil when nothing is pinned
 local function names_for_bulk_update()
-  local has_pin = false
+  local pinned_names = {}
   local zpack_pinned_by_user = false
+  local has_pin = false
   for _, entry in pairs(state.spec_registry) do
     if entry.merged_spec and entry.merged_spec.pin == true then
       has_pin = true
       local name = entry.merged_spec.name
           or (entry.plugin and entry.plugin.spec and entry.plugin.spec.name)
-      if name == 'zpack.nvim' then
-        zpack_pinned_by_user = true
+      if name then
+        pinned_names[name] = true
+        if name == 'zpack.nvim' then
+          zpack_pinned_by_user = true
+        end
       end
     end
   end
@@ -52,15 +57,18 @@ local function names_for_bulk_update()
   end
 
   local names = {}
+  local seen = {}
   if not zpack_pinned_by_user then
     table.insert(names, 'zpack.nvim')
+    seen['zpack.nvim'] = true
   end
-  for _, entry in pairs(state.spec_registry) do
-    if entry.merged_spec and entry.merged_spec.pin ~= true then
-      local name = (entry.plugin and entry.plugin.spec and entry.plugin.spec.name)
-          or entry.merged_spec.name
-      if name and name ~= 'zpack.nvim' then
+  local installed_ok, installed = pcall(vim.pack.get, nil, { info = false })
+  if installed_ok and installed then
+    for _, pack in ipairs(installed) do
+      local name = pack.spec and pack.spec.name
+      if name and not pinned_names[name] and not seen[name] then
         table.insert(names, name)
+        seen[name] = true
       end
     end
   end
@@ -356,13 +364,13 @@ Sub.reload = {
       return
     end
 
-    local spec = registry_entry.merged_spec
+    local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
     local plugin = registry_entry.plugin
 
-    -- Step 1: deactivate hook (lazy.nvim LazyPluginHooks.deactivate). A
-    -- throw here surfaces as a notify; reload still proceeds so a broken
-    -- deactivate can't strand the plugin in a half-unloaded state.
-    if type(spec.deactivate) == 'function' then
+    -- Skip deactivate when plugin is nil (never-loaded / install-failed):
+    -- deactivate(nil) would force user code to nil-guard. A throw is caught
+    -- and surfaced so a broken deactivate doesn't strand the reload.
+    if plugin and type(spec.deactivate) == 'function' then
       local ok, err = pcall(spec.deactivate, plugin)
       if not ok then
         util.schedule_notify(
@@ -372,33 +380,37 @@ Sub.reload = {
       end
     end
 
-    -- Drop only modules whose file lives under THIS plugin's lua/ — a bare
-    -- prefix match would clear sibling plugins nested under the same
-    -- namespace (e.g. telescope-fzf-native's `telescope.extensions.fzf`).
-    -- Check fs paths directly; package.searchpath misses plugin modules
-    -- because Neovim's lua loader walks runtimepath, not package.path.
+    -- Drop modules whose file lives under THIS plugin's lua/. The fs_stat
+    -- is the sibling-plugin disambiguator (e.g. telescope-fzf-native's
+    -- `telescope.extensions.fzf`); the `main` prefix is an optimization,
+    -- skipped when utils.resolve_main caches a not-found result.
     local lua_dir = plugin and plugin.path and (plugin.path .. '/lua') or nil
-    local main = plugin and require('zpack.utils').resolve_main(plugin, spec) or nil
-    if main and main ~= '' and lua_dir then
-      local prefix = main .. '.'
+    if lua_dir then
+      local main = plugin and require('zpack.utils').resolve_main(plugin, spec) or nil
+      local prefix = main and main ~= '' and (main .. '.') or nil
       for key in pairs(package.loaded) do
-        if type(key) == 'string' and (key == main or key:sub(1, #prefix) == prefix) then
-          local rel = key:gsub('%.', '/')
-          if vim.uv.fs_stat(lua_dir .. '/' .. rel .. '.lua')
-              or vim.uv.fs_stat(lua_dir .. '/' .. rel .. '/init.lua') then
-            package.loaded[key] = nil
+        if type(key) == 'string' then
+          local in_namespace = prefix == nil
+              or key == main
+              or key:sub(1, #prefix) == prefix
+          if in_namespace then
+            local rel = key:gsub('%.', '/')
+            if vim.uv.fs_stat(lua_dir .. '/' .. rel .. '.lua')
+                or vim.uv.fs_stat(lua_dir .. '/' .. rel .. '/init.lua') then
+              package.loaded[key] = nil
+            end
           end
         end
       end
     end
 
-    -- Step 3: reset load_status so process_spec runs the full lifecycle
-    -- (packadd, deps, config) again. We re-fetch the pack_spec from the
-    -- registry rather than reusing `pack.spec` because pack's spec is the
-    -- minimal vim.pack form, and process_spec keys on src_to_pack_spec.
+    -- init normally runs once at startup; reload's contract is "fresh load",
+    -- so re-run it. Matches lazy.nvim's :Lazy reload.
+    hooks.try_call_hook(pack.spec.src, 'init')
+
+    -- Prefer src_to_pack_spec over pack.spec: process_spec keys on the
+    -- former (the merged form), and pack.spec is the minimal vim.pack form.
     registry_entry.load_status = 'pending'
-    -- Canonical name: plugin_loader clears by pack.spec.name; user-typed
-    -- can differ in case on case-insensitive FS and leak a stale entry.
     state.unloaded_plugin_names[pack.spec.name] = true
     local pack_spec = state.src_to_pack_spec[pack.spec.src] or pack.spec
     require('zpack.plugin_loader').try_process_spec(pack_spec, {})

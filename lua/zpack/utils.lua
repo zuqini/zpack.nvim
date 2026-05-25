@@ -334,7 +334,8 @@ M.normalize_version = function(spec)
     return nil
   end
   if spec.version ~= nil then
-    return spec.version
+    -- LLS doesn't narrow past the `== false` check above; cast.
+    return spec.version --[[@as string|vim.VersionRange]]
   elseif spec.sem_version then
     return vim.version.range(spec.sem_version)
   elseif spec.branch then

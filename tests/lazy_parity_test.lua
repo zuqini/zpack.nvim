@@ -393,10 +393,113 @@ describe("dev = true source rewrite (zpack_nvim-lkb)", function()
 
     local saw
     for _, n in ipairs(_G.test_state.notifications) do
-      if type(n.msg) == 'string' and n.msg:find('dev = true requires a source field', 1, true) then
+      if type(n.msg) == 'string' and n.msg:find('requires a source field', 1, true) then
         saw = true
       end
     end
     assert.is_true(saw, "dev=true without a source field must notify")
+  end)
+end)
+
+describe(":ZPack reload edge cases", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  it("reload re-runs init hook (matches fresh-load contract)", function()
+    local lifecycle = {}
+    require('zpack').setup({
+      spec = {
+        {
+          'test/initrelo',
+          lazy = false,
+          init = function() table.insert(lifecycle, 'init') end,
+          config = function() table.insert(lifecycle, 'config') end,
+          deactivate = function() table.insert(lifecycle, 'deactivate') end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    lifecycle = {}
+
+    vim.cmd('ZPack reload initrelo')
+    helpers.flush_pending()
+
+    assert.are.same({ 'deactivate', 'init', 'config' }, lifecycle,
+      ("Reload must run deactivate → init → config; got: %s"):format(vim.inspect(lifecycle)))
+  end)
+
+  it("reload skips deactivate when the plugin object is nil", function()
+    -- Narrow but real window: vim.pack.add's load callback hasn't fired
+    -- (install in progress or callback raised), so registry_entry.plugin
+    -- stays nil. Reload must not call deactivate(nil).
+    local called_deactivate = false
+    require('zpack').setup({
+      spec = {
+        {
+          'test/nilp',
+          lazy = false,
+          deactivate = function() called_deactivate = true end,
+          config = function() end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    -- Force the nil-plugin window the gate guards.
+    local state = require('zpack.state')
+    state.spec_registry['https://github.com/test/nilp'].plugin = nil
+
+    vim.cmd('ZPack reload nilp')
+    helpers.flush_pending()
+
+    assert.is_false(called_deactivate,
+      "Reload must NOT invoke deactivate when plugin object is nil")
+    for _, n in ipairs(_G.test_state.notifications) do
+      assert.is_falsy(type(n.msg) == 'string'
+          and n.msg:find('Failed to run deactivate hook', 1, true),
+        "Reload must not produce a deactivate failure notify for nil-plugin reload")
+    end
+  end)
+end)
+
+describe(":ZPack update names list preserves vim.pack universe under pin", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  it("includes installed-but-unregistered plugins so a single pin doesn't narrow the universe", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/free' },
+        { 'test/pinned', pin = true },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    -- Plugin vim.pack knows about but zpack does not (raw vim.pack.add or
+    -- post-removal orphan). Pre-fix, any pin would skip this entry.
+    _G.test_state.registered_pack_specs.orphan = {
+      src = 'https://github.com/raw/orphan',
+      name = 'orphan',
+    }
+
+    _G.test_state.vim_pack_update_calls = {}
+    vim.cmd('ZPack update')
+
+    assert.are.equal(1, #_G.test_state.vim_pack_update_calls)
+    local names = _G.test_state.vim_pack_update_calls[1].names
+    assert.is_not_nil(names)
+    local has_free, has_pinned, has_orphan = false, false, false
+    for _, n in ipairs(names) do
+      if n == 'free' then has_free = true end
+      if n == 'pinned' then has_pinned = true end
+      if n == 'orphan' then has_orphan = true end
+    end
+    assert.is_true(has_free, "non-pinned registry plugin must be in the update list")
+    assert.is_false(has_pinned, "pinned plugin must be excluded")
+    assert.is_true(has_orphan,
+      "installed-but-unregistered plugin must be in the update list")
   end)
 end)

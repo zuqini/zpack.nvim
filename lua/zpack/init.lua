@@ -13,6 +13,7 @@ local M = {}
 ---@field confirm boolean?
 ---@field defaults zpack.Config.Defaults
 ---@field is_dependency? boolean Internal: Whether currently importing as dependency
+---@field _imported_functions? table<function, true> Internal: dedup set for function-form `import`
 
 ---@return zpack.ProcessContext
 local function create_context(opts)
