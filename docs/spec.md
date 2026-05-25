@@ -61,7 +61,6 @@
   pin = true,                           -- Exclude from :ZPack update bulk runs
   optional = true,                      -- Only install if also referenced elsewhere non-optionally
   dev = true,                           -- Use local checkout under setup({ dev = { path = '~/projects' } })
-  virtual = true,                       -- Meta-plugin: skip vim.pack.add; still walks deps + runs config
   specs = { { 'companion/plugin' } },   -- Companion plugin specs grouped with this one
 
   -- Spec imports

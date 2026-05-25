@@ -114,7 +114,6 @@ local SPEC_FIELD_TYPES = {
   pin = 'boolean',
   optional = 'boolean',
   dev = 'boolean',
-  virtual = 'boolean',
   deactivate = 'function',
 }
 

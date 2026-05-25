@@ -174,7 +174,10 @@ zpack might be for you if:
 
 As a thin layer, zpack does not provide:
 - UI dashboard for your plugins (see [Extensions](#extensions) for community solutions)
-- Advanced profiling, dev mode, change-detection, etc.
+- Advanced profiling, file-watch / auto-reload, change-detection, etc.
+  (`dev = true` rewrites a spec's source to a local checkout under
+  `setup({ dev = { path } })`; live file-watch is out of scope. `:ZPack
+  reload {plugin}` is a manual command, not an autocmd-driven reload.)
 
 If you're a lazy.nvim user, see [Migrating from lazy.nvim](docs/tips.md#migrating-from-lazynvim)
 

@@ -16,10 +16,14 @@ local function resolve_dev_path(spec)
   if spec.dev ~= true then
     return nil
   end
-  local dev_config = (state.config and state.config.dev) or { path = '~/projects' }
-  local dev_base = vim.fn.expand(dev_config.path or '~/projects')
+  local dev_config = state.config.dev
+  local dev_base = vim.fn.expand(dev_config.path)
   local source_for_name = spec[1] or spec.src or spec.url or spec.dir
   if type(source_for_name) ~= 'string' then
+    require('zpack.utils').schedule_notify(
+      'dev = true requires a source field ([1]/src/url/dir) to derive the local checkout name',
+      vim.log.levels.ERROR
+    )
     return nil
   end
   local derived = require('zpack.utils').derive_name_from_src(source_for_name)
@@ -27,12 +31,13 @@ local function resolve_dev_path(spec)
     return nil
   end
   local dev_path = dev_base .. '/' .. derived
-  if vim.uv.fs_stat(dev_path) then
+  local stat = vim.uv.fs_stat(dev_path)
+  if stat and stat.type == 'directory' then
     return dev_path
   end
-  -- Missing local checkout: `fallback = true` lets the caller try the
-  -- remote source; otherwise we still return the dev path so vim.pack's
-  -- error message points the user at the missing local checkout.
+  -- Missing or non-directory local checkout: `fallback = true` lets the
+  -- caller try the regular source; otherwise we still return the dev path
+  -- so vim.pack's error message points the user at the bad local checkout.
   if dev_config.fallback then
     return nil
   end

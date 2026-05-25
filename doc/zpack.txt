@@ -655,8 +655,6 @@ parent's lazy trigger fires.
                                             --   non-optionally elsewhere
       dev = true,                           -- Use local checkout under
                                             --   setup({ dev = { path } })
-      virtual = true,                       -- Meta-plugin: skip vim.pack.add;
-                                            --   still walks deps + runs config
       specs = { ... },                      -- Companion plugin specs grouped
                                             --   with this one (peers, not deps)
 
@@ -889,13 +887,6 @@ dev             (boolean, optional)
                 derived plugin name is appended). Useful for plugin authors
                 iterating locally without changing the spec for ship.
 
-                                                        *zpack-Spec.virtual*
-virtual         (boolean, optional)
-                lazy.nvim parity. When `true`, this spec is a meta-plugin:
-                it is NOT installed and NOT added to the rtp, but its
-                dependencies still install and its config/init/opts still
-                run. Used to group dependencies under one named entry.
-
                                                           *zpack-Spec.specs*
 specs           (zpack.Spec|zpack.Spec[], optional)
                 lazy.nvim parity. Companion plugin specs grouped with this
@@ -937,8 +928,7 @@ spec            (vim.pack.Spec)
 
                                                         *zpack.Plugin.path*
 path            (string)
-                Absolute path to the plugin directory. `nil` for plugins
-                with `virtual = true`.
+                Absolute path to the plugin directory.
 
                                                         *zpack.Plugin.name*
 name            (string)

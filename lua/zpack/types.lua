@@ -73,7 +73,6 @@
 ---@field pin? boolean Exclude from :ZPack update bulk runs (lazy.nvim parity)
 ---@field optional? boolean Only install if also referenced non-optionally (lazy.nvim parity)
 ---@field dev? boolean Use local checkout under `dev.path` (lazy.nvim parity)
----@field virtual? boolean Meta-plugin: skip vim.pack.add; still walks dependencies + runs config (lazy.nvim parity)
 ---@field deactivate? fun(plugin: zpack.Plugin?) Teardown hook invoked by :ZPack reload (lazy.nvim parity)
 ---@field import? string|fun():zpack.Spec[] Module path string or function returning specs (lazy.nvim parity)
 ---@field _import_order? number Internal: Order in which spec was imported
@@ -108,6 +107,5 @@
 ---@field enabled_result? boolean
 ---@field cond_result? boolean
 ---@field is_lazy_resolved? boolean
----@field is_virtual? boolean Internal: marked by merge.resolve_all when the spec sets `virtual = true`; skips vim.pack.add and packadd
 
 return {}

@@ -114,17 +114,11 @@ M.process_spec = function(pack_spec, opts)
   -- this pcall — once run_config has succeeded, a key-spec throw must not
   -- roll back into a retry that double-runs run_config.
   local ok, err = pcall(function()
-    -- lazy.nvim spec parity (`virtual = true`): virtual plugins are not
-    -- installed and not added to the rtp. Skip packadd; their config /
-    -- dependencies still flow through this path so the meta-plugin's
-    -- group-of-deps role still works.
-    if not registry_entry.is_virtual then
-      vim.cmd.packadd({ name, bang = opts.bang })
+    vim.cmd.packadd({ name, bang = opts.bang })
 
-      -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
-      if not opts.bang and plugin.path then
-        utils.source_after_plugin_files(plugin.path)
-      end
+    -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
+    if not opts.bang and plugin.path then
+      utils.source_after_plugin_files(plugin.path)
     end
 
     local deps = state.dependency_graph[pack_spec.src]

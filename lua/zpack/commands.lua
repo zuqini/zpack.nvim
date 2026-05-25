@@ -52,7 +52,8 @@ local function names_for_bulk_update()
     if entry.merged_spec and entry.merged_spec.pin ~= true then
       local name = (entry.plugin and entry.plugin.spec and entry.plugin.spec.name)
           or entry.merged_spec.name
-      if name then
+      -- 'zpack.nvim' is already seeded above.
+      if name and name ~= 'zpack.nvim' then
         table.insert(names, name)
       end
     end
@@ -295,7 +296,8 @@ Sub.delete = {
       return
     end
 
-    vim.pack.del({ plugin_name }, { force = true })
+    -- pack.spec.name is canonical (case-insensitive FS safety).
+    vim.pack.del({ pack.spec.name }, { force = true })
     util.schedule_notify(
       ('%s deleted. This can result in errors in your current session. Restart Neovim to re-install it or remove it from your spec.')
       :format(plugin_name),
@@ -402,6 +404,15 @@ Sub.reload = {
       return
     end
 
+    -- Mid-load reload would slip past process_spec's circular-dep guard.
+    if registry_entry.load_status == 'loading' then
+      util.schedule_notify(
+        ('Cannot reload %s: plugin is currently loading'):format(plugin_name),
+        vim.log.levels.WARN
+      )
+      return
+    end
+
     local spec = registry_entry.merged_spec
     local plugin = registry_entry.plugin
 
@@ -418,15 +429,19 @@ Sub.reload = {
       end
     end
 
-    -- Step 2: drop package.loaded entries for the plugin's main module
-    -- and submodules so the next require re-evaluates from disk. Resolved
-    -- main may be nil for plugins without a Lua module (rare but legal).
+    -- Only drop modules whose on-disk file lives under THIS plugin's lua/ —
+    -- a prefix-match would also clear sibling plugins nested under the same
+    -- namespace (e.g. telescope-fzf-native's `telescope.extensions.fzf`).
     local main = require('zpack.utils').resolve_main(plugin, spec)
-    if main and main ~= '' then
+    local lua_dir = plugin.path and (plugin.path .. '/lua') or nil
+    if main and main ~= '' and lua_dir then
       local prefix = main .. '.'
       for key in pairs(package.loaded) do
-        if key == main or (type(key) == 'string' and key:sub(1, #prefix) == prefix) then
-          package.loaded[key] = nil
+        if type(key) == 'string' and (key == main or key:sub(1, #prefix) == prefix) then
+          local file = package.searchpath(key, package.path)
+          if file and file:sub(1, #lua_dir) == lua_dir then
+            package.loaded[key] = nil
+          end
         end
       end
     end

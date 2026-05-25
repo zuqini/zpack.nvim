@@ -380,14 +380,6 @@ M.resolve_main = function(plugin, spec)
   end
 
   local norm_name = M.normalize_name(name)
-  -- lazy.nvim spec parity (`virtual = true`): virtual plugins have no
-  -- installed location (plugin.path is nil), so module-directory walking
-  -- is impossible. Cache as not-found and bail; a virtual plugin that
-  -- wants auto-setup must declare `main` explicitly.
-  if not plugin.path or plugin.path == '' then
-    state.resolve_main_not_found[cache_key] = true
-    return nil
-  end
   local lua_dir = plugin.path .. "/lua"
 
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do

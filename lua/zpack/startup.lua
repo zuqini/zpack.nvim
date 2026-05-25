@@ -82,22 +82,16 @@ M.process_all = function(ctx)
   -- pcall packadd per plugin so one broken plugin doesn't strand every
   -- later one. Track failures so later loops (run_config, apply_keys,
   -- finalization) skip them — otherwise the failed plugin would be marked
-  -- loaded and hidden from :ZPack load / :checkhealth. lazy.nvim spec
-  -- parity: `virtual = true` plugins are not installed and not added to
-  -- the rtp, so packadd is skipped for them (they still flow through the
-  -- run_config / apply_keys / finalize loops below).
+  -- loaded and hidden from :ZPack load / :checkhealth.
   local failed_packs = {}
   for _, pack_spec in ipairs(sorted_packs) do
-    local entry = state.spec_registry[pack_spec.src]
-    -- lazy.nvim spec parity (`virtual = true`): skip packadd; the entry's
-    -- plugin object was synthesized in registration.lua and its config
-    -- still runs via the run_config loop below.
-    if not (entry and entry.is_virtual) then
-      local ok, err = pcall(vim.cmd.packadd, { pack_spec.name, bang = not ctx.load })
-      if not ok then
-        failed_packs[pack_spec.src] = true
-        util.schedule_notify(("Failed to packadd %s: %s"):format(pack_spec.name or pack_spec.src, tostring(err)), vim.log.levels.ERROR)
-      elseif ctx.load and entry and entry.plugin and entry.plugin.path then
+    local ok, err = pcall(vim.cmd.packadd, { pack_spec.name, bang = not ctx.load })
+    if not ok then
+      failed_packs[pack_spec.src] = true
+      util.schedule_notify(("Failed to packadd %s: %s"):format(pack_spec.name or pack_spec.src, tostring(err)), vim.log.levels.ERROR)
+    elseif ctx.load then
+      local entry = state.spec_registry[pack_spec.src]
+      if entry and entry.plugin and entry.plugin.path then
         util.source_after_plugin_files(entry.plugin.path)
       end
     end
