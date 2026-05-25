@@ -23,10 +23,18 @@
 ---@field events string[] List of event names
 ---@field pattern string|string[] Pattern(s) for these events
 
----Plugin data passed to load callback from vim.pack.add
+---Plugin data passed to load callback from vim.pack.add and forwarded to
+---spec hooks (init/config/opts/cond/build/deactivate). zpack's own fields are
+---`spec`, `path`, and the late-resolved `main`; lazy.nvim parity adds
+---`name` (alias for spec.name), `dir` (alias for path), and `dependencies`
+---(sorted list of resolved dependency names from this plugin's outgoing
+---deps in the resolved spec tree).
 ---@class zpack.Plugin
 ---@field spec vim.pack.Spec
 ---@field path string
+---@field name? string Resolved plugin name (alias for spec.name; lazy.nvim parity)
+---@field dir? string Plugin directory (alias for path; lazy.nvim parity)
+---@field dependencies? string[] Sorted list of dependency names (lazy.nvim parity)
 ---@field main? string The detected main module name (available in config hooks)
 
 ---@alias zpack.EventValue string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]
@@ -41,12 +49,12 @@
 ---@field url? string Custom git URL (lazy.nvim compat). Mapped to src
 ---@field name? string Custom plugin name. Overrides auto-derived name from URL
 ---@field init? fun(plugin: zpack.Plugin?)
----@field build? string|fun(plugin: zpack.Plugin?)
+---@field build? false|string|(string|fun(plugin: zpack.Plugin?))[]|fun(plugin: zpack.Plugin?)
 ---@field enabled? boolean|(fun():boolean)
 ---@field cond? boolean|(fun(plugin: zpack.Plugin?):boolean)
 ---@field lazy? boolean
 ---@field priority? number Load priority for startup plugins. Higher priority loads first. Default: 50
----@field version? string|vim.VersionRange Git branch/tag/commit (string) or semver range (vim.VersionRange)
+---@field version? string|vim.VersionRange|false Git branch/tag/commit (string), semver range (vim.VersionRange), or `false` to opt out of versioning (lazy.nvim parity)
 ---@field sem_version? string Semver range string, auto-wrapped to vim.version.range() (lazy.nvim compat)
 ---@field branch? string Git branch (lazy.nvim compat). Mapped to version
 ---@field tag? string Git tag (lazy.nvim compat). Mapped to version
@@ -61,7 +69,13 @@
 ---@field ft? zpack.FtValue|fun(plugin: zpack.Plugin?):zpack.FtValue
 ---@field module? boolean Auto-load when require()'d (default: true for lazy plugins)
 ---@field dependencies? string|string[]|zpack.Spec|zpack.Spec[] Plugin dependencies
----@field import? string Module path to import specs from (e.g., 'plugins')
+---@field specs? zpack.Spec|zpack.Spec[] Companion plugin specs grouped with this one (lazy.nvim parity)
+---@field pin? boolean Exclude from :ZPack update bulk runs (lazy.nvim parity)
+---@field optional? boolean Only install if also referenced non-optionally (lazy.nvim parity)
+---@field dev? boolean Use local checkout under `dev.path` (lazy.nvim parity)
+---@field virtual? boolean Meta-plugin: skip vim.pack.add; still walks dependencies + runs config (lazy.nvim parity)
+---@field deactivate? fun(plugin: zpack.Plugin?) Teardown hook invoked by :ZPack reload (lazy.nvim parity)
+---@field import? string|fun():zpack.Spec[] Module path string or function returning specs (lazy.nvim parity)
 ---@field _import_order? number Internal: Order in which spec was imported
 ---@field _is_dependency? boolean Internal: Whether spec was imported as a dependency
 

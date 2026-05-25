@@ -23,6 +23,29 @@ M.register_all = function(ctx)
         state.name_to_src[pack_spec.name] = pack_spec.src
       end
 
+      -- lazy.nvim spec parity: callbacks (init/config/opts/cond/build/deactivate)
+      -- receive a plugin object whose introspection fields (`name`, `dir`,
+      -- `dependencies`) match LazyPlugin's shape. zpack's existing `spec` /
+      -- `path` fields are preserved; the new fields are additive aliases.
+      -- `dependencies` is a sorted list of resolved dependency names so the
+      -- value is stable across runs even though dependency_graph is a set.
+      plugin.name = pack_spec.name
+      plugin.dir = plugin.path
+      local dep_set = state.dependency_graph[pack_spec.src]
+      if dep_set then
+        local dep_names = {}
+        for dep_src in pairs(dep_set) do
+          local dep_entry = state.spec_registry[dep_src]
+          local dep_name = (dep_entry and dep_entry.merged_spec and dep_entry.merged_spec.name)
+              or utils.derive_name_from_src(dep_src)
+          table.insert(dep_names, dep_name)
+        end
+        table.sort(dep_names)
+        plugin.dependencies = dep_names
+      else
+        plugin.dependencies = {}
+      end
+
       registry_entry.is_lazy_resolved = lazy.is_lazy(spec, plugin, pack_spec.src)
 
       registry_entry.cond_result = utils.check_cond(spec, plugin, ctx.defaults.cond, pack_spec.src)

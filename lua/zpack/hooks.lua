@@ -31,7 +31,54 @@ M.try_call_hook = function(src, hook_name)
   return true
 end
 
----@param build string|fun(plugin: zpack.Plugin?)
+---Dispatch a single string build step. Strings starting with ':' run via
+---`vim.cmd` (ex-command); otherwise they run as shell commands spawned
+---asynchronously inside the plugin directory. Mirrors lazy.nvim's
+---manage/task/plugin.lua build dispatch.
+---@param build string
+---@param plugin zpack.Plugin?
+---@param notify_failure fun(err: any)
+local function execute_build_string(build, plugin, notify_failure)
+  if build:sub(1, 1) == ':' then
+    local ex_cmd = build:sub(2)
+    vim.schedule(function()
+      local ok, err = pcall(function() vim.cmd(ex_cmd) end)
+      if not ok then
+        notify_failure(err)
+      end
+    end)
+    return
+  end
+
+  local cwd = plugin and plugin.path
+  if not cwd or cwd == '' then
+    notify_failure("shell build requires a known plugin path")
+    return
+  end
+
+  vim.schedule(function()
+    -- vim.system spawns asynchronously; failures surface in the on_exit
+    -- callback (also scheduled, since vim.system's callback runs off the
+    -- main loop). Matches lazy.nvim's B.shell which spawns via task:spawn.
+    local shell = vim.env.SHELL or vim.o.shell
+    local shell_flag = (type(shell) == 'string' and shell:find('cmd.exe', 1, true)) and '/c' or '-c'
+    local ok, sys_err = pcall(vim.system, { shell, shell_flag, build }, { cwd = cwd, text = true }, function(res)
+      if res.code ~= 0 then
+        local detail = (res.stderr and res.stderr ~= '' and res.stderr)
+            or (res.stdout and res.stdout ~= '' and res.stdout)
+            or ''
+        vim.schedule(function()
+          notify_failure(("shell command exited %d: %s"):format(res.code, detail))
+        end)
+      end
+    end)
+    if not ok then
+      notify_failure(sys_err)
+    end
+  end)
+end
+
+---@param build false|string|table|fun(plugin: zpack.Plugin?)
 ---@param plugin zpack.Plugin?
 ---@param src string Plugin identifier for the failure notify
 M.execute_build = function(build, plugin, src)
@@ -39,13 +86,21 @@ M.execute_build = function(build, plugin, src)
     util.schedule_notify(("Failed to run build for %s: %s"):format(src, tostring(err)), vim.log.levels.ERROR)
   end
 
-  if type(build) == "string" then
-    vim.schedule(function()
-      local ok, err = pcall(function() vim.cmd(build) end)
-      if not ok then
-        notify_failure(err)
-      end
-    end)
+  -- Lazy.nvim spec parity: `build = false` opts out of build for this plugin
+  -- even when a default builder would otherwise apply.
+  if build == false or build == nil then
+    return
+  end
+
+  if type(build) == "table" then
+    -- Array form: each entry is a string or function build step (mixed
+    -- types are allowed); steps run in declared order. Recurses into the
+    -- same dispatch so each step gets the ':' vs shell decision.
+    for _, step in ipairs(build) do
+      M.execute_build(step, plugin, src)
+    end
+  elseif type(build) == "string" then
+    execute_build_string(build, plugin, notify_failure)
   elseif type(build) == "function" then
     vim.schedule(function()
       local ok, err = pcall(build, plugin)

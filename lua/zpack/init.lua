@@ -46,12 +46,20 @@ end
 ---@field loader? boolean Gather stats about module loader (default: false)
 ---@field require? boolean Track each require in the module loader (default: false)
 
+---lazy.nvim parity: `dev = true` on a spec rewrites its source to a local
+---directory under `path` (e.g. `~/projects/<derived-name>`). `fallback = true`
+---falls back to the remote source when the local directory does not exist.
+---@class zpack.Config.Dev
+---@field path? string Base directory for local plugin checkouts (default: '~/projects')
+---@field fallback? boolean Fall back to remote source if the local dir is missing (default: false)
+
 ---@class zpack.Config
 ---@field spec? zpack.Spec[]
 ---@field cmd_name? string Name of the single user command (default: 'ZPack')
 ---@field defaults? zpack.Config.Defaults
 ---@field performance? zpack.Config.Performance
 ---@field profiling? zpack.Config.Profiling
+---@field dev? zpack.Config.Dev
 ---@field plugins_dir? string @deprecated Use { import = 'dir' } in spec instead
 ---@field confirm? boolean @deprecated Use defaults.confirm instead
 ---@field disable_vim_loader? boolean @deprecated Use performance.vim_loader instead
@@ -63,6 +71,7 @@ local config = {
   defaults = { confirm = true },
   performance = { vim_loader = true },
   profiling = { loader = false, require = false },
+  dev = { path = '~/projects', fallback = false },
 }
 
 ---@param ctx zpack.ProcessContext
@@ -141,6 +150,10 @@ M.setup = function(opts)
 
   if type(opts.profiling) == 'table' then
     config.profiling = vim.tbl_extend('force', config.profiling, opts.profiling)
+  end
+
+  if type(opts.dev) == 'table' then
+    config.dev = vim.tbl_extend('force', config.dev, opts.dev)
   end
 
   -- Handle deprecated opts.confirm

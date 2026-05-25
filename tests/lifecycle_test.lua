@@ -573,6 +573,90 @@ describe("Plugin Lifecycle Hooks", function()
     assert.is_true(saw_build_notify, "string-form build failure should surface a structured notify")
   end)
 
+  -- lazy.nvim spec parity: `build` strings prefixed with ':' are ex-commands;
+  -- everything else is a shell command spawned in the plugin directory.
+  it("execute_build with ':' prefix runs as an ex-command", function()
+    local hooks = require('zpack.hooks')
+
+    _G.test_state.ex_cmd_ran = false
+    vim.api.nvim_create_user_command('ZPackBuildExCmdTest', function()
+      _G.test_state.ex_cmd_ran = true
+    end, {})
+
+    hooks.execute_build(':ZPackBuildExCmdTest', nil, 'test/plugin-ex')
+    helpers.flush_pending()
+
+    pcall(vim.api.nvim_del_user_command, 'ZPackBuildExCmdTest')
+    assert.is_true(_G.test_state.ex_cmd_ran, "':<ex>' build must run the ex-command")
+  end)
+
+  it("execute_build with non-':' string spawns a shell command", function()
+    local hooks = require('zpack.hooks')
+
+    local captured
+    local original_system = vim.system
+    vim.system = function(cmd, opts, on_exit)
+      captured = { cmd = cmd, opts = opts, on_exit = on_exit }
+      return setmetatable({}, { __index = function() return function() return { code = 0 } end end })
+    end
+
+    hooks.execute_build('echo hello', { path = '/tmp/zpack-test' }, 'test/plugin-sh')
+    helpers.flush_pending()
+
+    vim.system = original_system
+    assert.is_not_nil(captured, "vim.system must be invoked for a non-':' build string")
+    assert.are.equal('/tmp/zpack-test', captured.opts.cwd, "spawn must run inside plugin dir")
+    -- Final cmd element is the user-supplied shell string
+    assert.are.equal('echo hello', captured.cmd[#captured.cmd])
+  end)
+
+  it("execute_build iterates an array of steps in order", function()
+    local hooks = require('zpack.hooks')
+
+    local order = {}
+    hooks.execute_build({
+      function() table.insert(order, 'first') end,
+      function() table.insert(order, 'second') end,
+    }, nil, 'test/plugin-arr')
+    helpers.flush_pending()
+
+    assert.are.same({ 'first', 'second' }, order, "array build steps must run in declared order")
+  end)
+
+  it("execute_build skips when build is false", function()
+    local hooks = require('zpack.hooks')
+
+    local ran = false
+    hooks.execute_build(false, { path = '/tmp' }, 'test/plugin-false')
+    helpers.flush_pending()
+
+    assert.is_false(ran, "build = false must be a no-op")
+    _G.test_state.notifications = _G.test_state.notifications or {}
+    for _, n in ipairs(_G.test_state.notifications) do
+      assert.is_falsy(n.msg:find("Failed to run build for test/plugin%-false"))
+    end
+  end)
+
+  it("execute_build mixed-type array dispatches each step independently", function()
+    local hooks = require('zpack.hooks')
+
+    _G.test_state.mixed_ran = false
+    vim.api.nvim_create_user_command('ZPackBuildMixed', function()
+      _G.test_state.mixed_ran = true
+    end, {})
+    local fn_ran = false
+
+    hooks.execute_build({
+      ':ZPackBuildMixed',
+      function() fn_ran = true end,
+    }, nil, 'test/plugin-mixed')
+    helpers.flush_pending()
+
+    pcall(vim.api.nvim_del_user_command, 'ZPackBuildMixed')
+    assert.is_true(_G.test_state.mixed_ran, "ex-cmd step in mixed array must run")
+    assert.is_true(fn_ran, "function step in mixed array must run")
+  end)
+
   -- Regression: a user-supplied `enabled = function() ... end` that throws
   -- escaped check_enabled, aborted the merge.resolve_all loop, and bubbled
   -- out of setup() entirely. Treat throwing-enabled as disabled and notify.

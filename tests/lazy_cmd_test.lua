@@ -194,6 +194,70 @@ describe("Lazy Loading - Commands", function()
     pcall(vim.api.nvim_del_user_command, 'TestCountCmd')
   end)
 
+  -- Regression for zpack_nvim-7p7: a real command with `nargs = 1` or
+  -- `nargs = '?'` rejected proxy-forwarded calls because fargs are
+  -- whitespace-split and the real command sees N args instead of one. The
+  -- proxy now consults the loaded command's nargs and re-packs cmd_args.args
+  -- into a single string when nargs is 1 or ?, matching
+  -- lazy.nvim/handler/cmd.lua:44-47.
+  it("Lazy proxy command preserves single-arg string for nargs=1 real command", function()
+    local captured
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          cmd = 'TestNargsOne',
+          config = function()
+            vim.api.nvim_create_user_command('TestNargsOne', function(a)
+              captured = { args = a.args, fargs = a.fargs }
+            end, { nargs = 1 })
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    vim.cmd('TestNargsOne hello world')
+    helpers.flush_pending()
+
+    assert.is_not_nil(captured, "Real command should run after proxy fires")
+    assert.are.equal('hello world', captured.args,
+      "nargs=1 must receive the unsplit argument string on first proxy fire")
+    assert.are.equal(1, #captured.fargs,
+      "nargs=1 must see exactly one fargs entry")
+
+    pcall(vim.api.nvim_del_user_command, 'TestNargsOne')
+  end)
+
+  it("Lazy proxy command preserves single-arg string for nargs='?' real command", function()
+    local captured
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          cmd = 'TestNargsOpt',
+          config = function()
+            vim.api.nvim_create_user_command('TestNargsOpt', function(a)
+              captured = { args = a.args, fargs = a.fargs }
+            end, { nargs = '?' })
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    vim.cmd('TestNargsOpt one two three')
+    helpers.flush_pending()
+
+    assert.is_not_nil(captured, "Real command should run after proxy fires")
+    assert.are.equal('one two three', captured.args,
+      "nargs='?' must receive the unsplit argument string on first proxy fire")
+
+    pcall(vim.api.nvim_del_user_command, 'TestNargsOpt')
+  end)
+
   it("Lazy proxy command forwards mods (vertical, silent) to the real command", function()
     local captured
     require('zpack').setup({

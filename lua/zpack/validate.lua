@@ -50,6 +50,12 @@ function M.validate_config(opts)
   check(errors, 'defaults', opts.defaults, 'table')
   check(errors, 'performance', opts.performance, 'table')
   check(errors, 'profiling', opts.profiling, 'table')
+  check(errors, 'dev', opts.dev, 'table')
+
+  if type(opts.dev) == 'table' then
+    check(errors, 'dev.path', opts.dev.path, 'string')
+    check(errors, 'dev.fallback', opts.dev.fallback, 'boolean')
+  end
 
   if type(opts.defaults) == 'table' then
     check(errors, 'defaults.cond', opts.defaults.cond, { 'boolean', 'function' })
@@ -83,7 +89,7 @@ local SPEC_FIELD_TYPES = {
   url = 'string',
   name = 'string',
   main = 'string',
-  import = 'string',
+  import = { 'string', 'function' },
   sem_version = 'string',
   branch = 'string',
   tag = 'string',
@@ -94,7 +100,7 @@ local SPEC_FIELD_TYPES = {
   init = 'function',
   enabled = { 'boolean', 'function' },
   cond = { 'boolean', 'function' },
-  build = { 'string', 'function' },
+  build = { 'string', 'function', 'table', 'boolean' },
   config = { 'function', 'boolean' },
   opts = { 'table', 'function' },
   event = { 'string', 'table', 'function' },
@@ -102,8 +108,14 @@ local SPEC_FIELD_TYPES = {
   ft = { 'string', 'table', 'function' },
   keys = { 'string', 'table', 'function' },
   pattern = { 'string', 'table' },
-  version = { 'string', 'table' },
+  version = { 'string', 'table', 'boolean' },
   dependencies = { 'string', 'table' },
+  specs = 'table',
+  pin = 'boolean',
+  optional = 'boolean',
+  dev = 'boolean',
+  virtual = 'boolean',
+  deactivate = 'function',
 }
 
 ---`SPEC_FIELD_TYPES` keys in a stable sort order, so a spec with several bad

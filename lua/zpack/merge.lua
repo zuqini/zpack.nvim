@@ -407,6 +407,31 @@ function M.resolve_all()
     end
   end
 
+  -- lazy.nvim spec parity (`optional = true`): a plugin is included only if
+  -- it is also referenced non-optionally somewhere in the spec. When every
+  -- contributing spec carries `optional = true`, mark the entry disabled so
+  -- the existing prune machinery (which already handles dep cascades) drops
+  -- it. A dep registration creates a non-optional spec for the target, so
+  -- this naturally keeps deps of required parents.
+  for src, entry in pairs(state.spec_registry) do
+    if entry.specs and #entry.specs > 0 and entry.enabled_result ~= false then
+      local has_required = false
+      for _, s in ipairs(entry.specs) do
+        if not s.optional then
+          has_required = true
+          break
+        end
+      end
+      if not has_required then
+        entry.enabled_result = false
+        utils.schedule_notify(
+          ("%s skipped: declared `optional = true` and never referenced elsewhere"):format(src),
+          vim.log.levels.DEBUG
+        )
+      end
+    end
+  end
+
   propagate_enabled_disable(state, utils)
   prune_disabled(state)
 

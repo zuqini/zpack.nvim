@@ -30,6 +30,36 @@ local is_registered_or_notify = function(plugin_name)
   return true
 end
 
+---Collect names of registered plugins that are NOT pinned (`pin = true`).
+---zpack.nvim itself is included so a bulk update still keeps the bootstrap
+---in sync. Returns nil when no plugin is pinned, so callers can take the
+---fast path of letting vim.pack.update default to "update everything".
+---@return string[]? names nil when nothing is pinned
+local function names_for_bulk_update()
+  local has_pin = false
+  for _, entry in pairs(state.spec_registry) do
+    if entry.merged_spec and entry.merged_spec.pin == true then
+      has_pin = true
+      break
+    end
+  end
+  if not has_pin then
+    return nil
+  end
+
+  local names = { 'zpack.nvim' }
+  for _, entry in pairs(state.spec_registry) do
+    if entry.merged_spec and entry.merged_spec.pin ~= true then
+      local name = (entry.plugin and entry.plugin.spec and entry.plugin.spec.name)
+          or entry.merged_spec.name
+      if name then
+        table.insert(names, name)
+      end
+    end
+  end
+  return names
+end
+
 -- Branches avoid passing trailing nils because vim.pack.update uses
 -- select('#', ...) to distinguish "no args" from "nil args".
 local run_pack_update = function(plugin_name, update_opts, error_prefix)
@@ -37,6 +67,12 @@ local run_pack_update = function(plugin_name, update_opts, error_prefix)
   if plugin_name ~= '' then
     if not is_registered_or_notify(plugin_name) then return end
     names = { plugin_name }
+  else
+    -- lazy.nvim spec parity (`pin = true`): bulk update honors pin by
+    -- filtering pinned plugins out of the explicit name list. When nothing
+    -- is pinned, `names_for_bulk_update` returns nil and we fall back to
+    -- vim.pack.update's default "everything" path.
+    names = names_for_bulk_update()
   end
   local ok, err
   if names and update_opts then

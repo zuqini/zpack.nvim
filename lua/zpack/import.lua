@@ -6,11 +6,52 @@ local M = {}
 
 local imported_modules = {}
 
----Normalize plugin source using priority: [1] > src > url > dir
+---Resolve `spec.dev == true` to a local path under `config.dev.path`. Returns
+---nil when dev is not requested or when no name source can be derived. When
+---the resolved dev path exists, it is used; when missing and `dev.fallback`
+---is true, returns nil so the caller falls through to the regular source.
+---@param spec zpack.Spec
+---@return string|nil dev_path
+local function resolve_dev_path(spec)
+  if spec.dev ~= true then
+    return nil
+  end
+  local dev_config = (state.config and state.config.dev) or { path = '~/projects' }
+  local dev_base = vim.fn.expand(dev_config.path or '~/projects')
+  local source_for_name = spec[1] or spec.src or spec.url or spec.dir
+  if type(source_for_name) ~= 'string' then
+    return nil
+  end
+  local derived = require('zpack.utils').derive_name_from_src(source_for_name)
+  if derived == '' then
+    return nil
+  end
+  local dev_path = dev_base .. '/' .. derived
+  if vim.uv.fs_stat(dev_path) then
+    return dev_path
+  end
+  -- Missing local checkout: `fallback = true` lets the caller try the
+  -- remote source; otherwise we still return the dev path so vim.pack's
+  -- error message points the user at the missing local checkout.
+  if dev_config.fallback then
+    return nil
+  end
+  return dev_path
+end
+
+---Normalize plugin source using priority: dev > [1] > src > url > dir
 ---@param spec zpack.Spec
 ---@return string|nil source URL/path, or nil if invalid
 ---@return string|nil error message if validation fails
 local normalize_source = function(spec)
+  -- lazy.nvim spec parity: `dev = true` rewrites the source to a local
+  -- checkout under `config.dev.path` (default '~/projects'). When the local
+  -- directory is missing and `fallback = true` is set, resolution falls
+  -- through to the regular [1]/src/url/dir chain below.
+  local dev_path = resolve_dev_path(spec)
+  if dev_path then
+    return dev_path
+  end
   -- Each source field must be a string; a non-string (over-nested spec or
   -- typo) would crash the `[1]` concat or `dir` expand. Skip rather than
   -- abort setup().
@@ -54,13 +95,15 @@ local is_single_spec = function(value)
   return false
 end
 
----Check if spec is an import spec. A non-string `import` is not one: it cannot
----name a module directory, so the spec falls through to plugin-spec handling
----where the bad `import` is an advisory-only error (reported by validate_spec).
+---Check if spec is an import spec. lazy.nvim parity: `import` accepts either
+---a module-path string (walked as a Lua module directory) or a function
+---returning a spec list (dynamic spec generation). A non-string/function
+---`import` falls through to plugin-spec handling where the bad `import` is
+---an advisory-only error (reported by validate_spec).
 ---@param spec zpack.Spec
 ---@return boolean
 local is_import_spec = function(spec)
-  return type(spec.import) == 'string'
+  return type(spec.import) == 'string' or type(spec.import) == 'function'
 end
 
 ---Normalize dependencies to spec array
@@ -191,10 +234,27 @@ local import_one_spec = function(spec, ctx)
   end
 
   if is_import_spec(spec) then
-    if not utils.check_enabled(spec, 'import:' .. spec.import) then
+    local label = 'import:' .. (type(spec.import) == 'string' and spec.import or '<function>')
+    if not utils.check_enabled(spec, label) then
       return
     end
-    import_from_module(spec.import --[[@as string]], ctx)
+    if type(spec.import) == 'string' then
+      import_from_module(spec.import --[[@as string]], ctx)
+    else
+      -- lazy.nvim parity (LazySpecImport.import as function): invoke and
+      -- treat the return value as a spec (or spec list) to recurse into.
+      -- A throw surfaces as a structured notify; an empty/non-table return
+      -- is a no-op rather than an error.
+      local ok, result = pcall(spec.import --[[@as fun(): any]])
+      if not ok then
+        utils.schedule_notify(
+          ('zpack: import function threw: %s'):format(tostring(result)),
+          vim.log.levels.ERROR
+        )
+      elseif type(result) == 'table' then
+        M.import_specs(result, ctx)
+      end
+    end
     return
   end
 
@@ -222,6 +282,14 @@ local import_one_spec = function(spec, ctx)
   -- the merged truth. prune_disabled_subtrees handles cleanup afterward.
   if spec.dependencies then
     register_dependencies(spec, src, ctx)
+  end
+
+  -- lazy.nvim spec parity: nested `specs` field declares companion plugins
+  -- grouped with this spec. Unlike `dependencies`, these are peer plugins
+  -- (not loaded-before-this); they walk through the normal import path with
+  -- the parent's import-context (NOT marked as `_is_dependency`).
+  if spec.specs then
+    M.import_specs(spec.specs, ctx)
   end
 end
 

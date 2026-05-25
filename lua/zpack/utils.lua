@@ -320,10 +320,19 @@ M.is_semver_like = function(str)
       or str:match('^%d+[%d%.]*$') ~= nil
 end
 
----Normalize plugin version using priority: version > sem_version > branch > tag > commit
+---Normalize plugin version using priority: version > sem_version > branch > tag > commit.
+---`version = false` is a lazy.nvim escape hatch meaning "no version constraint" —
+---returns nil so vim.pack tracks the default branch even when a global default would
+---otherwise pin a version.
 ---@param spec zpack.Spec
 ---@return string|vim.VersionRange|nil version
 M.normalize_version = function(spec)
+  -- `version = false` is a lazy.nvim escape hatch ("no version") that we
+  -- treat as nil so vim.pack tracks the default branch. The early return
+  -- also narrows `spec.version` for the analyzer below.
+  if spec.version == false then
+    return nil
+  end
   if spec.version ~= nil then
     return spec.version
   elseif spec.sem_version then

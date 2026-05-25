@@ -26,11 +26,16 @@ M.setup = function(registered_pack_specs)
 
   -- Proxy is registered with bang + count=-1 so the cmdline parser accepts
   -- `:Foo!` / `:1,5Foo` / `:5Foo` without erroring at parse time (which
-  -- would prevent the plugin from ever loading). `register = true` is NOT
-  -- set: it would destructively consume the first arg char as a register,
-  -- corrupting every non-register invocation. Tradeoff: the typed register
-  -- is silently dropped on the first lazy invocation of a register-accepting
-  -- command — subsequent calls go through the real command directly.
+  -- would prevent the plugin from ever loading). count=-1 also implicitly
+  -- accepts a range form (Neovim documents that count-decl commands take
+  -- `:1,3Foo` and treat the range's end as the count). `register = true`
+  -- is NOT set: it would destructively consume the first arg char as a
+  -- register and corrupt every non-register invocation. Tradeoff: the
+  -- typed register is silently dropped on the first lazy invocation of a
+  -- register-accepting command — subsequent calls go through the real
+  -- command directly. `:%Foo` (the whole-buffer range) is also not
+  -- accepted by count=-1; range=true is the alternative but rejects the
+  -- bare `:5Foo` count form that LazyVim-style users commonly type.
   for cmd, pack_specs in pairs(cmd_to_pack_specs) do
     -- Loading the claiming plugins tears down the proxy and lets the real
     -- command's callback/complete take over. Shared by the invocation
@@ -48,24 +53,45 @@ M.setup = function(registered_pack_specs)
     end
 
     vim.api.nvim_create_user_command(cmd, function(cmd_args)
+      -- Build the dispatch struct from the proxy invocation before loading,
+      -- so a load failure can't lose typed args. Forwards `range` (not
+      -- `count`): nvim_cmd auto-translates range to count for count-decl
+      -- real commands, but forwarding count to a range-decl command would
+      -- error with "Command cannot accept count". The range-only path also
+      -- correctly handles the bare `:5Foo` count form, since count=-1
+      -- proxies report cmd_args.range == 1, line1 == 5.
+      local command = {
+        cmd = cmd,
+        bang = cmd_args.bang or nil,
+        mods = cmd_args.smods --[[@as vim.api.keyset.cmd.mods]],
+        args = cmd_args.fargs,
+        range = (cmd_args.range or 0) > 0
+            and (cmd_args.range == 1 and { cmd_args.line1 } or { cmd_args.line1, cmd_args.line2 })
+            or nil,
+      }
+
       -- Proxy already self-deleted; nvim_cmd would error with "Not an
       -- editor command" on top of the per-plugin load-failure notify.
       if not load_plugins() then
         return
       end
 
-      -- Forward range (not count): nvim_cmd auto-translates range to count
-      -- for count-decl commands, but forwarding count to a range-decl
-      -- command errors with "Command cannot accept count".
-      local ok, err = pcall(vim.api.nvim_cmd, {
-        cmd = cmd,
-        args = cmd_args.fargs,
-        bang = cmd_args.bang,
-        range = (cmd_args.range or 0) > 0
-            and (cmd_args.range == 1 and { cmd_args.line1 } or { cmd_args.line1, cmd_args.line2 })
-            or nil,
-        mods = cmd_args.smods --[[@as vim.api.keyset.cmd.mods]],
-      }, {})
+      -- lazy.nvim spec parity (handler/cmd.lua:44-47): after loading the
+      -- real command, consult its nargs. For `nargs = '1'` or `nargs = '?'`,
+      -- the proxy's whitespace-split fargs are re-packed into a single arg
+      -- string so :Foo hello world stays one arg. Without this, a nargs=1
+      -- real command would reject the proxy-fired call as "too many
+      -- arguments" on first invocation only.
+      local info = vim.api.nvim_get_commands({})[cmd]
+          or vim.api.nvim_buf_get_commands(0, {})[cmd]
+      if info then
+        command.nargs = info.nargs
+        if cmd_args.args and cmd_args.args ~= "" and info.nargs and info.nargs:find("[1?]") then
+          command.args = { cmd_args.args }
+        end
+      end
+
+      local ok, err = pcall(vim.api.nvim_cmd, command, {})
       if not ok then
         util.schedule_notify(("Failed to re-fire :%s: %s"):format(cmd, tostring(err)), vim.log.levels.ERROR)
       end
