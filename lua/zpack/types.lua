@@ -108,5 +108,6 @@
 ---@field enabled_result? boolean
 ---@field cond_result? boolean
 ---@field is_lazy_resolved? boolean
+---@field is_virtual? boolean Internal: marked by merge.resolve_all when the spec sets `virtual = true`; skips vim.pack.add and packadd
 
 return {}

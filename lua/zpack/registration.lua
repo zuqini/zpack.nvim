@@ -93,6 +93,61 @@ M.register_all = function(ctx)
     error(err)
   end
 
+  -- lazy.nvim spec parity (`virtual = true`): vim.pack.add does not see
+  -- these specs, so its load callback never fires. Synthesize a plugin
+  -- object so the same startup/lazy machinery still walks them — config
+  -- and init still run, dependencies still resolve, but packadd is
+  -- skipped in plugin_loader.process_spec.
+  for src, entry in pairs(state.spec_registry) do
+    if entry.is_virtual and not entry.plugin then
+      local pack_spec = state.src_to_pack_spec[src]
+      local plugin = {
+        spec = pack_spec,
+        path = nil,
+        name = pack_spec.name,
+        dir = nil,
+      }
+      entry.plugin = plugin
+      local spec = entry.merged_spec --[[@as zpack.Spec]]
+
+      -- Mirror the load-callback bookkeeping the non-virtual branch above
+      -- already did: dependencies field, is_lazy_resolved, cond_result,
+      -- registered_plugin_names, etc.
+      local dep_set = state.dependency_graph[src]
+      if dep_set then
+        local dep_names = {}
+        for dep_src in pairs(dep_set) do
+          local dep_entry = state.spec_registry[dep_src]
+          local dep_name = (dep_entry and dep_entry.merged_spec and dep_entry.merged_spec.name)
+              or utils.derive_name_from_src(dep_src)
+          table.insert(dep_names, dep_name)
+        end
+        table.sort(dep_names)
+        plugin.dependencies = dep_names
+      else
+        plugin.dependencies = {}
+      end
+
+      entry.is_lazy_resolved = lazy.is_lazy(spec, plugin, src)
+      entry.cond_result = utils.check_cond(spec, plugin, ctx.defaults.cond, src)
+      if entry.cond_result then
+        table.insert(state.registered_plugin_names, pack_spec.name)
+        state.unloaded_plugin_names[pack_spec.name] = true
+        if spec.build then
+          table.insert(state.plugin_names_with_build, pack_spec.name)
+        end
+        if spec.init then
+          table.insert(ctx.src_with_init, src)
+        end
+        if entry.is_lazy_resolved then
+          table.insert(ctx.registered_lazy_packs, pack_spec)
+        else
+          table.insert(ctx.registered_startup_packs, pack_spec)
+        end
+      end
+    end
+  end
+
   table.sort(ctx.registered_startup_packs, utils.compare_priority)
   table.sort(ctx.registered_lazy_packs, utils.compare_priority)
   table.sort(state.registered_plugin_names, function(a, b) return a:lower() < b:lower() end)

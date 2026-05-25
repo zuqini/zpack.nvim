@@ -307,8 +307,149 @@ Sub.delete = {
   end,
 }
 
+-- lazy.nvim parity: `:ZPack sync` chains update + clean (LazyVim users
+-- type :Lazy sync as the routine reconcile). Install is implicit via the
+-- next setup() so sync does not need an install step.
+Sub.sync = {
+  bang = true,
+  run = function(ctx)
+    local opts
+    if ctx.bang then opts = { force = true } end
+    run_pack_update('', opts, 'Sync update failed')
+    M.clean_unused()
+  end,
+}
+
+-- lazy.nvim parity: `:ZPack check` previews pending updates without
+-- applying them. vim.pack.update without `force = true` opens the
+-- confirmation buffer that shows the same information lazy.nvim's :Lazy
+-- check renders, so this is effectively `:ZPack update` minus the bang.
+Sub.check = {
+  takes_arg = true,
+  run = function(ctx)
+    run_pack_update(ctx.arg, nil, 'Check failed')
+  end,
+  complete = function(arg_lead)
+    return filter_completions(state.registered_plugin_names, arg_lead)
+  end,
+}
+
+-- lazy.nvim parity: `:ZPack log <plugin>` shows recent git log for a
+-- specific plugin in a scratch buffer (matches `:Lazy log <plugin>`).
+Sub.log = {
+  takes_arg = true,
+  run = function(ctx)
+    local plugin_name = ctx.arg
+    if plugin_name == '' then
+      util.schedule_notify(('Usage: :%s log <plugin>'):format(ctx.cmd_name), vim.log.levels.WARN)
+      return
+    end
+    local pack = get_installed_or_notify(plugin_name)
+    if not pack or not pack.path then return end
+
+    local res = vim.system(
+      { 'git', '-C', pack.path, 'log', '--oneline', '-n', '40' },
+      { text = true }
+    ):wait()
+    if res.code ~= 0 then
+      util.schedule_notify(
+        ('git log failed for %s: %s'):format(plugin_name, res.stderr or ''),
+        vim.log.levels.ERROR
+      )
+      return
+    end
+
+    local lines = vim.split(res.stdout or '', '\n', { plain = true, trimempty = true })
+    -- Scratch buffer with git syntax so commit hashes / messages get
+    -- highlighted the same way the user's other git buffers do. Use
+    -- nvim_set_option_value so the buffer-option writes go through the
+    -- API (vim.bo[buf].X = ... linter-trips on `vim` being read-only).
+    vim.cmd('botright new')
+    local buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    local set_opt = vim.api.nvim_set_option_value
+    set_opt('buftype', 'nofile', { buf = buf })
+    set_opt('bufhidden', 'wipe', { buf = buf })
+    set_opt('swapfile', false, { buf = buf })
+    set_opt('modifiable', false, { buf = buf })
+    set_opt('filetype', 'git', { buf = buf })
+    pcall(vim.api.nvim_buf_set_name, buf, ('zpack-log://%s'):format(plugin_name))
+  end,
+  complete = function(arg_lead)
+    return filter_completions(state.registered_plugin_names, arg_lead)
+  end,
+}
+
+-- lazy.nvim parity: `:ZPack reload <plugin>` runs the plugin's
+-- `deactivate` hook (if defined), drops its `package.loaded` modules so
+-- next require triggers a fresh load, resets the registry's load_status
+-- to 'pending', and re-runs process_spec. Pair with the deactivate hook
+-- which is now an accepted spec field.
+Sub.reload = {
+  takes_arg = true,
+  run = function(ctx)
+    local plugin_name = ctx.arg
+    if plugin_name == '' then
+      util.schedule_notify(('Usage: :%s reload <plugin>'):format(ctx.cmd_name), vim.log.levels.WARN)
+      return
+    end
+    local pack = get_installed_or_notify(plugin_name)
+    if not pack then return end
+
+    local registry_entry = state.spec_registry[pack.spec.src]
+    if not registry_entry or not registry_entry.merged_spec then
+      util.schedule_notify(('Plugin "%s" not in zpack registry'):format(plugin_name), vim.log.levels.ERROR)
+      return
+    end
+
+    local spec = registry_entry.merged_spec
+    local plugin = registry_entry.plugin
+
+    -- Step 1: deactivate hook (lazy.nvim LazyPluginHooks.deactivate). A
+    -- throw here surfaces as a notify; reload still proceeds so a broken
+    -- deactivate can't strand the plugin in a half-unloaded state.
+    if type(spec.deactivate) == 'function' then
+      local ok, err = pcall(spec.deactivate, plugin)
+      if not ok then
+        util.schedule_notify(
+          ('Failed to run deactivate hook for %s: %s'):format(plugin_name, tostring(err)),
+          vim.log.levels.WARN
+        )
+      end
+    end
+
+    -- Step 2: drop package.loaded entries for the plugin's main module
+    -- and submodules so the next require re-evaluates from disk. Resolved
+    -- main may be nil for plugins without a Lua module (rare but legal).
+    local main = require('zpack.utils').resolve_main(plugin, spec)
+    if main and main ~= '' then
+      local prefix = main .. '.'
+      for key in pairs(package.loaded) do
+        if key == main or (type(key) == 'string' and key:sub(1, #prefix) == prefix) then
+          package.loaded[key] = nil
+        end
+      end
+    end
+
+    -- Step 3: reset load_status so process_spec runs the full lifecycle
+    -- (packadd, deps, config) again. We re-fetch the pack_spec from the
+    -- registry rather than reusing `pack.spec` because pack's spec is the
+    -- minimal vim.pack form, and process_spec keys on src_to_pack_spec.
+    registry_entry.load_status = 'pending'
+    state.unloaded_plugin_names[plugin_name] = true
+    local pack_spec = state.src_to_pack_spec[pack.spec.src] or pack.spec
+    require('zpack.plugin_loader').try_process_spec(pack_spec, {})
+    if registry_entry.load_status == 'loaded' then
+      util.schedule_notify(('Reloaded %s'):format(plugin_name), vim.log.levels.INFO)
+    end
+  end,
+  complete = function(arg_lead)
+    return filter_completions(state.registered_plugin_names, arg_lead)
+  end,
+}
+
 -- Ordered list used for completion and usage messages.
-local SUB_ORDER = { 'update', 'restore', 'clean', 'build', 'load', 'delete' }
+local SUB_ORDER = { 'update', 'restore', 'clean', 'build', 'load', 'delete', 'sync', 'check', 'log', 'reload' }
 
 -- Guard against SUB_ORDER drifting out of sync with the Sub table.
 do

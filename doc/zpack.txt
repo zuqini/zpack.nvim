@@ -148,6 +148,30 @@ command name is configurable via |zpack-setup-cmd_name| — a short name like
                 `:packdel! ++all` — though the native command also removes
                 any installed plugins absent from your spec.
 
+:ZPack[!] sync  Bulk update followed by clean. Equivalent to running
+                `:ZPack update` and then `:ZPack clean`. With `!`, applies
+                updates immediately (skips the confirmation buffer). lazy.nvim
+                parity for `:Lazy sync`.
+
+:ZPack check [plugin]
+                Preview pending updates without applying them. Opens
+                |vim.pack.update()|'s confirmation buffer the same way
+                `:ZPack update` does without the bang — useful as a "what
+                would update?" check. Supports tab completion of installed
+                plugin names. lazy.nvim parity for `:Lazy check`.
+
+:ZPack log {plugin}
+                Show the last 40 commits for a plugin in a scratch buffer
+                (git filetype). lazy.nvim parity for `:Lazy log <plugin>`.
+
+:ZPack reload {plugin}
+                Re-source a plugin: runs the plugin's `deactivate` hook (if
+                defined), drops its `package.loaded` modules, resets its
+                load state, and re-runs the lifecycle. Useful when iterating
+                on a plugin's code without restarting Neovim — typical for
+                authors using `dev = true`. lazy.nvim parity for
+                `:Lazy reload <plugin>`.
+
 ------------------------------------------------------------------------------
 4.3 CONFIGURATIONS                                     *zpack-configurations*
                                                        *zpack-setup-defaults*
@@ -242,6 +266,18 @@ defaults        (table, optional)
 performance     (table, optional)
                 Performance-related settings.
                   - `vim_loader`: Enable vim.loader caching. Default: `true`
+
+                                                              *zpack-setup-dev*
+dev             (table, optional)
+                lazy.nvim parity: control where `dev = true` spec entries
+                resolve to. When a spec sets `dev = true`, its source is
+                rewritten to `path .. '/' .. derived_name`.
+                  - `path`: Base directory for local plugin checkouts.
+                    Default: `'~/projects'`.
+                  - `fallback`: When the local directory is missing, fall
+                    through to the regular `[1]` / `src` / `url` / `dir`
+                    chain instead of using the dev path anyway.
+                    Default: `false`.
 
 ------------------------------------------------------------------------------
 4.6 HEALTH CHECK                                              *zpack-health*
@@ -580,7 +616,11 @@ parent's lazy trigger fires.
       init = function(plugin) end,          -- Runs before load
       config = function(plugin, opts) end,  -- Runs after load
       -- config = true,                      -- Calls require(main).setup({})
-      build = string|function(plugin),      -- Build command/function
+      build = string|function(plugin)       -- Build step:
+            | (string|function(plugin))[]   --   ':<ex>' = ex-cmd; other = shell
+            | false,                        --   array runs steps in order
+                                            --   `false` opts out (lazy.nvim parity)
+      deactivate = function(plugin) end,    -- :ZPack reload teardown hook
 
       -- Lazy loading triggers (auto-sets lazy=true unless overridden)
       -- All triggers can also be functions receiving zpack.Plugin
@@ -596,6 +636,7 @@ parent's lazy trigger fires.
       -- Source control (version for `vim.pack.add`, string|vim.VersionRange)
       version = "main",                     -- Branch/tag/commit
       -- version = vim.version.range("1.*"), -- Or semver range
+      -- version = false,                    -- Opt out (lazy.nvim parity)
 
       -- Source control (lazy.nvim compat, mapped to version)
       sem_version = "^1.0.0",               -- lazy.nvim's version field
@@ -608,8 +649,20 @@ parent's lazy trigger fires.
       main = "module.name",                 -- Explicit main module
       module = false,                       -- Disable module-based lazy loading
 
+      -- lazy.nvim parity flags
+      pin = true,                           -- Exclude from :ZPack update bulk runs
+      optional = true,                      -- Only install if also referenced
+                                            --   non-optionally elsewhere
+      dev = true,                           -- Use local checkout under
+                                            --   setup({ dev = { path } })
+      virtual = true,                       -- Meta-plugin: skip vim.pack.add;
+                                            --   still walks deps + runs config
+      specs = { ... },                      -- Companion plugin specs grouped
+                                            --   with this one (peers, not deps)
+
       -- Spec imports
-      import = "plugins.lsp",               -- Import specs from lua/{path}/
+      import = "plugins.lsp"                -- Module path string
+            | function() return {...} end,  -- Or function returning specs
     }
 <
 
@@ -805,11 +858,58 @@ module          (boolean, optional)
                 Default: true (module loading enabled)
 
                                                           *zpack-Spec.import*
-import          (string, optional)
+import          (string|function, optional)
                 Module path to import specs from (e.g., 'plugins' or
                 'plugins.lsp'). Imports all .lua files from lua/{path}/
                 and all subdirectories with init.lua (lua/{path}/*/init.lua).
                 Each file should return a spec or list of specs.
+
+                lazy.nvim parity: `import` also accepts a function. The
+                function is called inside pcall, and a table return value
+                is treated as a spec list to recurse into.
+
+                                                            *zpack-Spec.pin*
+pin             (boolean, optional)
+                lazy.nvim parity. When `true`, exclude this plugin from
+                bulk `:ZPack update` runs (still installed; just never
+                auto-updated). A single-name update `:ZPack update {name}`
+                still updates a pinned plugin (explicit beats policy).
+
+                                                       *zpack-Spec.optional*
+optional        (boolean, optional)
+                lazy.nvim parity. When `true`, only include this plugin
+                if some non-optional spec also references it (e.g. another
+                spec's `dependencies` list). An optional-only plugin is
+                silently dropped at merge time.
+
+                                                            *zpack-Spec.dev*
+dev             (boolean, optional)
+                lazy.nvim parity. When `true`, rewrite this spec's source
+                to a local checkout under |zpack-setup-dev|'s `path` (the
+                derived plugin name is appended). Useful for plugin authors
+                iterating locally without changing the spec for ship.
+
+                                                        *zpack-Spec.virtual*
+virtual         (boolean, optional)
+                lazy.nvim parity. When `true`, this spec is a meta-plugin:
+                it is NOT installed and NOT added to the rtp, but its
+                dependencies still install and its config/init/opts still
+                run. Used to group dependencies under one named entry.
+
+                                                          *zpack-Spec.specs*
+specs           (zpack.Spec|zpack.Spec[], optional)
+                lazy.nvim parity. Companion plugin specs grouped with this
+                one. Unlike `dependencies`, these are peers (NOT loaded
+                before this plugin) — they walk through the normal import
+                path and become first-class registry entries.
+
+                                                     *zpack-Spec.deactivate*
+deactivate      (function(plugin), optional)
+                lazy.nvim parity. Teardown hook invoked by
+                `:ZPack reload {plugin}` before the plugin is re-sourced.
+                Use it to remove autocommands, keymaps, or watchers the
+                plugin installed at load time. A throw is caught and
+                surfaces as a warning; reload still proceeds.
 
 ==============================================================================
 8. PLUGIN REFERENCE                                *zpack-plugin-reference*
@@ -820,6 +920,14 @@ The plugin data object passed to hooks and trigger functions:
     {
       spec = vim.pack.Spec,           -- The resolved vim.pack spec
       path = string,                  -- Absolute path to plugin directory
+      name = string,                  -- Resolved plugin name (alias for
+                                      -- spec.name, lazy.nvim parity)
+      dir = string,                   -- Plugin directory (alias for path,
+                                      -- lazy.nvim parity)
+      dependencies = string[],        -- Sorted list of resolved dependency
+                                      -- names (lazy.nvim parity)
+      main = string?,                 -- Detected main module name
+                                      -- (available after config resolves)
     }
 <
 
@@ -829,7 +937,25 @@ spec            (vim.pack.Spec)
 
                                                         *zpack.Plugin.path*
 path            (string)
-                Absolute path to the plugin directory.
+                Absolute path to the plugin directory. `nil` for plugins
+                with `virtual = true`.
+
+                                                        *zpack.Plugin.name*
+name            (string)
+                Resolved plugin name. Alias for `spec.name`. Added for
+                lazy.nvim spec drop-in compatibility (LazyPlugin.name).
+
+                                                         *zpack.Plugin.dir*
+dir             (string)
+                Plugin directory. Alias for `path`. Added for lazy.nvim
+                spec drop-in compatibility (LazyPlugin.dir).
+
+                                                *zpack.Plugin.dependencies*
+dependencies    (string[])
+                Sorted list of resolved dependency names — the plugins
+                this entry depends on, derived from the resolved spec
+                tree. Added for lazy.nvim spec drop-in compatibility
+                (LazyPlugin.dependencies).
 
 ==============================================================================
 9. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*

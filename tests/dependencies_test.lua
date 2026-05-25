@@ -22,6 +22,30 @@ describe("Dependencies Field", function()
     assert.is_not_nil(state.spec_registry['https://github.com/test/dep'])
   end)
 
+  -- Regression for zpack_nvim-j5l: lazy.nvim accepts `dependencies` as a
+  -- bare string ('user/repo'), auto-deriving the GitHub URL. zpack's
+  -- normalize_dependencies must wrap the bare string the same way it
+  -- wraps a single-element array so a direct copy-paste from a lazy.nvim
+  -- spec resolves to https://github.com/user/repo.
+  it("bare string dependency (lazy.nvim shorthand) is registered", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/parent',
+          dependencies = 'test/bare-string-dep',
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    local state = require('zpack.state')
+
+    assert.is_not_nil(state.spec_registry['https://github.com/test/parent'])
+    assert.is_not_nil(state.spec_registry['https://github.com/test/bare-string-dep'],
+      "Bare-string dependencies must resolve via the [1]/github auto-derivation")
+  end)
+
   it("array of string dependencies are registered", function()
     require('zpack').setup({
       spec = {

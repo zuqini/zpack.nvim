@@ -469,10 +469,19 @@ function M.resolve_all()
       local pack_spec = {
         src = src,
         version = utils.normalize_version(entry.merged_spec),
-        name = entry.merged_spec.name,
+        name = entry.merged_spec.name or utils.derive_name_from_src(src),
       }
-      table.insert(vim_packs, pack_spec)
       state.src_to_pack_spec[src] = pack_spec
+      -- lazy.nvim spec parity (`virtual = true`): meta-plugins are not
+      -- installed and not added to the rtp. Skip vim.pack.add for them but
+      -- keep the registry entry so dependencies still install and the
+      -- spec's config/init/opts can still run via the normal startup path
+      -- (registration.lua synthesizes a fake plugin object for virtuals).
+      if entry.merged_spec.virtual == true then
+        entry.is_virtual = true
+      else
+        table.insert(vim_packs, pack_spec)
+      end
     end
   end
 
