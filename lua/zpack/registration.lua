@@ -9,6 +9,7 @@ M.register_all = function(ctx)
   local ok, err = pcall(vim.pack.add, ctx.vim_packs, {
     confirm = ctx.confirm,
     load = function(plugin)
+      ---@cast plugin zpack.Plugin
       local pack_spec = plugin.spec
       local registry_entry = state.spec_registry[pack_spec.src]
 
