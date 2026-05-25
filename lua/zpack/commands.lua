@@ -397,7 +397,9 @@ Sub.reload = {
     -- registry rather than reusing `pack.spec` because pack's spec is the
     -- minimal vim.pack form, and process_spec keys on src_to_pack_spec.
     registry_entry.load_status = 'pending'
-    state.unloaded_plugin_names[plugin_name] = true
+    -- Canonical name: plugin_loader clears by pack.spec.name; user-typed
+    -- can differ in case on case-insensitive FS and leak a stale entry.
+    state.unloaded_plugin_names[pack.spec.name] = true
     local pack_spec = state.src_to_pack_spec[pack.spec.src] or pack.spec
     require('zpack.plugin_loader').try_process_spec(pack_spec, {})
     if registry_entry.load_status == 'loaded' then

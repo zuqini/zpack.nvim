@@ -292,12 +292,11 @@ local import_one_spec = function(spec, ctx)
     register_dependencies(spec, src, ctx)
   end
 
-  -- lazy.nvim spec parity: nested `specs` field declares companion plugins
-  -- grouped with this spec. Unlike `dependencies`, these are peer plugins
-  -- (not loaded-before-this); they walk through the normal import path with
-  -- the parent's import-context (NOT marked as `_is_dependency`).
+  -- Nested `specs` are peer plugins; reset is_dependency so a parent
+  -- reached via a `dependencies` chain doesn't propagate dep-status down.
   if spec.specs then
-    M.import_specs(spec.specs, ctx)
+    local peer_ctx = vim.tbl_extend('force', ctx, { is_dependency = false })
+    M.import_specs(spec.specs, peer_ctx)
   end
 end
 

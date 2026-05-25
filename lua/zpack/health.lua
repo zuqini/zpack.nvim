@@ -142,6 +142,18 @@ local function check_plugins()
   if lazy_count > 0 then
     vim.health.info(('lazy: %d'):format(lazy_count))
   end
+
+  local dev_count = 0
+  for _, entry in pairs(state.spec_registry) do
+    if entry.merged_spec and entry.merged_spec.dev then
+      dev_count = dev_count + 1
+    end
+  end
+  if dev_count > 0 then
+    local dev = state.config.dev or {}
+    vim.health.info(('dev: %d plugin(s) → %s (fallback: %s)'):format(
+      dev_count, dev.path or '~/projects', tostring(dev.fallback or false)))
+  end
 end
 
 local function check_bug_report()

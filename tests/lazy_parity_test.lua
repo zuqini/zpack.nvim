@@ -102,6 +102,33 @@ describe("nested specs field (zpack_nvim-74a)", function()
     local is_dep = companion.specs[1]._is_dependency
     assert.is_falsy(is_dep, "Nested specs are peers, not dependencies")
   end)
+
+  it("specs nested inside a dependencies chain stay peers, not deps", function()
+    require('zpack').setup({
+      spec = {
+        {
+          'test/root',
+          dependencies = {
+            {
+              'test/dep',
+              specs = { { 'test/sibling' } },
+            },
+          },
+        },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local state = require('zpack.state')
+    local dep = state.spec_registry['https://github.com/test/dep']
+    local sibling = state.spec_registry['https://github.com/test/sibling']
+    assert.is_not_nil(dep, "dep must register")
+    assert.is_not_nil(sibling, "sibling declared via nested specs must register")
+    assert.is_true(dep.specs[1]._is_dependency, "dep itself remains a dep")
+    assert.is_falsy(sibling.specs[1]._is_dependency,
+      "specs nested under a dep must NOT inherit is_dependency from ctx")
+  end)
 end)
 
 describe("pin = true (zpack_nvim-gi5)", function()

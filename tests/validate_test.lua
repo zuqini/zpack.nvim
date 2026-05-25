@@ -73,6 +73,7 @@ describe("Config Validation", function()
       defaults = { confirm = true },
       performance = { vim_loader = true },
       profiling = { loader = false, require = false },
+      dev = { path = '~/projects', fallback = false },
     })
     assert.are.equal(0, #errors)
   end)
