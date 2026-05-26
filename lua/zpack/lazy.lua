@@ -31,6 +31,22 @@ local function default_lazy()
       and state.config.defaults.lazy == true
 end
 
+---@param spec zpack.Spec
+---@param plugin zpack.Plugin?
+---@param src? string
+---@return boolean
+local function is_lazy_by_triggers_or_floor(spec, plugin, src)
+  local event = utils.try_resolve_field(spec.event, plugin, src, 'event')
+  local cmd = utils.try_resolve_field(spec.cmd, plugin, src, 'cmd')
+  local ft = utils.try_resolve_field(spec.ft, plugin, src, 'ft')
+  local keys = utils.try_resolve_field(spec.keys, plugin, src, 'keys')
+
+  if event or cmd or ft or (keys and #keys > 0) then
+    return true
+  end
+  return default_lazy()
+end
+
 ---Check if any parent of a dependency is lazy (cached)
 ---@param dep_src string
 ---@return boolean
@@ -46,24 +62,16 @@ local function has_lazy_parent(dep_src)
     return false
   end
 
-  local fallback_lazy = default_lazy()
   for parent_src in pairs(parents) do
     local parent_entry = state.spec_registry[parent_src]
     if parent_entry and parent_entry.merged_spec then
       local parent_spec = parent_entry.merged_spec --[[@as zpack.Spec]]
-      if parent_spec.lazy == true then
+      if parent_spec.lazy == true
+          or (parent_spec.lazy == nil
+            and is_lazy_by_triggers_or_floor(parent_spec, parent_entry.plugin, parent_src))
+      then
         state.lazy_parent_cache[dep_src] = true
         return true
-      end
-      if parent_spec.lazy == nil then
-        local event = utils.try_resolve_field(parent_spec.event, parent_entry.plugin, parent_src, 'event')
-        local cmd = utils.try_resolve_field(parent_spec.cmd, parent_entry.plugin, parent_src, 'cmd')
-        local ft = utils.try_resolve_field(parent_spec.ft, parent_entry.plugin, parent_src, 'ft')
-        local keys = utils.try_resolve_field(parent_spec.keys, parent_entry.plugin, parent_src, 'keys')
-        if event or cmd or ft or (keys and #keys > 0) or fallback_lazy then
-          state.lazy_parent_cache[dep_src] = true
-          return true
-        end
       end
     end
   end
@@ -81,12 +89,7 @@ M.is_lazy = function(spec, plugin, src)
     return spec.lazy
   end
 
-  local event = utils.try_resolve_field(spec.event, plugin, src, 'event')
-  local cmd = utils.try_resolve_field(spec.cmd, plugin, src, 'cmd')
-  local ft = utils.try_resolve_field(spec.ft, plugin, src, 'ft')
-  local keys = utils.try_resolve_field(spec.keys, plugin, src, 'keys')
-
-  if event or cmd or ft or (keys and #keys > 0) then
+  if is_lazy_by_triggers_or_floor(spec, plugin, src) then
     return true
   end
 
@@ -94,7 +97,7 @@ M.is_lazy = function(spec, plugin, src)
     return true
   end
 
-  return default_lazy()
+  return false
 end
 
 ---@param ctx zpack.ProcessContext
