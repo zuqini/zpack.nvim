@@ -8,7 +8,6 @@ Most of your lazy.nvim plugin specs will work as-is with zpack. However, zpack f
 - **profiling**: Use `nvim --startuptime startuptime.log`. Also refer to example [Neovim Profiler script](https://gist.github.com/zuqini/35993710f81983fbfa6baca67bdb32ed)
 - **default lazy plugins**: lazy.nvim's community specs silently default top-level specs for utility libraries like `plenary.nvim` to `lazy = true`, even without lazy triggers or a lazy parent. zpack respects your specs as-written, so set `lazy = true` explicitly on such specs if you want the same default — or set `defaults.lazy = true` in [`setup()`](../README.md#configurations) to apply it to every spec
 - **`enabled` vs `cond`**: lazy.nvim collapses both to a single "disabled" state. zpack splits them: `enabled = false` skips install entirely (the plugin is never cloned), while `cond = false` installs the plugin but skips its load (so it still shows up under `vim.pack`'s data dir). Use `enabled` when you want lazy.nvim's "don't install at all" behavior
-- **unsupported author-spec fields**: zpack does not implement `rocks` (LuaRocks deps), `virtual` (synthetic plugins), or `submodules` (git submodule control). Specs carrying these are accepted but emit a validation warning so the gap is visible; the rest of the spec loads normally
 
 ## Gotchas
 

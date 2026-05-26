@@ -125,10 +125,6 @@ local SPEC_FIELD_TYPES = {
 local SORTED_SPEC_FIELDS = vim.tbl_keys(SPEC_FIELD_TYPES)
 table.sort(SORTED_SPEC_FIELDS)
 
----lazy.nvim spec fields zpack does not implement; warned so the gap is visible
----(e.g. `rocks` would silently skip the plugin's LuaRocks deps).
-local UNSUPPORTED_LAZY_FIELDS = { 'rocks', 'submodules', 'virtual' }
-
 ---Validate a single plugin spec.
 ---@param spec any A `zpack.Spec` entry
 ---@return string[] errors Field-named messages; empty when valid
@@ -141,12 +137,6 @@ function M.validate_spec(spec)
   check(errors, '[1]', spec[1], 'string')
   for _, field in ipairs(SORTED_SPEC_FIELDS) do
     check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
-  end
-
-  for _, field in ipairs(UNSUPPORTED_LAZY_FIELDS) do
-    if spec[field] ~= nil then
-      errors[#errors + 1] = ('%s: unsupported lazy.nvim field, ignored by zpack'):format(field)
-    end
   end
 
   -- Every field above is optional, so a spec with no source at all passes
