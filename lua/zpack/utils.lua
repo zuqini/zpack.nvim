@@ -343,7 +343,7 @@ M.normalize_version = function(spec)
     return spec.commit
   end
   local default_version = state.config and state.config.defaults and state.config.defaults.version
-  if default_version ~= nil and default_version ~= false then
+  if type(default_version) == 'string' or type(default_version) == 'table' then
     return default_version
   end
   return nil

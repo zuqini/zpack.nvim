@@ -377,4 +377,26 @@ describe("defaults.version", function()
     assert.is_not_nil(call)
     assert.is_nil(call[1].version, "defaults.version=false must not leak boolean to vim.pack.add")
   end)
+
+  it("defaults.version=false does not clobber an explicit per-spec version", function()
+    require('zpack').setup({
+      spec = { { 'test/plugin', version = 'main' } },
+      defaults = { confirm = false, version = false },
+    })
+
+    local call = _G.test_state.vim_pack_calls[1]
+    assert.is_not_nil(call)
+    assert.are.equal('main', call[1].version)
+  end)
+
+  it("defaults.version=true is treated as no default (silent no-op, like spec.version=true)", function()
+    require('zpack').setup({
+      spec = { { 'test/plugin' } },
+      defaults = { confirm = false, version = true },
+    })
+
+    local call = _G.test_state.vim_pack_calls[1]
+    assert.is_not_nil(call)
+    assert.is_nil(call[1].version, "defaults.version=true must not leak boolean to vim.pack.add")
+  end)
 end)
