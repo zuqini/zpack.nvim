@@ -33,10 +33,7 @@ end
 ---@param plugin zpack.Plugin?
 ---@param src? string
 ---@return boolean
-local function is_lazy_by_triggers_or_floor(spec, plugin, src)
-  if default_lazy() then
-    return true
-  end
+local function has_lazy_triggers(spec, plugin, src)
   local event = utils.try_resolve_field(spec.event, plugin, src, 'event')
   local cmd = utils.try_resolve_field(spec.cmd, plugin, src, 'cmd')
   local ft = utils.try_resolve_field(spec.ft, plugin, src, 'ft')
@@ -48,7 +45,7 @@ local function is_lazy_by_triggers_or_floor(spec, plugin, src)
   return false
 end
 
----Check if any parent of a dependency is lazy (cached)
+---Check if any parent of a dependency is lazy (cached).
 ---@param dep_src string
 ---@return boolean
 local function has_lazy_parent(dep_src)
@@ -69,7 +66,7 @@ local function has_lazy_parent(dep_src)
       local parent_spec = parent_entry.merged_spec --[[@as zpack.Spec]]
       if parent_spec.lazy == true
           or (parent_spec.lazy == nil
-            and is_lazy_by_triggers_or_floor(parent_spec, parent_entry.plugin, parent_src))
+            and has_lazy_triggers(parent_spec, parent_entry.plugin, parent_src))
       then
         state.lazy_parent_cache[dep_src] = true
         return true
@@ -90,7 +87,11 @@ M.is_lazy = function(spec, plugin, src)
     return spec.lazy
   end
 
-  if is_lazy_by_triggers_or_floor(spec, plugin, src) then
+  if default_lazy() then
+    return true
+  end
+
+  if has_lazy_triggers(spec, plugin, src) then
     return true
   end
 
