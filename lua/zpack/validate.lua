@@ -124,10 +124,8 @@ local SPEC_FIELD_TYPES = {
 local SORTED_SPEC_FIELDS = vim.tbl_keys(SPEC_FIELD_TYPES)
 table.sort(SORTED_SPEC_FIELDS)
 
----lazy.nvim spec fields that zpack does not implement. Author-published
----specs occasionally carry these; silently ignoring them masks real
----behavioral gaps (e.g. a `rocks` plugin would skip its LuaRocks deps).
----Surface them so users can decide whether the gap matters.
+---lazy.nvim spec fields zpack does not implement; warned so the gap is visible
+---(e.g. `rocks` would silently skip the plugin's LuaRocks deps).
 local UNSUPPORTED_LAZY_FIELDS = { 'rocks', 'submodules', 'virtual' }
 
 ---Validate a single plugin spec.

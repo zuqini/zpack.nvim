@@ -399,4 +399,18 @@ describe("defaults.lazy", function()
     assert.is_true(parent.is_lazy_resolved, "Parent should be lazy via defaults.lazy")
     assert.is_true(child.is_lazy_resolved, "Dep-only child should inherit laziness from parent")
   end)
+
+  it("a spec with an explicit event trigger stays lazy under defaults.lazy=true", function()
+    local state = require('zpack.state')
+
+    require('zpack').setup({
+      spec = { { 'test/plugin', event = 'BufRead' } },
+      defaults = { confirm = false, lazy = true },
+    })
+    helpers.flush_pending()
+
+    local entry = state.spec_registry['https://github.com/test/plugin']
+    assert.is_not_nil(entry)
+    assert.is_true(entry.is_lazy_resolved)
+  end)
 end)

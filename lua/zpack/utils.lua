@@ -327,10 +327,8 @@ end
 ---@param spec zpack.Spec
 ---@return string|vim.VersionRange|nil version
 M.normalize_version = function(spec)
-  -- `version = false` is a lazy.nvim escape hatch ("no version") that we
-  -- treat as nil so vim.pack tracks the default branch. The early return
-  -- also narrows `spec.version` for the analyzer below, and pre-empts the
-  -- `defaults.version` fallback so a per-spec opt-out always wins.
+  -- `version = false` is lazy.nvim's "no version constraint" escape hatch;
+  -- pre-empts `defaults.version` so a per-spec opt-out always wins.
   if spec.version == false then
     return nil
   end
@@ -347,7 +345,7 @@ M.normalize_version = function(spec)
     return spec.commit
   end
   local default_version = state.config and state.config.defaults and state.config.defaults.version
-  if default_version ~= nil then
+  if default_version ~= nil and default_version ~= false then
     return default_version
   end
   return nil
