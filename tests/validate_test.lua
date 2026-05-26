@@ -77,6 +77,37 @@ describe("Config Validation", function()
     })
     assert.are.equal(0, #errors)
   end)
+
+  it("validate_config accepts defaults.lazy and defaults.version", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_config({
+      defaults = { lazy = true, version = 'main' },
+    })
+    assert.are.equal(0, #errors)
+
+    errors = validate.validate_config({
+      defaults = { version = vim.version.range('^1') },
+    })
+    assert.are.equal(0, #errors)
+  end)
+
+  it("validate_config flags a non-boolean defaults.lazy", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_config({ defaults = { lazy = 'yes' } })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('defaults.lazy', 1, true) ~= nil,
+      "error should name defaults.lazy")
+    assert.is_truthy(errors[1]:find('boolean', 1, true) ~= nil,
+      "error should state expected boolean")
+  end)
+
+  it("validate_config flags a wrong-typed defaults.version", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_config({ defaults = { version = 123 } })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('defaults.version', 1, true) ~= nil,
+      "error should name defaults.version")
+  end)
 end)
 
 describe("Spec Validation", function()
@@ -138,6 +169,33 @@ describe("Spec Validation", function()
     local validate = require('zpack.validate')
     local errors = validate.validate_spec({ import = 'plugins' })
     assert.are.equal(0, #errors)
+  end)
+
+  it("validate_spec flags unsupported lazy.nvim fields (rocks/virtual/submodules)", function()
+    local validate = require('zpack.validate')
+
+    for _, field in ipairs({ 'rocks', 'virtual', 'submodules' }) do
+      local spec = { 'user/plugin' }
+      spec[field] = field == 'rocks' and { 'pkg' } or true
+      local errors = validate.validate_spec(spec)
+      assert.are.equal(1, #errors, ('one warning expected for unsupported field %s'):format(field))
+      assert.is_truthy(errors[1]:find(field, 1, true) ~= nil,
+        ('warning should name the unsupported field %s'):format(field))
+      assert.is_truthy(errors[1]:find('unsupported', 1, true) ~= nil,
+        "warning should describe the field as unsupported")
+    end
+  end)
+
+  it("validate_spec reports every unsupported field on the same spec", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({
+      'user/plugin',
+      rocks = { 'pkg' },
+      virtual = true,
+      submodules = false,
+    })
+    assert.are.equal(3, #errors,
+      "rocks, virtual, and submodules should each produce a warning")
   end)
 end)
 

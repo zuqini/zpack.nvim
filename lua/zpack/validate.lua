@@ -60,6 +60,8 @@ function M.validate_config(opts)
   if type(opts.defaults) == 'table' then
     check(errors, 'defaults.cond', opts.defaults.cond, { 'boolean', 'function' })
     check(errors, 'defaults.confirm', opts.defaults.confirm, 'boolean')
+    check(errors, 'defaults.lazy', opts.defaults.lazy, 'boolean')
+    check(errors, 'defaults.version', opts.defaults.version, { 'string', 'table' })
   end
   if type(opts.performance) == 'table' then
     check(errors, 'performance.vim_loader', opts.performance.vim_loader, 'boolean')
@@ -122,6 +124,12 @@ local SPEC_FIELD_TYPES = {
 local SORTED_SPEC_FIELDS = vim.tbl_keys(SPEC_FIELD_TYPES)
 table.sort(SORTED_SPEC_FIELDS)
 
+---lazy.nvim spec fields that zpack does not implement. Author-published
+---specs occasionally carry these; silently ignoring them masks real
+---behavioral gaps (e.g. a `rocks` plugin would skip its LuaRocks deps).
+---Surface them so users can decide whether the gap matters.
+local UNSUPPORTED_LAZY_FIELDS = { 'rocks', 'submodules', 'virtual' }
+
 ---Validate a single plugin spec.
 ---@param spec any A `zpack.Spec` entry
 ---@return string[] errors Field-named messages; empty when valid
@@ -134,6 +142,12 @@ function M.validate_spec(spec)
   check(errors, '[1]', spec[1], 'string')
   for _, field in ipairs(SORTED_SPEC_FIELDS) do
     check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
+  end
+
+  for _, field in ipairs(UNSUPPORTED_LAZY_FIELDS) do
+    if spec[field] ~= nil then
+      errors[#errors + 1] = ('%s: unsupported lazy.nvim field, ignored by zpack'):format(field)
+    end
   end
 
   -- Every field above is optional, so a spec with no source at all passes

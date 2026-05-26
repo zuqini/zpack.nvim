@@ -24,6 +24,13 @@ local function is_dependency_only(src)
   return true
 end
 
+---@return boolean
+local function default_lazy()
+  return state.config ~= nil
+      and state.config.defaults ~= nil
+      and state.config.defaults.lazy == true
+end
+
 ---Check if any parent of a dependency is lazy (cached)
 ---@param dep_src string
 ---@return boolean
@@ -39,6 +46,7 @@ local function has_lazy_parent(dep_src)
     return false
   end
 
+  local fallback_lazy = default_lazy()
   for parent_src in pairs(parents) do
     local parent_entry = state.spec_registry[parent_src]
     if parent_entry and parent_entry.merged_spec then
@@ -52,7 +60,7 @@ local function has_lazy_parent(dep_src)
         local cmd = utils.try_resolve_field(parent_spec.cmd, parent_entry.plugin, parent_src, 'cmd')
         local ft = utils.try_resolve_field(parent_spec.ft, parent_entry.plugin, parent_src, 'ft')
         local keys = utils.try_resolve_field(parent_spec.keys, parent_entry.plugin, parent_src, 'keys')
-        if event or cmd or ft or (keys and #keys > 0) then
+        if event or cmd or ft or (keys and #keys > 0) or fallback_lazy then
           state.lazy_parent_cache[dep_src] = true
           return true
         end
@@ -86,7 +94,7 @@ M.is_lazy = function(spec, plugin, src)
     return true
   end
 
-  return false
+  return default_lazy()
 end
 
 ---@param ctx zpack.ProcessContext
