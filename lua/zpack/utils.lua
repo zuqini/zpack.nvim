@@ -327,8 +327,6 @@ end
 ---@param spec zpack.Spec
 ---@return string|vim.VersionRange|nil version
 M.normalize_version = function(spec)
-  -- `version = false` is lazy.nvim's "no version constraint" escape hatch;
-  -- pre-empts `defaults.version` so a per-spec opt-out always wins.
   if spec.version == false then
     return nil
   end

@@ -26,9 +26,7 @@ end
 
 ---@return boolean
 local function default_lazy()
-  return state.config ~= nil
-      and state.config.defaults ~= nil
-      and state.config.defaults.lazy == true
+  return (state.config and state.config.defaults and state.config.defaults.lazy) == true
 end
 
 ---@param spec zpack.Spec
@@ -36,6 +34,9 @@ end
 ---@param src? string
 ---@return boolean
 local function is_lazy_by_triggers_or_floor(spec, plugin, src)
+  if default_lazy() then
+    return true
+  end
   local event = utils.try_resolve_field(spec.event, plugin, src, 'event')
   local cmd = utils.try_resolve_field(spec.cmd, plugin, src, 'cmd')
   local ft = utils.try_resolve_field(spec.ft, plugin, src, 'ft')
@@ -44,7 +45,7 @@ local function is_lazy_by_triggers_or_floor(spec, plugin, src)
   if event or cmd or ft or (keys and #keys > 0) then
     return true
   end
-  return default_lazy()
+  return false
 end
 
 ---Check if any parent of a dependency is lazy (cached)

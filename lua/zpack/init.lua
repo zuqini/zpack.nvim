@@ -39,8 +39,8 @@ end
 ---@class zpack.Config.Defaults
 ---@field cond? boolean|(fun(plugin: zpack.Plugin):boolean)
 ---@field confirm? boolean
----@field lazy? boolean Default lazy-load flag applied when a spec has no `lazy` field and no lazy triggers (lazy.nvim parity)
----@field version? string|vim.VersionRange Default version applied when a spec has no `version`/`sem_version`/`branch`/`tag`/`commit` (lazy.nvim parity)
+---@field lazy? boolean Treat every spec as lazy unless it sets `lazy = false` (lazy.nvim parity)
+---@field version? string|vim.VersionRange|false Default version when none set; `false` means no default (lazy.nvim parity)
 
 ---@class zpack.Config.Performance
 ---@field vim_loader? boolean
