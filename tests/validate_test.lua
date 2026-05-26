@@ -108,6 +108,13 @@ describe("Config Validation", function()
     assert.is_truthy(errors[1]:find('defaults.version', 1, true) ~= nil,
       "error should name defaults.version")
   end)
+
+  it("validate_config accepts defaults.version=false (the no-default opt-out)", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_config({ defaults = { version = false } })
+    assert.are.equal(0, #errors,
+      "defaults.version=false is the documented opt-out and must not error")
+  end)
 end)
 
 describe("Spec Validation", function()
