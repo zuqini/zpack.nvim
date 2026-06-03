@@ -183,7 +183,6 @@ function M.cleanup_test_env()
   package.loaded['zpack.keymap'] = nil
   package.loaded['zpack.utils'] = nil
   package.loaded['zpack.commands'] = nil
-  package.loaded['zpack.deprecation'] = nil
   package.loaded['zpack.merge'] = nil
   package.loaded['zpack.module_loader'] = nil
   package.loaded['zpack.api'] = nil
@@ -260,14 +259,9 @@ function M.cleanup_mock_plugin_dir(base_path)
 end
 
 ---@param cmd_name? string Primary command name registered by `setup` (default 'ZPack').
----@param legacy_prefix? string Prefix for the deprecated :<Prefix><Suffix> commands (default 'Z').
-function M.delete_zpack_commands(cmd_name, legacy_prefix)
+function M.delete_zpack_commands(cmd_name)
   cmd_name = cmd_name or 'ZPack'
-  legacy_prefix = legacy_prefix or 'Z'
   pcall(vim.api.nvim_del_user_command, cmd_name)
-  for _, suffix in ipairs({ 'Update', 'Restore', 'Clean', 'Build', 'Load', 'Delete' }) do
-    pcall(vim.api.nvim_del_user_command, legacy_prefix .. suffix)
-  end
 end
 
 return M

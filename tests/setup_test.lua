@@ -28,23 +28,6 @@ describe("Setup and Initialization", function()
     assert.is_truthy(state.is_setup, "State should still be setup after second call")
   end)
 
-  it("add() shows deprecation error", function()
-    require('zpack').setup({ spec = {}, defaults = { confirm = false } })
-    require('zpack').add({ 'test/plugin' })
-
-    helpers.flush_pending()
-
-    local found_deprecation = false
-    for _, notif in ipairs(_G.test_state.notifications) do
-      if notif.msg:find("REMOVED") and notif.msg:find("add") then
-        found_deprecation = true
-        break
-      end
-    end
-
-    assert.is_truthy(found_deprecation, "Should show deprecation error for add()")
-  end)
-
   it("setup() with specs as first argument registers plugins", function()
     local state = require('zpack.state')
 

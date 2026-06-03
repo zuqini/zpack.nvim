@@ -57,15 +57,7 @@ describe("Config Validation", function()
       "error should state the expected type")
   end)
 
-  it("validate_config flags a non-string legacy plugins_dir", function()
-    local validate = require('zpack.validate')
-    local errors = validate.validate_config({ plugins_dir = 123 })
-    assert.are.equal(1, #errors)
-    assert.is_truthy(errors[1]:find('plugins_dir', 1, true) ~= nil,
-      "error should name plugins_dir")
-  end)
-
-  it("validate_config accepts a merged config (no spec/legacy fields)", function()
+  it("validate_config accepts a merged config (no spec field)", function()
     local validate = require('zpack.validate')
     -- Mirrors what :checkhealth passes: a fully merged zpack.Config.
     local errors = validate.validate_config({
