@@ -5,8 +5,20 @@
 
 ### ⚠ BREAKING CHANGES
 
-* the options and commands listed above no longer work. Migrate to the replacements shown before upgrading to 2.0.0.
-* :ZPack with subcommands
+2.0.0 removes every previously deprecated `setup()` option, the `zpack.add()`
+function, and the legacy `:Z*` commands. Update your config before upgrading:
+
+| Removed in 2.0 | Replacement |
+|---|---|
+| `setup({ confirm = … })` | `setup({ defaults = { confirm = … } })` |
+| `setup({ disable_vim_loader = true })` | `setup({ performance = { vim_loader = false } })` |
+| `setup({ plugins_dir = 'dir' })` | a `{ import = 'dir' }` entry in your spec list |
+| `setup({ cmd_prefix = 'Z' })` | `setup({ cmd_name = 'Z' })` |
+| legacy `:ZUpdate` / `:ZClean` / `:ZDelete` / `:ZRestore` / `:ZLoad` / `:ZBuild` | `:ZPack update` / `clean` / `delete` / `restore` / `load` / `build` (or `:Z …` with `cmd_name = 'Z'`) |
+| `setup({ auto_import = … })` | removed — was already a no-op in 1.x |
+| `require('zpack').add(…)` | removed — was already a no-op in 1.x |
+
+See [Upgrading from 1.x to 2.0](https://github.com/zuqini/zpack.nvim/blob/main/docs/tips.md#upgrading-from-1x-to-20) for the full migration guide.
 
 ### Features
 
