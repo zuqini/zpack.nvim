@@ -192,6 +192,9 @@ Plugin-level settings always take precedence over `defaults`.
     -- or import from a custom directory e.g. `./lua/a/b/plugins/`
     require('zpack').setup({ { import = 'a.b.plugins' } })
 
+    -- or point at a single spec file e.g. `./lua/plugins/telescope.lua`
+    require('zpack').setup({ { import = 'plugins.telescope' } })
+
     -- or add your specs inline in setup
     require('zpack').setup({
       { 'neovim/nvim-lspconfig', config = function() ... end },
@@ -856,9 +859,14 @@ module          (boolean, optional)
                                                           *zpack-Spec.import*
 import          (string|function, optional)
                 Module path to import specs from (e.g., 'plugins' or
-                'plugins.lsp'). Imports all .lua files from lua/{path}/
-                and all subdirectories with init.lua (lua/{path}/*/init.lua).
-                Each file should return a spec or list of specs.
+                'plugins.lsp'). If lua/{path}.lua exists it is loaded as a
+                single spec module; otherwise zpack imports all .lua files
+                from lua/{path}/ and all subdirectories with init.lua
+                (lua/{path}/*/init.lua). A lua/{path}.lua file takes
+                precedence over a lua/{path}/ directory (mirroring Lua's own
+                `require`, where foo.lua shadows foo/init.lua); the directory
+                walk is skipped. Each file should return a spec or list of
+                specs.
 
                 lazy.nvim parity: `import` also accepts a function. The
                 function is called inside pcall, and a table return value

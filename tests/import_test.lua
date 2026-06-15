@@ -7,7 +7,6 @@ describe("Spec Import", function()
   it("import loads *.lua files from directory", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
       if path == '/mock/config/lua/test_plugins' then
@@ -30,7 +29,6 @@ describe("Spec Import", function()
     assert.is_not_nil(state.spec_registry['https://github.com/test/bar-plugin'], "bar-plugin should be registered")
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
     package.loaded['test_plugins.foo'] = nil
     package.loaded['test_plugins.bar'] = nil
   end)
@@ -38,7 +36,6 @@ describe("Spec Import", function()
   it("import loads */init.lua files from subdirectories", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     local original_fs_stat = vim.uv.fs_stat
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
@@ -66,15 +63,12 @@ describe("Spec Import", function()
       "mini-plugin should be registered")
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
-    vim.uv.fs_stat = original_fs_stat
     package.loaded['test_plugins.mini'] = nil
   end)
 
   it("import loads both *.lua and */init.lua", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     local original_fs_stat = vim.uv.fs_stat
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
@@ -104,16 +98,122 @@ describe("Spec Import", function()
     assert.is_not_nil(state.spec_registry['https://github.com/test/mini'], "mini should be registered")
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
-    vim.uv.fs_stat = original_fs_stat
     package.loaded['test_plugins.telescope'] = nil
     package.loaded['test_plugins.mini'] = nil
+  end)
+
+  it("import resolves a single spec file directly (lua/<path>.lua)", function()
+    local utils = require('zpack.utils')
+    local original_lsdir = utils.lsdir
+    local original_fs_stat = vim.uv.fs_stat
+    local lsdir_called = false
+    vim.fn.stdpath = function() return '/mock/config' end
+    utils.lsdir = function(path)
+      if path == '/mock/config/lua/test_plugins/telescope' then
+        lsdir_called = true
+      end
+      return {}
+    end
+    vim.uv.fs_stat = function(path)
+      if path == '/mock/config/lua/test_plugins/telescope.lua' then
+        return { type = 'file' }
+      end
+      return original_fs_stat(path)
+    end
+
+    package.loaded['test_plugins.telescope'] = { 'test/telescope' }
+
+    local state = require('zpack.state')
+    require('zpack').setup({ { import = 'test_plugins.telescope' } })
+    helpers.flush_pending()
+
+    assert.is_not_nil(state.spec_registry['https://github.com/test/telescope'],
+      "single-file import should register the file's spec")
+    assert.is_false(lsdir_called,
+      "a single-file import must not walk a same-named directory")
+
+    utils.lsdir = original_lsdir
+    package.loaded['test_plugins.telescope'] = nil
+  end)
+
+  it("a lua/<path>.lua file takes precedence over a lua/<path>/ directory", function()
+    local utils = require('zpack.utils')
+    local original_lsdir = utils.lsdir
+    local original_fs_stat = vim.uv.fs_stat
+    vim.fn.stdpath = function() return '/mock/config' end
+    -- Both `lua/test_plugins.lua` and `lua/test_plugins/foo.lua` exist; the file
+    -- wins and the directory entry must be ignored.
+    utils.lsdir = function(path)
+      if path == '/mock/config/lua/test_plugins' then
+        return {
+          { name = 'foo.lua', type = 'file' },
+        }
+      end
+      return {}
+    end
+    vim.uv.fs_stat = function(path)
+      if path == '/mock/config/lua/test_plugins.lua' then
+        return { type = 'file' }
+      end
+      return original_fs_stat(path)
+    end
+
+    package.loaded['test_plugins'] = { 'test/file-spec' }
+    package.loaded['test_plugins.foo'] = { 'test/dir-spec' }
+
+    local state = require('zpack.state')
+    require('zpack').setup({ { import = 'test_plugins' } })
+    helpers.flush_pending()
+
+    assert.is_not_nil(state.spec_registry['https://github.com/test/file-spec'],
+      "the file spec should be registered")
+    assert.is_nil(state.spec_registry['https://github.com/test/dir-spec'],
+      "the directory spec must be ignored when a same-named .lua file exists")
+
+    utils.lsdir = original_lsdir
+    package.loaded['test_plugins'] = nil
+    package.loaded['test_plugins.foo'] = nil
+  end)
+
+  it("single-file import with enabled=false skips import", function()
+    local utils = require('zpack.utils')
+    local original_lsdir = utils.lsdir
+    local original_fs_stat = vim.uv.fs_stat
+    local resolved = false
+    local lsdir_called = false
+    vim.fn.stdpath = function() return '/mock/config' end
+    utils.lsdir = function()
+      lsdir_called = true
+      return {}
+    end
+    vim.uv.fs_stat = function(path)
+      if path == '/mock/config/lua/test_plugins/foo.lua' then
+        resolved = true
+        return { type = 'file' }
+      end
+      return original_fs_stat(path)
+    end
+
+    package.loaded['test_plugins.foo'] = { 'test/foo-plugin' }
+
+    local state = require('zpack.state')
+    require('zpack').setup({ { import = 'test_plugins.foo', enabled = false } })
+    helpers.flush_pending()
+
+    assert.is_nil(state.spec_registry['https://github.com/test/foo-plugin'],
+      "single-file import should not register when enabled=false")
+    assert.is_false(resolved,
+      "enabled=false must short-circuit before any single-file resolution")
+    assert.is_false(lsdir_called,
+      "enabled=false must short-circuit before any directory walk")
+
+    utils.lsdir = original_lsdir
+    package.loaded['test_plugins.foo'] = nil
   end)
 
   it("import only goes 1 level deep for init.lua", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     local original_fs_stat = vim.uv.fs_stat
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
@@ -141,15 +241,12 @@ describe("Spec Import", function()
       "level1-plugin should be registered")
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
-    vim.uv.fs_stat = original_fs_stat
     package.loaded['test_plugins.level1'] = nil
   end)
 
   it("import with enabled=false skips import", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
       if path == '/mock/config/lua/test_plugins' then
@@ -170,7 +267,6 @@ describe("Spec Import", function()
       "foo-plugin should NOT be registered when enabled=false")
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
     package.loaded['test_plugins.foo'] = nil
   end)
 
@@ -181,7 +277,6 @@ describe("Spec Import", function()
   it("import with throwing enabled is skipped, sibling specs still register", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
       if path == '/mock/config/lua/test_plugins' then
@@ -217,14 +312,12 @@ describe("Spec Import", function()
     assert.is_true(saw_notify, "throwing import enabled should surface a structured notify")
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
     package.loaded['test_plugins.foo'] = nil
   end)
 
   it("nested import works (init.lua with import)", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     local original_fs_stat = vim.uv.fs_stat
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
@@ -261,8 +354,6 @@ describe("Spec Import", function()
       "mini.surround should be registered")
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
-    vim.uv.fs_stat = original_fs_stat
     package.loaded['test_plugins.mini'] = nil
     package.loaded['test_plugins.mini.ai'] = nil
     package.loaded['test_plugins.mini.surround'] = nil
@@ -271,7 +362,6 @@ describe("Spec Import", function()
   it("duplicate import is skipped", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir
-    local original_stdpath = vim.fn.stdpath
     local lsdir_call_count = 0
     vim.fn.stdpath = function() return '/mock/config' end
     utils.lsdir = function(path)
@@ -295,7 +385,6 @@ describe("Spec Import", function()
     assert.are.equal(1, lsdir_call_count)
 
     utils.lsdir = original_lsdir
-    vim.fn.stdpath = original_stdpath
     package.loaded['test_plugins.foo'] = nil
   end)
 
