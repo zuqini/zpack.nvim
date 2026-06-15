@@ -187,6 +187,11 @@ local import_from_module = function(module_path, ctx)
 
   local lua_path = vim.fn.stdpath('config') .. '/lua/' .. module_path:gsub('%.', '/')
 
+  if vim.uv.fs_stat(("%s.lua"):format(lua_path)) then
+    load_spec_module(module_path, ctx)
+    return
+  end
+
   for _, entry in ipairs(utils.lsdir(lua_path)) do
     if entry.name:sub(-4) == ".lua" then
       local plugin_name = entry.name:sub(1, -5)
