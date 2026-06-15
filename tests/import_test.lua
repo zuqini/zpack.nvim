@@ -110,6 +110,114 @@ describe("Spec Import", function()
     package.loaded['test_plugins.mini'] = nil
   end)
 
+  it("import resolves a single spec file directly (lua/<path>.lua)", function()
+    local utils = require('zpack.utils')
+    local original_lsdir = utils.lsdir
+    local original_stdpath = vim.fn.stdpath
+    local original_fs_stat = vim.uv.fs_stat
+    local lsdir_called = false
+    vim.fn.stdpath = function() return '/mock/config' end
+    utils.lsdir = function(path)
+      if path == '/mock/config/lua/test_plugins/telescope' then
+        lsdir_called = true
+      end
+      return {}
+    end
+    vim.uv.fs_stat = function(path)
+      if path == '/mock/config/lua/test_plugins/telescope.lua' then
+        return { type = 'file' }
+      end
+      return original_fs_stat(path)
+    end
+
+    package.loaded['test_plugins.telescope'] = { 'test/telescope' }
+
+    local state = require('zpack.state')
+    require('zpack').setup({ { import = 'test_plugins.telescope' } })
+    helpers.flush_pending()
+
+    assert.is_not_nil(state.spec_registry['https://github.com/test/telescope'],
+      "single-file import should register the file's spec")
+    assert.is_false(lsdir_called,
+      "a single-file import must not walk a same-named directory")
+
+    utils.lsdir = original_lsdir
+    vim.fn.stdpath = original_stdpath
+    vim.uv.fs_stat = original_fs_stat
+    package.loaded['test_plugins.telescope'] = nil
+  end)
+
+  it("a lua/<path>.lua file takes precedence over a lua/<path>/ directory", function()
+    local utils = require('zpack.utils')
+    local original_lsdir = utils.lsdir
+    local original_stdpath = vim.fn.stdpath
+    local original_fs_stat = vim.uv.fs_stat
+    vim.fn.stdpath = function() return '/mock/config' end
+    -- Both `lua/test_plugins.lua` and `lua/test_plugins/foo.lua` exist; the file
+    -- wins and the directory entry must be ignored.
+    utils.lsdir = function(path)
+      if path == '/mock/config/lua/test_plugins' then
+        return {
+          { name = 'foo.lua', type = 'file' },
+        }
+      end
+      return {}
+    end
+    vim.uv.fs_stat = function(path)
+      if path == '/mock/config/lua/test_plugins.lua' then
+        return { type = 'file' }
+      end
+      return original_fs_stat(path)
+    end
+
+    package.loaded['test_plugins'] = { 'test/file-spec' }
+    package.loaded['test_plugins.foo'] = { 'test/dir-spec' }
+
+    local state = require('zpack.state')
+    require('zpack').setup({ { import = 'test_plugins' } })
+    helpers.flush_pending()
+
+    assert.is_not_nil(state.spec_registry['https://github.com/test/file-spec'],
+      "the file spec should be registered")
+    assert.is_nil(state.spec_registry['https://github.com/test/dir-spec'],
+      "the directory spec must be ignored when a same-named .lua file exists")
+
+    utils.lsdir = original_lsdir
+    vim.fn.stdpath = original_stdpath
+    vim.uv.fs_stat = original_fs_stat
+    package.loaded['test_plugins'] = nil
+    package.loaded['test_plugins.foo'] = nil
+  end)
+
+  it("single-file import with enabled=false skips import", function()
+    local utils = require('zpack.utils')
+    local original_lsdir = utils.lsdir
+    local original_stdpath = vim.fn.stdpath
+    local original_fs_stat = vim.uv.fs_stat
+    vim.fn.stdpath = function() return '/mock/config' end
+    utils.lsdir = function() return {} end
+    vim.uv.fs_stat = function(path)
+      if path == '/mock/config/lua/test_plugins/foo.lua' then
+        return { type = 'file' }
+      end
+      return original_fs_stat(path)
+    end
+
+    package.loaded['test_plugins.foo'] = { 'test/foo-plugin' }
+
+    local state = require('zpack.state')
+    require('zpack').setup({ { import = 'test_plugins.foo', enabled = false } })
+    helpers.flush_pending()
+
+    assert.is_nil(state.spec_registry['https://github.com/test/foo-plugin'],
+      "single-file import should not register when enabled=false")
+
+    utils.lsdir = original_lsdir
+    vim.fn.stdpath = original_stdpath
+    vim.uv.fs_stat = original_fs_stat
+    package.loaded['test_plugins.foo'] = nil
+  end)
+
   it("import only goes 1 level deep for init.lua", function()
     local utils = require('zpack.utils')
     local original_lsdir = utils.lsdir

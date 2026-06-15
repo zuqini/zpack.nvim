@@ -64,7 +64,7 @@
   specs = { { 'companion/plugin' } },   -- Companion plugin specs grouped with this one
 
   -- Spec imports
-  import = "plugins.lsp",               -- Import from lua/{path}/*.lua and lua/{path}/*/init.lua
+  import = "plugins.lsp",               -- A single lua/{path}.lua spec module, else lua/{path}/*.lua and lua/{path}/*/init.lua
   -- import = function() return { ... } end, -- Or a function returning a spec list (lazy.nvim parity)
 }
 ```
