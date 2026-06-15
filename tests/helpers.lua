@@ -44,6 +44,13 @@ function M.setup_test_env()
     table.insert(_G.test_state.notifications, { msg = msg, level = level })
   end
 
+  -- Tests that exercise import path resolution mock `vim.fn.stdpath` and
+  -- `vim.uv.fs_stat` (note `vim.uv == vim.loop`, so a leaked mock corrupts
+  -- both namespaces). Capture them here so teardown restores them in
+  -- `after_each` even when an assertion throws mid-test.
+  _G.test_state.original_stdpath = vim.fn.stdpath
+  _G.test_state.original_fs_stat = vim.uv.fs_stat
+
   _G.test_state.original_vim_pack_add = vim.pack.add
   vim.pack.add = function(specs, opts)
     table.insert(_G.test_state.vim_pack_calls, specs)
@@ -159,6 +166,12 @@ function M.cleanup_test_env()
     end
     if _G.test_state.original_notify then
       vim.notify = _G.test_state.original_notify
+    end
+    if _G.test_state.original_stdpath then
+      vim.fn.stdpath = _G.test_state.original_stdpath
+    end
+    if _G.test_state.original_fs_stat then
+      vim.uv.fs_stat = _G.test_state.original_fs_stat
     end
   end
 

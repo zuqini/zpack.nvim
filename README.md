@@ -107,7 +107,7 @@ Plugin-level settings always take precedence over `defaults`.
 -- automatically import specs from `./lua/plugins/`
 require('zpack').setup()
 
--- or import from a custom directory e.g. `./lua/a/b/plugins/`
+-- or import from a custom path `./lua/a/b/plugins.lua` or `./lua/a/b/plugins/`
 require('zpack').setup({ { import = 'a.b.plugins' } })
 
 -- or add your specs inline in setup

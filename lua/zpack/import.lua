@@ -176,8 +176,10 @@ local load_spec_module = function(full_module, ctx)
   end
 end
 
----Import specs from a module directory
----@param module_path string Module path (e.g., 'plugins' imports from lua/plugins/*.lua)
+---Import specs from a module file or directory (lazy.nvim parity).
+---`import = 'plugins'` resolves `lua/plugins.lua` as a single spec module if it
+---exists, otherwise walks `lua/plugins/*.lua` and `lua/plugins/*/init.lua`.
+---@param module_path string Module path (e.g., 'plugins' imports from lua/plugins.lua or lua/plugins/)
 ---@param ctx zpack.ProcessContext
 local import_from_module = function(module_path, ctx)
   if imported_modules[module_path] then
@@ -187,6 +189,10 @@ local import_from_module = function(module_path, ctx)
 
   local lua_path = vim.fn.stdpath('config') .. '/lua/' .. module_path:gsub('%.', '/')
 
+  -- A `lua/<path>.lua` file takes precedence over a `lua/<path>/` directory:
+  -- the file is the single, explicitly-named spec module and the directory walk
+  -- is skipped. This mirrors Lua's own `require` resolution (`foo.lua` shadows
+  -- `foo/init.lua`) so `import = 'plugins.telescope'` loads exactly that file.
   if vim.uv.fs_stat(("%s.lua"):format(lua_path)) then
     load_spec_module(module_path, ctx)
     return
