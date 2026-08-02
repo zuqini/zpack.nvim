@@ -319,6 +319,41 @@ local function strip_outgoing_edges(state, src)
   return newly_orphaned
 end
 
+---Drop the edges that point *at* `src`, so no surviving parent is left naming
+---a source the registry no longer has. `prune_disabled` reaches here with the
+---parents already disabled, but a collision drop leaves them standing.
+local function strip_incoming_edges(state, src)
+  local incoming = state.reverse_dependency_graph[src]
+  if incoming then
+    for parent_src in pairs(incoming) do
+      local deps = state.dependency_graph[parent_src]
+      if deps then
+        deps[src] = nil
+      end
+    end
+  end
+  state.reverse_dependency_graph[src] = nil
+end
+
+---Drain `worklist`, removing each source from the registry and cascading into
+---dep-only plugins that lose their last parent as a result. Shared by
+---`prune_disabled` and `resolve_name_collisions` so both leave the dependency
+---graphs keyed only by sources the registry still has.
+local function drop_entries(state, worklist)
+  while #worklist > 0 do
+    local src = table.remove(worklist)
+    local orphaned = strip_outgoing_edges(state, src)
+    strip_incoming_edges(state, src)
+    state.spec_registry[src] = nil
+    for _, dep_src in ipairs(orphaned) do
+      local dep_entry = state.spec_registry[dep_src]
+      if dep_entry and entry_is_dep_only(dep_entry) then
+        table.insert(worklist, dep_src)
+      end
+    end
+  end
+end
+
 ---Propagate enabled=false backward through reverse_dependency_graph.
 ---A plugin whose required dependency is disabled cannot function, so it is
 ---disabled too. Emits one warning per propagation step so the user learns
@@ -362,18 +397,69 @@ local function prune_disabled(state)
       table.insert(worklist, src)
     end
   end
+  drop_entries(state, worklist)
+end
 
-  while #worklist > 0 do
-    local src = table.remove(worklist)
-    local orphaned = strip_outgoing_edges(state, src)
-    state.spec_registry[src] = nil
-    for _, dep_src in ipairs(orphaned) do
-      local dep_entry = state.spec_registry[dep_src]
-      if dep_entry and entry_is_dep_only(dep_entry) then
-        table.insert(worklist, dep_src)
+---Report two plugins that want the same directory, and keep the first.
+---
+---A plugin's directory is its name, so `a/foo.nvim` and `b/foo.nvim` both ask
+---for `foo.nvim`. `vim.pack.add` finds out only when git refuses the second
+---clone with "destination path already exists and is not an empty directory",
+---which names neither spec and aborts the whole of `setup()`.
+---
+---Names differing only in case (`a/Foo.nvim` vs `b/foo.nvim`) are warned about
+---but both kept: they are two directories on a case-sensitive filesystem, and
+---dropping one there would remove a plugin that installs perfectly well. On a
+---case-insensitive filesystem the warning is what explains the `vim.pack`
+---error that follows.
+---
+---Sources differing only in case were already folded into one entry at import,
+---so anything reaching here is two genuinely different plugins and the user
+---has to break the tie with `name`.
+---@param state table
+---@param utils table
+local function resolve_name_collisions(state, utils)
+  local srcs = vim.tbl_keys(state.spec_registry)
+  -- pairs() has no stable order, so "imported first" has to be asked for
+  -- rather than assumed -- otherwise which plugin survives varies per start.
+  table.sort(srcs, function(a, b)
+    return utils.get_import_order(a) < utils.get_import_order(b)
+  end)
+
+  local claimed = {}
+  local claimed_folded = {}
+  local dropped = {}
+  for _, src in ipairs(srcs) do
+    local entry = state.spec_registry[src]
+    if entry.merged_spec then
+      local name = entry.merged_spec.name or utils.derive_name_from_src(src)
+      local owner = claimed[name]
+      if owner then
+        utils.schedule_notify(
+          ('zpack: skipping %s — it resolves to the same plugin directory (%s) as %s.\n'
+            .. 'Set `name = "..."` on one of them to install both.')
+            :format(src, name, owner),
+          vim.log.levels.WARN
+        )
+        table.insert(dropped, src)
+      else
+        claimed[name] = src
+        local variant = claimed_folded[name:lower()]
+        if variant then
+          utils.schedule_notify(
+            ('zpack: %s and %s resolve to plugin directories differing only in case (%s).\n'
+              .. 'Both are installed on a case-sensitive filesystem; on macOS or Windows one\n'
+              .. 'of them will fail to install. Set `name = "..."` on one to be portable.')
+              :format(variant, src, name),
+            vim.log.levels.WARN
+          )
+        else
+          claimed_folded[name:lower()] = src
+        end
       end
     end
   end
+  drop_entries(state, dropped)
 end
 
 ---Pre-compute merged_spec for all entries in the registry
@@ -434,6 +520,9 @@ function M.resolve_all()
 
   propagate_enabled_disable(state, utils)
   prune_disabled(state)
+  -- After pruning: a disabled plugin is not competing for a directory, so it
+  -- must not be the one that "wins" a collision against an enabled spec.
+  resolve_name_collisions(state, utils)
 
   -- Pre-compute is_lazy_resolved and name_to_src from merged_spec alone so the
   -- public API can report a stable `lazy` flag and resolve `get_plugin(name)`

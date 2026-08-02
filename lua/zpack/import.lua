@@ -51,11 +51,47 @@ local function resolve_dev_path(spec)
   return dev_path
 end
 
----Normalize plugin source using priority: dev > [1] > src > url > dir
+---Whether a source is fetched from a git host rather than read off disk.
+---Covers `scheme://...` and scp-style `git@host:owner/repo`.
+---@param src string
+---@return boolean
+local is_remote_source = function(src)
+  return src:find('^%a[%w+.-]*://') ~= nil or src:find('^[%w.-]+@[%w.-]+:') ~= nil
+end
+
+---Fold a remote source onto the casing that claimed it first.
+---
+---`zuqini/ZSnip.nvim` and `zuqini/zsnip.nvim` are one repository -- git hosts
+---match owner and repo case-insensitively -- but as two registry keys they
+---become two plugins competing for one directory, which `vim.pack.add` only
+---discovers when git refuses the second clone with "destination path already
+---exists". Folding them here means the specs merge, the way they would have
+---if both had been written the same way.
+---
+---Local sources are left alone: on a case-sensitive filesystem two paths
+---differing in case are two directories, and `resolve_name_collisions` in
+---`zpack.merge` reports them if their names then collide.
+---@param src string
+---@return string
+local canonical_src = function(src)
+  if not is_remote_source(src) then
+    return src
+  end
+
+  local folded = src:lower()
+  local claimed = state.src_by_folded[folded]
+  if claimed then
+    return claimed
+  end
+  state.src_by_folded[folded] = src
+  return src
+end
+
+---Resolve a spec's raw source using priority: dev > [1] > src > url > dir
 ---@param spec zpack.Spec
 ---@return string|nil source URL/path, or nil if invalid
 ---@return string|nil error message if validation fails
-local normalize_source = function(spec)
+local resolve_source = function(spec)
   -- lazy.nvim spec parity: `dev = true` rewrites the source to a local
   -- checkout under `config.dev.path` (default '~/projects'). When the local
   -- directory is missing and `fallback = true` is set, resolution falls
@@ -78,6 +114,24 @@ local normalize_source = function(spec)
   else
     return nil, "spec must provide one of: [1], src, dir, or url"
   end
+end
+
+---Resolve a spec's source and fold it onto the casing that claimed it first.
+---
+---The fold belongs here rather than at the call sites: `register_dependencies`
+---resolves a dependency's source to key `dependency_graph` before handing the
+---spec to `import_one_spec`, so a fold applied only at registration would key
+---the graph with a casing that never reaches `spec_registry` -- a dangling
+---edge, which reads downstream as "this plugin has no dependency".
+---@param spec zpack.Spec
+---@return string|nil source URL/path, or nil if invalid
+---@return string|nil error message if validation fails
+local normalize_source = function(spec)
+  local src, err = resolve_source(spec)
+  if not src then
+    return nil, err
+  end
+  return canonical_src(src)
 end
 
 ---Check if a table has any non-integer keys

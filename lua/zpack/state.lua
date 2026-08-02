@@ -31,6 +31,12 @@ M.src_to_pack_spec = {}
 ---@type { [string]: string }
 M.name_to_src = {}
 
+---Case-folded remote source to the source string actually keying
+---`spec_registry`, so a repository written with different casing in two specs
+---resolves to one registry entry.
+---@type { [string]: string }
+M.src_by_folded = {}
+
 ---@type { [string]: boolean }
 M.lazy_parent_cache = {}
 
@@ -55,6 +61,7 @@ M.remove_plugin = function(plugin_name, src)
   M.src_with_pending_build[src] = nil
   M.src_to_pack_spec[src] = nil
   M.name_to_src[plugin_name] = nil
+  M.src_by_folded[src:lower()] = nil
   M.lazy_parent_cache[src] = nil
   M.resolve_main_not_found[src] = nil
 

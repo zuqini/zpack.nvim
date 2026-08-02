@@ -832,7 +832,8 @@ commit          (string, optional)
 name            (string, optional)
                 Custom plugin name. Overrides the name automatically derived
                 from the source URL. Useful when you need a specific directory
-                name or want to avoid naming conflicts.
+                name, and required to install two plugins whose sources derive
+                the same one — see |zpack-gotcha-name-collision|.
 
                                                             *zpack-Spec.main*
 main            (string, optional)
@@ -1113,6 +1114,30 @@ enabled vs cond           lazy.nvim collapses both to a single "disabled"
 11.2 GOTCHAS                                                   *zpack-gotchas*
 
 Known gotchas when using zpack:
+
+                                               *zpack-gotcha-name-collision*
+one directory per name    A plugin is installed into a directory named
+                          after it, so two specs resolving to the same
+                          name compete for it: `alice/shared.nvim` and
+                          `bob/shared.nvim` both want `shared.nvim`.
+                          zpack keeps the one imported first and warns,
+                          naming both sources. Give one of them
+                          `name = "..."` to install both.
+
+                          Sources differing only in letter case
+                          (`user/Plugin.nvim` and `user/plugin.nvim`)
+                          are one repository as far as git hosts are
+                          concerned, so those are folded into a single
+                          plugin instead: their specs merge, and the
+                          casing imported first is the one used.
+
+                          Two different plugins whose names differ only
+                          in case (`alice/shared.nvim` and
+                          `bob/Shared.nvim`) are two directories on a
+                          case-sensitive filesystem, so both are kept.
+                          zpack warns, because on macOS or Windows one
+                          of the two will fail to install; set
+                          `name = "..."` on one to be portable.
 
                                                 *zpack-gotcha-install-update*
 install/update feedback   `vim.pack` surfaces install/update progress

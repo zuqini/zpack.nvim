@@ -40,6 +40,7 @@ Most of your lazy.nvim plugin specs will work as-is with zpack. However, zpack f
 ## Gotchas
 
 Known gotchas when using zpack:
+- **one directory per plugin name**: a plugin is installed into a directory named after it, so two specs resolving to the same name compete for it — `alice/shared.nvim` and `bob/shared.nvim` both want `shared.nvim`. zpack keeps the one imported first and warns, naming both sources; give one of them `name = "..."` to install both. Two cases are treated differently: sources differing only in letter case (`user/Plugin.nvim` and `user/plugin.nvim`) are the same repository as far as git hosts are concerned, so those are folded into a single plugin, keeping the casing imported first; two *different* plugins whose names differ only in case (`alice/shared.nvim` and `bob/Shared.nvim`) are two directories on a case-sensitive filesystem, so both are kept with a warning that they will not both install on macOS or Windows
 - **install/update feedback**: `vim.pack` surfaces install/update progress via `:messages` (e.g. `vim.pack: Downloading updates (0/83)`). These messages are hidden if you have `vim.opt.cmdheight = 0` — raise it, check `:messages`, or route them through a notifier like [snacks.notifier](https://github.com/folke/snacks.nvim), [nvim-notify](https://github.com/rcarriga/nvim-notify), or [noice.nvim](https://github.com/folke/noice.nvim). Also see [noice.nvim with vim.pack](#noicenvim-with-vimpack) for compatibility notes
 
 ## Compatibility Notes
