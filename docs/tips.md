@@ -83,6 +83,20 @@ require('noice').setup({
 })
 ```
 
+## Lockfile location
+
+`vim.pack` writes its lockfile to `$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json` — i.e. next to your `init.lua`. On Neovim 0.13+ the path is configurable through the `'packlockfile'` option (see `:h 'packlockfile'`), so you can keep it out of your config repo:
+
+```lua
+vim.o.packlockfile = vim.fs.joinpath(vim.fn.stdpath('data'), 'nvim-pack-lock.json')
+```
+
+Two caveats:
+- `'packlockfile'` must be set **before the first `vim.pack` call**, which in practice means before the `vim.pack.add()` that installs zpack itself — put it at the very top of your `init.lua`.
+- Changing the path does not move the existing file. Move (or delete and regenerate with `:ZPack update`) the old lockfile, otherwise `vim.pack` starts from an empty one.
+
+zpack needs no configuration for this — it delegates to `vim.pack` for lockfile reads and writes, so `:ZPack update` and `:ZPack restore` follow whatever `'packlockfile'` points at.
+
 ## Native vim.pack commands
 
 On Neovim 0.13+, the `:ZPack update`, `restore`, and `delete` subcommands have native `vim.pack` command equivalents (`:packupdate`, `:packupdate ++lockfile`, `:packdel`). Use whichever you prefer — zpack keeps its session state in sync either way. See `:h zpack-native-commands` for the full mapping.
