@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/zuqini/zpack.nvim/compare/v2.0.0...v2.0.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* **import:** added support of importing spec-files directly, as it was in lazy.nvim ([#30](https://github.com/zuqini/zpack.nvim/issues/30)) ([0b61779](https://github.com/zuqini/zpack.nvim/commit/0b6177970cc02308af975daf2023c9fdd58a008f))
+
 ## [2.0.0](https://github.com/zuqini/zpack.nvim/compare/v1.2.1...v2.0.0) (2026-06-03)
 
 
