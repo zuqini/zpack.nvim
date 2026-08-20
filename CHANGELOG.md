@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/zuqini/zpack.nvim/compare/v2.0.1...v2.0.2) (2026-08-20)
+
+
+### Bug Fixes
+
+* **import:** explicit src/url/dir overrides [1] shorthand, matching lazy.nvim ([#36](https://github.com/zuqini/zpack.nvim/issues/36)) ([7b40442](https://github.com/zuqini/zpack.nvim/commit/7b4044201f77ee527d2d80820318bb98eef56f61))
+
 ## [2.0.1](https://github.com/zuqini/zpack.nvim/compare/v2.0.0...v2.0.1) (2026-08-02)
 
 
