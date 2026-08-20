@@ -1,5 +1,22 @@
 # Spec Examples
 
+- [Plugin Spec](#plugin-spec)
+- [Lazy Load on Command](#lazy-load-on-command)
+- [Lazy Load on Keymap](#lazy-load-on-keymap)
+- [Lazy Load on Event](#lazy-load-on-event)
+- [Lazy Load on Event with Pattern](#lazy-load-on-event-with-pattern)
+- [Lazy Load on FileType](#lazy-load-on-filetype)
+- [Conditional Loading](#conditional-loading)
+- [Build Hook](#build-hook)
+- [Dependencies](#dependencies)
+- [Version Pinning](#version-pinning)
+  - [Version Pinning for lazy.nvim compatibility](#version-pinning-for-lazynvim-compatibility)
+- [Load Priority](#load-priority)
+- [Using Plugin Data in Hooks](#using-plugin-data-in-hooks)
+- [Explicit Main Module](#explicit-main-module)
+- [Multiple Plugins in One File](#multiple-plugins-in-one-file)
+- [Real-World Config](#real-world-config)
+
 #### Plugin Spec
 
 ```lua

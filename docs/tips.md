@@ -1,32 +1,13 @@
 # Tips & Migration
 
-## Upgrading from 1.x to 2.0
-
-2.0.0 removes every option and command that was deprecated during the 1.x series. The renamed options (`confirm`, `disable_vim_loader`, `plugins_dir`) emitted runtime warnings throughout 1.x; the legacy `:Z*` commands are removed in favor of the `:ZPack <subcommand>` dispatcher. Removed options are now ignored silently, so update your `setup()` call before upgrading:
-
-| Removed in 2.0 | Replacement |
-|---|---|
-| `setup({ confirm = … })` | `setup({ defaults = { confirm = … } })` |
-| `setup({ disable_vim_loader = true })` | `setup({ performance = { vim_loader = false } })` |
-| `setup({ plugins_dir = 'dir' })` | a `{ import = 'dir' }` entry in your spec list |
-| `setup({ cmd_prefix = 'Z' })` | `setup({ cmd_name = 'Z' })` |
-| `setup({ auto_import = … })` | removed — was already a no-op in 1.x |
-| `require('zpack').add(…)` | removed — was already a no-op in 1.x |
-
-### Commands
-
-The per-action `:Z*` commands are now subcommands of a single `:ZPack` command:
-
-| 1.x | 2.0 |
-|---|---|
-| `:ZUpdate` | `:ZPack update` |
-| `:ZRestore` | `:ZPack restore` |
-| `:ZClean` | `:ZPack clean` |
-| `:ZBuild` | `:ZPack build` |
-| `:ZLoad` | `:ZPack load` |
-| `:ZDelete` | `:ZPack delete` |
-
-The command name is configurable via `cmd_name` (default `ZPack`). If you relied on the old `cmd_prefix = 'Z'`, set `cmd_name = 'Z'` to type `:Z update`, `:Z clean`, etc. The `!` bang is still supported where it was before (e.g. `:ZPack! build`, `:ZPack! delete`).
+- [Migrating from lazy.nvim](#migrating-from-lazynvim)
+- [Gotchas](#gotchas)
+- [Compatibility Notes](#compatibility-notes)
+  - [Snacks.nvim dashboard with zpack.nvim](#snacksnvim-dashboard-with-zpacknvim)
+  - [noice.nvim with vim.pack](#noicenvim-with-vimpack)
+- [Lockfile location](#lockfile-location)
+- [Native vim.pack commands](#native-vimpack-commands)
+- [Upgrading from 1.x to 2.0](#upgrading-from-1x-to-20)
 
 ## Migrating from lazy.nvim
 
@@ -100,3 +81,31 @@ zpack needs no configuration for this — it delegates to `vim.pack` for lockfil
 ## Native vim.pack commands
 
 On Neovim 0.13+, the `:ZPack update`, `restore`, and `delete` subcommands have native `vim.pack` command equivalents (`:packupdate`, `:packupdate ++lockfile`, `:packdel`). Use whichever you prefer — zpack keeps its session state in sync either way. See `:h zpack-native-commands` for the full mapping.
+
+## Upgrading from 1.x to 2.0
+
+2.0.0 removes every option and command that was deprecated during the 1.x series. The renamed options (`confirm`, `disable_vim_loader`, `plugins_dir`) emitted runtime warnings throughout 1.x; the legacy `:Z*` commands are removed in favor of the `:ZPack <subcommand>` dispatcher. Removed options are now ignored silently, so update your `setup()` call before upgrading:
+
+| Removed in 2.0 | Replacement |
+|---|---|
+| `setup({ confirm = … })` | `setup({ defaults = { confirm = … } })` |
+| `setup({ disable_vim_loader = true })` | `setup({ performance = { vim_loader = false } })` |
+| `setup({ plugins_dir = 'dir' })` | a `{ import = 'dir' }` entry in your spec list |
+| `setup({ cmd_prefix = 'Z' })` | `setup({ cmd_name = 'Z' })` |
+| `setup({ auto_import = … })` | removed — was already a no-op in 1.x |
+| `require('zpack').add(…)` | removed — was already a no-op in 1.x |
+
+### Commands
+
+The per-action `:Z*` commands are now subcommands of a single `:ZPack` command:
+
+| 1.x | 2.0 |
+|---|---|
+| `:ZUpdate` | `:ZPack update` |
+| `:ZRestore` | `:ZPack restore` |
+| `:ZClean` | `:ZPack clean` |
+| `:ZBuild` | `:ZPack build` |
+| `:ZLoad` | `:ZPack load` |
+| `:ZDelete` | `:ZPack delete` |
+
+The command name is configurable via `cmd_name` (default `ZPack`). If you relied on the old `cmd_prefix = 'Z'`, set `cmd_name = 'Z'` to type `:Z update`, `:Z clean`, etc. The `!` bang is still supported where it was before (e.g. `:ZPack! build`, `:ZPack! delete`).
