@@ -258,6 +258,77 @@ describe("Setup and Initialization", function()
     assert.is_nil(state.reverse_dependency_graph[shorthand])
   end)
 
+  it("two fork fragments sharing a [1] fold into the later fragment's source", function()
+    local state = require('zpack.state')
+    local fork1 = 'https://github.com/me/flash-fork'
+    local fork2 = 'https://github.com/me/flash-fork.git'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', url = fork1, event = 'InsertEnter', branch = 'one' },
+        { 'folke/flash.nvim', url = fork2, cmd = 'Flash', branch = 'two' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[fork1],
+      "earlier fork fragment must fold into the later one, not abort on a name conflict")
+    assert.is_nil(state.spec_registry['https://github.com/folke/flash.nvim'])
+    local entry = state.spec_registry[fork2]
+    assert.is_not_nil(entry, "later fork fragment must own the merged plugin")
+    assert.are.equal('InsertEnter', entry.merged_spec.event,
+      "earlier fragment's fields must survive the fold")
+    assert.are.equal('Flash', entry.merged_spec.cmd)
+    assert.are.equal('two', entry.merged_spec.branch,
+      "OVERRIDE fields must resolve later-fragment-wins across the fold")
+    assert.are.equal(fork2, state.name_to_src['flash.nvim'])
+  end)
+
+  it("bare fragment plus two fork fragments merge into the latest fork", function()
+    local state = require('zpack.state')
+    local fork1 = 'https://github.com/me/flash-fork-one'
+    local fork2 = 'https://github.com/me/flash-fork-two'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', cmd = 'Flash' },
+        { 'folke/flash.nvim', url = fork1 },
+        { 'folke/flash.nvim', url = fork2 },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry['https://github.com/folke/flash.nvim'])
+    assert.is_nil(state.spec_registry[fork1])
+    local entry = state.spec_registry[fork2]
+    assert.is_not_nil(entry, "latest fork must absorb every fragment")
+    assert.are.equal('Flash', entry.merged_spec.cmd,
+      "bare fragment's fields must land on the winning fork")
+    assert.are.equal(fork2, state.name_to_src['flash.nvim'])
+  end)
+
+  it("dev = true fragment wins the fold over a fork fragment regardless of order", function()
+    local state = require('zpack.state')
+    local dev_root = vim.fn.tempname()
+    vim.fn.mkdir(dev_root .. '/flash.nvim', 'p')
+    local fork = 'https://github.com/me/flash-fork'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', dev = true },
+        { 'folke/flash.nvim', url = fork },
+      },
+      dev = { path = dev_root },
+      defaults = { confirm = false },
+    })
+
+    local dev_src = dev_root .. '/flash.nvim'
+    assert.is_not_nil(state.spec_registry[dev_src],
+      "dev fragment must own the merged plugin even though the fork fragment is later")
+    assert.is_nil(state.spec_registry[fork], "fork fragment must fold into the dev entry")
+    assert.are.equal(dev_src, state.name_to_src['flash.nvim'])
+  end)
+
   it("dir field expands ~ to home directory", function()
     local state = require('zpack.state')
 

@@ -674,7 +674,9 @@ parent's lazy trigger fires.
                 The plugin NAME still derives from [1] even when an
                 explicit source wins, and specs sharing a [1] merge into
                 one plugin even when only some of them carry the explicit
-                source (lazy.nvim fragment semantics).
+                source (lazy.nvim fragment semantics). When several
+                fragments carry an explicit source, the last one imported
+                wins.
 
                                                              *zpack-Spec.src*
 src             (string, optional)
@@ -835,9 +837,10 @@ commit          (string, optional)
 
                                                             *zpack-Spec.name*
 name            (string, optional)
-                Custom plugin name. Overrides the name automatically derived
-                from the source URL. Useful when you need a specific directory
-                name or want to avoid naming conflicts.
+                Custom plugin name. Overrides the name derived from [1] (or
+                from the source URL when no [1] is given). Useful when you
+                need a specific directory name or want to avoid naming
+                conflicts.
 
                                                             *zpack-Spec.main*
 main            (string, optional)

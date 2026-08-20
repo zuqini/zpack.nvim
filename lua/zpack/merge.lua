@@ -412,6 +412,9 @@ local function rekey_graph_edges(state, old_src, new_src)
         end
       end
     end
+    -- The reverse graph must hold no empty sets: strip_outgoing_edges reads a
+    -- set emptying as its "newly orphaned" signal. The forward graph tolerates
+    -- empty sets (import pre-creates them), hence no guard on the write above.
     if next(target) ~= nil then
       state.reverse_dependency_graph[new_src] = target
     end
@@ -419,25 +422,87 @@ local function rekey_graph_edges(state, old_src, new_src)
   end
 end
 
+---Rank an entry for the coalesce fold. A non-shorthand-keyed entry carrying a
+---`dev = true` fragment wins outright — dev outranks the whole explicit chain
+---in normalize_source, independent of import order. Otherwise the latest
+---explicit-source fragment wins (lazy.nvim later-fragment-wins); an entry
+---with no explicit fragment (the bare-shorthand entry) ranks below any
+---explicit one regardless of import order.
+local function fold_rank(entry, src, shorthand)
+  if src ~= shorthand then
+    for _, spec in ipairs(entry.specs) do
+      if spec.dev == true then
+        return math.huge
+      end
+    end
+  end
+  local latest = -1
+  for _, spec in ipairs(entry.specs) do
+    if type(spec.src) == 'string' or type(spec.url) == 'string'
+        or type(spec.dir) == 'string' then
+      latest = math.max(latest, spec._import_order or 0)
+    end
+  end
+  return latest
+end
+
 ---lazy.nvim fragment parity: `{ 'user/repo' }` and `{ 'user/repo', url = fork }`
 ---are fragments of the SAME plugin, but normalize to different sources because
----an explicit src/url/dir wins over `[1]`. Without this fold the two registry
----entries would derive the same pack name and `vim.pack.add` would abort
----setup() with a conflicting-src error. Fold the `[1]`-shorthand entry into
----the explicit-source entry: concat specs (sort_specs restores import order)
----and rekey graph edges built on the shorthand src at import time. Runs
----post-import so it is insensitive to which fragment was imported first.
+---an explicit src/url/dir wins over `[1]`. Without this fold the fragments
+---would survive as separate registry entries deriving the same pack name and
+---`vim.pack.add` would abort setup() with a conflicting-src error. Group
+---entries by every `[1]` shorthand their specs carry (plus the entry keyed at
+---the shorthand itself) and fold each group into its highest-ranked entry
+---(see fold_rank): losers concat their specs into the winner (sort_specs
+---restores import order) and the graph edges built on their srcs at import
+---time are rekeyed. A fold can hand the winner `[1]`s that connect it to
+---another group, so sweep to a fixpoint. Runs post-import so every fragment
+---is visible no matter which was imported first.
 local function coalesce_shorthand_overrides(state, utils)
-  for src, entry in pairs(state.spec_registry) do
-    -- entry.specs can grow while iterating (folded-in fragments are visited
-    -- too, which lets transitive shorthands resolve); ipairs handles appends.
-    for _, spec in ipairs(entry.specs) do
-      if type(spec[1]) == 'string' then
-        local shorthand = utils.github_url(spec[1])
-        if shorthand ~= src and state.spec_registry[shorthand] then
-          vim.list_extend(entry.specs, state.spec_registry[shorthand].specs)
-          rekey_graph_edges(state, shorthand, src)
-          state.spec_registry[shorthand] = nil
+  local changed = true
+  while changed do
+    changed = false
+    local groups = {}
+    for src, entry in pairs(state.spec_registry) do
+      local seen = {}
+      for _, spec in ipairs(entry.specs) do
+        if type(spec[1]) == 'string' then
+          local shorthand = utils.github_url(spec[1])
+          if not seen[shorthand] then
+            seen[shorthand] = true
+            groups[shorthand] = groups[shorthand] or {}
+            table.insert(groups[shorthand], src)
+          end
+        end
+      end
+    end
+    for shorthand, srcs in pairs(groups) do
+      -- A fold earlier in this sweep may have consumed a member already.
+      local live = {}
+      for _, src in ipairs(srcs) do
+        if state.spec_registry[src] then
+          table.insert(live, src)
+        end
+      end
+      if state.spec_registry[shorthand] and not vim.tbl_contains(live, shorthand) then
+        table.insert(live, shorthand)
+      end
+      if #live > 1 then
+        local winner = live[1]
+        local winner_rank = fold_rank(state.spec_registry[winner], winner, shorthand)
+        for i = 2, #live do
+          local rank = fold_rank(state.spec_registry[live[i]], live[i], shorthand)
+          if rank > winner_rank then
+            winner, winner_rank = live[i], rank
+          end
+        end
+        for _, src in ipairs(live) do
+          if src ~= winner then
+            vim.list_extend(state.spec_registry[winner].specs, state.spec_registry[src].specs)
+            rekey_graph_edges(state, src, winner)
+            state.spec_registry[src] = nil
+            changed = true
+          end
         end
       end
     end
