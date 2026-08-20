@@ -173,6 +173,91 @@ describe("Setup and Initialization", function()
     end
   end)
 
+  it("plugin name derives from [1] even when a fork url wins the source", function()
+    local state = require('zpack.state')
+    local fork = 'https://github.com/me/tokyo-fork'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/tokyonight.nvim', url = fork },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.are.equal(fork, state.name_to_src['tokyonight.nvim'],
+      "name must come from [1], not the fork URL basename")
+    assert.is_nil(state.name_to_src['tokyo-fork'],
+      "fork URL basename must not become the plugin name")
+    assert.are.equal('tokyonight.nvim', state.src_to_pack_spec[fork].name,
+      "pack spec handed to vim.pack must carry the [1]-derived name")
+  end)
+
+  it("fork override in a separate spec fragment merges into one plugin", function()
+    local state = require('zpack.state')
+    local fork = 'https://github.com/me/flash-fork'
+    local shorthand = 'https://github.com/folke/flash.nvim'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', cmd = 'Flash' },
+        { 'folke/flash.nvim', url = fork },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[shorthand],
+      "shorthand fragment must fold into the explicit-source entry")
+    local entry = state.spec_registry[fork]
+    assert.is_not_nil(entry, "fork entry should own the merged plugin")
+    assert.are.equal('Flash', entry.merged_spec.cmd,
+      "base fragment's fields must survive the fold")
+    assert.are.equal(fork, state.name_to_src['flash.nvim'])
+  end)
+
+  it("fork override fragment merges regardless of import order", function()
+    local state = require('zpack.state')
+    local fork = 'https://github.com/me/flash-fork'
+    local shorthand = 'https://github.com/folke/flash.nvim'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', url = fork },
+        { 'folke/flash.nvim', cmd = 'Flash' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[shorthand])
+    local entry = state.spec_registry[fork]
+    assert.is_not_nil(entry)
+    assert.are.equal('Flash', entry.merged_spec.cmd)
+  end)
+
+  it("dependency declared by shorthand folds into the fork entry and rekeys the graph", function()
+    local state = require('zpack.state')
+    local fork = 'https://github.com/me/flash-fork'
+    local shorthand = 'https://github.com/folke/flash.nvim'
+    local parent = 'https://github.com/test/parent'
+
+    require('zpack').setup({
+      spec = {
+        { 'test/parent', dependencies = { 'folke/flash.nvim' } },
+        { 'folke/flash.nvim', url = fork },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[shorthand])
+    assert.is_not_nil(state.spec_registry[fork])
+    assert.is_truthy(state.dependency_graph[parent][fork],
+      "parent's dep edge must be rekeyed onto the fork src")
+    assert.is_nil(state.dependency_graph[parent][shorthand],
+      "stale shorthand dep edge must be removed")
+    assert.is_truthy(state.reverse_dependency_graph[fork][parent],
+      "reverse edge must point at the fork src")
+    assert.is_nil(state.reverse_dependency_graph[shorthand])
+  end)
+
   it("dir field expands ~ to home directory", function()
     local state = require('zpack.state')
 

@@ -275,7 +275,7 @@ dev             (table, optional)
                   - `path`: Base directory for local plugin checkouts.
                     Default: `'~/projects'`.
                   - `fallback`: When the local directory is missing, fall
-                    through to the regular `[1]` / `src` / `url` / `dir`
+                    through to the regular `src` / `url` / `dir` / `[1]`
                     chain instead of using the dev path anyway.
                     Default: `false`.
 
@@ -671,6 +671,10 @@ parent's lazy trigger fires.
                 `https://github.com/{[1]}` when no explicit src, url, or
                 dir is given (lazy.nvim parity). Provide at least one of:
                 [1], src, dir, or url. Priority: src > url > dir > [1].
+                The plugin NAME still derives from [1] even when an
+                explicit source wins, and specs sharing a [1] merge into
+                one plugin even when only some of them carry the explicit
+                source (lazy.nvim fragment semantics).
 
                                                              *zpack-Spec.src*
 src             (string, optional)

@@ -41,8 +41,7 @@ M.register_all = function(ctx)
           -- they can never load.
           local dep_entry = state.spec_registry[dep_src]
           if dep_entry and dep_entry.merged_spec then
-            table.insert(dep_names, dep_entry.merged_spec.name
-              or utils.derive_name_from_src(dep_src))
+            table.insert(dep_names, utils.resolve_plugin_name(dep_entry.merged_spec, dep_src))
           end
         end
         table.sort(dep_names)

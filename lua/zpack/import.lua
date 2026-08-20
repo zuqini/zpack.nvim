@@ -24,6 +24,9 @@ local function resolve_dev_path(spec)
   -- with vs. without the trailing slash on `dev.path`.
   local dev_base = vim.fn.expand(dev_path_opt):gsub('/+$', '')
   -- `spec.name` first: lazy.nvim parity for overriding the derived dir.
+  -- This chain derives the checkout NAME ([1] before src, unlike
+  -- normalize_source's src-first source precedence): a fork url still
+  -- checks out under the upstream short name.
   local source_for_name = spec.name or spec[1] or spec.src or spec.url or spec.dir
   if type(source_for_name) ~= 'string' then
     require('zpack.utils').schedule_notify(
@@ -76,7 +79,7 @@ local normalize_source = function(spec)
   elseif type(spec.dir) == 'string' then
     return vim.fn.expand(spec.dir)
   elseif type(spec[1]) == 'string' then
-    return 'https://github.com/' .. spec[1]
+    return utils.github_url(spec[1])
   else
     return nil, "spec must provide one of: [1], src, dir, or url"
   end

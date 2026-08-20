@@ -376,6 +376,74 @@ local function prune_disabled(state)
   end
 end
 
+---Move every dependency-graph edge touching old_src onto new_src, in both
+---directions. Edges that would become self-loops (old ↔ new) are dropped.
+local function rekey_graph_edges(state, old_src, new_src)
+  local outgoing = state.dependency_graph[old_src]
+  if outgoing then
+    local target = state.dependency_graph[new_src] or {}
+    for dep_src in pairs(outgoing) do
+      local rdeps = state.reverse_dependency_graph[dep_src]
+      if rdeps then
+        rdeps[old_src] = nil
+      end
+      if dep_src ~= new_src then
+        target[dep_src] = true
+        if rdeps then
+          rdeps[new_src] = true
+        end
+      end
+    end
+    state.dependency_graph[new_src] = target
+    state.dependency_graph[old_src] = nil
+  end
+  local incoming = state.reverse_dependency_graph[old_src]
+  if incoming then
+    local target = state.reverse_dependency_graph[new_src] or {}
+    for parent_src in pairs(incoming) do
+      local deps = state.dependency_graph[parent_src]
+      if deps then
+        deps[old_src] = nil
+      end
+      if parent_src ~= new_src then
+        target[parent_src] = true
+        if deps then
+          deps[new_src] = true
+        end
+      end
+    end
+    if next(target) ~= nil then
+      state.reverse_dependency_graph[new_src] = target
+    end
+    state.reverse_dependency_graph[old_src] = nil
+  end
+end
+
+---lazy.nvim fragment parity: `{ 'user/repo' }` and `{ 'user/repo', url = fork }`
+---are fragments of the SAME plugin, but normalize to different sources because
+---an explicit src/url/dir wins over `[1]`. Without this fold the two registry
+---entries would derive the same pack name and `vim.pack.add` would abort
+---setup() with a conflicting-src error. Fold the `[1]`-shorthand entry into
+---the explicit-source entry: concat specs (sort_specs restores import order)
+---and rekey graph edges built on the shorthand src at import time. Runs
+---post-import so it is insensitive to which fragment was imported first.
+local function coalesce_shorthand_overrides(state, utils)
+  for src, entry in pairs(state.spec_registry) do
+    -- entry.specs can grow while iterating (folded-in fragments are visited
+    -- too, which lets transitive shorthands resolve); ipairs handles appends.
+    for _, spec in ipairs(entry.specs) do
+      if type(spec[1]) == 'string' then
+        local shorthand = utils.github_url(spec[1])
+        if shorthand ~= src and state.spec_registry[shorthand] then
+          vim.list_extend(entry.specs, state.spec_registry[shorthand].specs)
+          rekey_graph_edges(state, shorthand, src)
+          state.spec_registry[shorthand] = nil
+        end
+      end
+    end
+  end
+end
+
 ---Pre-compute merged_spec for all entries in the registry
 ---Creates pack_specs with merged data and returns sorted vim_packs array
 ---@return vim.pack.Spec[]
@@ -383,6 +451,8 @@ function M.resolve_all()
   local state = require('zpack.state')
   local utils = require('zpack.utils')
   local lazy = require('zpack.lazy')
+
+  coalesce_shorthand_overrides(state, utils)
 
   for src, entry in pairs(state.spec_registry) do
     if entry.specs and #entry.specs > 0 then
@@ -441,15 +511,13 @@ function M.resolve_all()
   -- fired yet). The registration load callback re-computes is_lazy_resolved
   -- with the live plugin arg for accuracy with function-form triggers — both
   -- calls flow through lazy.is_lazy so the answers stay consistent.
-  -- derive_name_from_src must match vim.pack.add's own derivation rule so
-  -- this pre-seed agrees with the registration callback's rewrite. If they
-  -- ever diverge, a stale derived-name key survives in name_to_src — harmless
-  -- (bounded, non-crashing, cleared on re-setup), but worth knowing.
+  -- resolve_plugin_name here and in the pack_spec below are the same call,
+  -- so this pre-seed agrees with the registration callback's rewrite (which
+  -- reads pack_spec.name) by construction.
   for src, entry in pairs(state.spec_registry) do
     if entry.merged_spec then
       entry.is_lazy_resolved = lazy.is_lazy(entry.merged_spec, nil, src)
-      local name = entry.merged_spec.name or utils.derive_name_from_src(src)
-      state.name_to_src[name] = src
+      state.name_to_src[utils.resolve_plugin_name(entry.merged_spec, src)] = src
     end
   end
   -- Drop the pre-load lazy-parent cache so the registration callback
@@ -469,7 +537,7 @@ function M.resolve_all()
       local pack_spec = {
         src = src,
         version = utils.normalize_version(entry.merged_spec),
-        name = entry.merged_spec.name or utils.derive_name_from_src(src),
+        name = utils.resolve_plugin_name(entry.merged_spec, src),
       }
       table.insert(vim_packs, pack_spec)
       state.src_to_pack_spec[src] = pack_spec

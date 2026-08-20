@@ -3,7 +3,7 @@
 ```lua
 {
   -- Plugin source (provide at least one; src > url > dir > [1])
-  [1] = "user/repo",                    -- Plugin short name. Expands to https://github.com/{user/repo} when no explicit src/url/dir is given
+  [1] = "user/repo",                    -- Plugin short name. Expands to https://github.com/{user/repo} when no explicit src/url/dir is given; the plugin name always derives from [1]
   src = "https://...",                  -- Custom git URL or local path
   dir = "/path/to/plugin",              -- Local plugin directory (lazy.nvim compat, ~ expanded, mapped to src)
   url = "https://...",                  -- Custom git URL (lazy.nvim compat, mapped to src, overrides [1] — e.g. to swap in a fork)
