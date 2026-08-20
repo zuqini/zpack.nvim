@@ -279,11 +279,9 @@ M.check_cond = function(spec, plugin, default_cond, src)
   return true
 end
 
----Normalize a plugin name for module matching
----Derive a plugin name from a src URL/path the same way `vim.pack.add`
----does when `name` is not explicitly set: basename of the URL/path,
----stripped of a trailing `.git`. Used to resolve a stable name before
----`vim.pack.add`'s load callback has populated `plugin.spec.name`.
+---Derive a plugin name from a source (URL, path, or `[1]` short name):
+---basename, stripped of a trailing `.git`. Used to resolve a stable name
+---before `vim.pack.add`'s load callback has populated `plugin.spec.name`.
 ---@param src string
 ---@return string
 M.derive_name_from_src = function(src)

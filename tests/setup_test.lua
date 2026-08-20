@@ -211,6 +211,8 @@ describe("Setup and Initialization", function()
     assert.is_not_nil(entry, "fork entry should own the merged plugin")
     assert.are.equal('Flash', entry.merged_spec.cmd,
       "base fragment's fields must survive the fold")
+    assert.are.equal('Flash', entry.specs[1].cmd,
+      "specs[1] must stay the earliest-imported fragment after the fold")
     assert.are.equal(fork, state.name_to_src['flash.nvim'])
   end)
 
@@ -305,6 +307,47 @@ describe("Setup and Initialization", function()
     assert.are.equal('Flash', entry.merged_spec.cmd,
       "bare fragment's fields must land on the winning fork")
     assert.are.equal(fork2, state.name_to_src['flash.nvim'])
+  end)
+
+  it("chained shorthand groups fold into a single entry across sweeps", function()
+    local state = require('zpack.state')
+    local fork = 'https://github.com/me/a-fork'
+
+    require('zpack').setup({
+      spec = {
+        { 'p/a', event = 'InsertEnter' },
+        { 'q/b', src = 'https://github.com/p/a' },
+        { 'p/a', url = fork },
+        { 'q/b', cmd = 'Bee' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry['https://github.com/p/a'])
+    assert.is_nil(state.spec_registry['https://github.com/q/b'])
+    local entry = state.spec_registry[fork]
+    assert.is_not_nil(entry, "chained groups must converge on the fork entry")
+    assert.are.equal(4, #entry.specs,
+      "every fragment from both shorthand groups must fold into one entry")
+    assert.are.equal('InsertEnter', entry.merged_spec.event)
+    assert.are.equal('Bee', entry.merged_spec.cmd)
+  end)
+
+  it("dependency on the plugin's own fork fragment leaves no empty reverse-graph set", function()
+    local state = require('zpack.state')
+    local fork = 'https://github.com/me/flash-fork'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', dependencies = { { 'folke/flash.nvim', url = fork } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_not_nil(state.spec_registry[fork])
+    assert.is_nil(state.spec_registry['https://github.com/folke/flash.nvim'])
+    assert.is_nil(state.reverse_dependency_graph[fork],
+      "dropping the fold's self-loop must not leave an empty reverse-dependency set")
   end)
 
   it("dev = true fragment wins the fold over a fork fragment regardless of order", function()

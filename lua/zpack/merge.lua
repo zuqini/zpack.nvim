@@ -392,6 +392,10 @@ local function rekey_graph_edges(state, old_src, new_src)
         if rdeps then
           rdeps[new_src] = true
         end
+      elseif rdeps and next(rdeps) == nil then
+        -- Dropping the old→new self-loop can empty new_src's reverse set;
+        -- clear it to preserve the no-empty-sets invariant below.
+        state.reverse_dependency_graph[dep_src] = nil
       end
     end
     state.dependency_graph[new_src] = target
@@ -453,9 +457,10 @@ end
 ---`vim.pack.add` would abort setup() with a conflicting-src error. Group
 ---entries by every `[1]` shorthand their specs carry (plus the entry keyed at
 ---the shorthand itself) and fold each group into its highest-ranked entry
----(see fold_rank): losers concat their specs into the winner (sort_specs
----restores import order) and the graph edges built on their srcs at import
----time are rekeyed. A fold can hand the winner `[1]`s that connect it to
+---(see fold_rank): losers concat their specs into the winner (re-sorted in
+---place so specs[1] stays the earliest-imported fragment — get_import_order
+---reads it) and the graph edges built on their srcs at import time are
+---rekeyed. A fold can hand the winner `[1]`s that connect it to
 ---another group, so sweep to a fixpoint. Runs post-import so every fragment
 ---is visible no matter which was imported first.
 local function coalesce_shorthand_overrides(state, utils)
@@ -504,6 +509,9 @@ local function coalesce_shorthand_overrides(state, utils)
             changed = true
           end
         end
+        table.sort(state.spec_registry[winner].specs, function(a, b)
+          return (a._import_order or 0) < (b._import_order or 0)
+        end)
       end
     end
   end
