@@ -136,6 +136,43 @@ describe("Setup and Initialization", function()
     assert.is_not_nil(state.spec_registry[src], "Plugin with dir should be registered")
   end)
 
+  it("url overrides [1] shorthand (lazy.nvim fork idiom)", function()
+    local state = require('zpack.state')
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', url = 'https://github.com/pedro757/flash.nvim.git' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_not_nil(state.spec_registry['https://github.com/pedro757/flash.nvim.git'],
+      "explicit url should win over [1]")
+    assert.is_nil(state.spec_registry['https://github.com/folke/flash.nvim'],
+      "[1] shorthand must not be used when url is set")
+  end)
+
+  it("source precedence is src > url > dir > [1]", function()
+    local state = require('zpack.state')
+
+    require('zpack').setup({
+      spec = {
+        { 'test/a', src = 'https://srv/a-src', url = 'https://srv/a-url', dir = '/tmp/a-dir' },
+        { 'test/b', url = 'https://srv/b-url', dir = '/tmp/b-dir' },
+        { 'test/c', dir = '/tmp/c-dir' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_not_nil(state.spec_registry['https://srv/a-src'], "src should win over url/dir/[1]")
+    assert.is_not_nil(state.spec_registry['https://srv/b-url'], "url should win over dir/[1]")
+    assert.is_not_nil(state.spec_registry['/tmp/c-dir'], "dir should win over [1]")
+    for _, short in ipairs({ 'test/a', 'test/b', 'test/c' }) do
+      assert.is_nil(state.spec_registry['https://github.com/' .. short],
+        ("[1] shorthand must not be used for %s"):format(short))
+    end
+  end)
+
   it("dir field expands ~ to home directory", function()
     local state = require('zpack.state')
 

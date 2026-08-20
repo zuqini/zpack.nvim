@@ -594,7 +594,7 @@ parent's lazy trigger fires.
 
 >lua
     {
-      -- Plugin source (provide exactly one)
+      -- Plugin source (provide at least one; src > url > dir > [1])
       [1] = "user/repo",                    -- Short name (github.com/...)
       src = "https://...",                  -- Custom git URL or local path
       dir = "/path/to/plugin",              -- Local path (lazy.nvim compat, ~ expanded)
@@ -668,26 +668,27 @@ parent's lazy trigger fires.
                                                             *zpack-Spec.[1]*
 [1]             (string, optional)
                 Plugin short name (e.g., "user/repo"). Expands to
-                `https://github.com/{[1]}`. Provide exactly one of:
-                [1], src, dir, or url. Priority: [1] > src > url > dir.
+                `https://github.com/{[1]}` when no explicit src, url, or
+                dir is given (lazy.nvim parity). Provide at least one of:
+                [1], src, dir, or url. Priority: src > url > dir > [1].
 
                                                              *zpack-Spec.src*
 src             (string, optional)
                 Custom git URL or local path for the plugin source.
-                Provide exactly one of: [1], src, dir, or url.
+                Overrides [1] when both are set.
 
                                                              *zpack-Spec.dir*
 dir             (string, optional)
                 Local plugin directory path. For lazy.nvim compatibility.
                 Paths are automatically expanded (e.g., `~` expands to home
-                directory). Mapped to `src` internally. Provide exactly one
-                of: [1], src, dir, or url.
+                directory). Mapped to `src` internally. Overrides [1] when
+                both are set.
 
                                                              *zpack-Spec.url*
 url             (string, optional)
                 Custom git URL. For lazy.nvim compatibility.
-                Mapped to `src` internally. Provide exactly one of:
-                [1], src, dir, or url.
+                Mapped to `src` internally. Overrides [1] when both are
+                set, e.g. to swap in a fork while keeping the short name.
 
                                                     *zpack-Spec.dependencies*
 dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)

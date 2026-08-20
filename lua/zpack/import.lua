@@ -51,7 +51,9 @@ local function resolve_dev_path(spec)
   return dev_path
 end
 
----Normalize plugin source using priority: dev > [1] > src > url > dir
+---Normalize plugin source using priority: dev > src > url > dir > [1]
+---lazy.nvim parity: `[1]` is only a fallback for deriving the URL, so an
+---explicit src/url/dir wins — `{ 'user/repo', url = fork }` installs the fork.
 ---@param spec zpack.Spec
 ---@return string|nil source URL/path, or nil if invalid
 ---@return string|nil error message if validation fails
@@ -59,7 +61,7 @@ local normalize_source = function(spec)
   -- lazy.nvim spec parity: `dev = true` rewrites the source to a local
   -- checkout under `config.dev.path` (default '~/projects'). When the local
   -- directory is missing and `fallback = true` is set, resolution falls
-  -- through to the regular [1]/src/url/dir chain below.
+  -- through to the regular src/url/dir/[1] chain below.
   local dev_path = resolve_dev_path(spec)
   if dev_path then
     return dev_path
@@ -67,14 +69,14 @@ local normalize_source = function(spec)
   -- Each source field must be a string; a non-string (over-nested spec or
   -- typo) would crash the `[1]` concat or `dir` expand. Skip rather than
   -- abort setup().
-  if type(spec[1]) == 'string' then
-    return 'https://github.com/' .. spec[1]
-  elseif type(spec.src) == 'string' then
+  if type(spec.src) == 'string' then
     return spec.src
   elseif type(spec.url) == 'string' then
     return spec.url
   elseif type(spec.dir) == 'string' then
     return vim.fn.expand(spec.dir)
+  elseif type(spec[1]) == 'string' then
+    return 'https://github.com/' .. spec[1]
   else
     return nil, "spec must provide one of: [1], src, dir, or url"
   end
