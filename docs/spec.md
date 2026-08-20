@@ -1,5 +1,13 @@
 # Spec Reference
 
+- [zpack.Spec Reference](#zpackspec-reference)
+- [zpack.Plugin Reference](#zpackplugin-reference)
+- [zpack.EventSpec Reference](#zpackeventspec-reference)
+- [zpack.KeySpec Reference](#zpackkeyspec-reference)
+- [zpack.PluginInfo Reference](#zpackplugininfo-reference)
+
+### zpack.Spec Reference
+
 ```lua
 {
   -- Plugin source (provide at least one; src > url > dir > [1])
