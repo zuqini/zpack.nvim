@@ -39,16 +39,13 @@ local function names_for_bulk_update()
   local pinned_names = {}
   local zpack_pinned_by_user = false
   local has_pin = false
-  for _, entry in pairs(state.spec_registry) do
+  for src, entry in pairs(state.spec_registry) do
     if entry.merged_spec and entry.merged_spec.pin == true then
       has_pin = true
-      local name = entry.merged_spec.name
-          or (entry.plugin and entry.plugin.spec and entry.plugin.spec.name)
-      if name then
-        pinned_names[name] = true
-        if name == 'zpack.nvim' then
-          zpack_pinned_by_user = true
-        end
+      local name = util.resolve_plugin_name(entry.merged_spec, src)
+      pinned_names[name] = true
+      if name == 'zpack.nvim' then
+        zpack_pinned_by_user = true
       end
     end
   end

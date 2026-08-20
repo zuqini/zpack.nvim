@@ -376,6 +376,147 @@ local function prune_disabled(state)
   end
 end
 
+---Move every dependency-graph edge touching old_src onto new_src, in both
+---directions. Edges that would become self-loops (old ↔ new) are dropped.
+local function rekey_graph_edges(state, old_src, new_src)
+  local outgoing = state.dependency_graph[old_src]
+  if outgoing then
+    local target = state.dependency_graph[new_src] or {}
+    for dep_src in pairs(outgoing) do
+      local rdeps = state.reverse_dependency_graph[dep_src]
+      if rdeps then
+        rdeps[old_src] = nil
+      end
+      if dep_src ~= new_src then
+        target[dep_src] = true
+        if rdeps then
+          rdeps[new_src] = true
+        end
+      elseif rdeps and next(rdeps) == nil then
+        -- Dropping the old→new self-loop can empty new_src's reverse set;
+        -- clear it to preserve the no-empty-sets invariant below.
+        state.reverse_dependency_graph[dep_src] = nil
+      end
+    end
+    state.dependency_graph[new_src] = target
+    state.dependency_graph[old_src] = nil
+  end
+  local incoming = state.reverse_dependency_graph[old_src]
+  if incoming then
+    local target = state.reverse_dependency_graph[new_src] or {}
+    for parent_src in pairs(incoming) do
+      local deps = state.dependency_graph[parent_src]
+      if deps then
+        deps[old_src] = nil
+      end
+      if parent_src ~= new_src then
+        target[parent_src] = true
+        if deps then
+          deps[new_src] = true
+        end
+      end
+    end
+    -- The reverse graph must hold no empty sets: strip_outgoing_edges reads a
+    -- set emptying as its "newly orphaned" signal. The forward graph tolerates
+    -- empty sets (import pre-creates them), hence no guard on the write above.
+    if next(target) ~= nil then
+      state.reverse_dependency_graph[new_src] = target
+    end
+    state.reverse_dependency_graph[old_src] = nil
+  end
+end
+
+---Rank an entry for the coalesce fold. A non-shorthand-keyed entry carrying a
+---`dev = true` fragment wins outright — dev outranks the whole explicit chain
+---in normalize_source, independent of import order. Otherwise the latest
+---explicit-source fragment wins (lazy.nvim later-fragment-wins); an entry
+---with no explicit fragment (the bare-shorthand entry) ranks below any
+---explicit one regardless of import order.
+local function fold_rank(entry, src, shorthand)
+  if src ~= shorthand then
+    for _, spec in ipairs(entry.specs) do
+      if spec.dev == true then
+        return math.huge
+      end
+    end
+  end
+  local latest = -1
+  for _, spec in ipairs(entry.specs) do
+    if type(spec.src) == 'string' or type(spec.url) == 'string'
+        or type(spec.dir) == 'string' then
+      latest = math.max(latest, spec._import_order or 0)
+    end
+  end
+  return latest
+end
+
+---lazy.nvim fragment parity: `{ 'user/repo' }` and `{ 'user/repo', url = fork }`
+---are fragments of the SAME plugin, but normalize to different sources because
+---an explicit src/url/dir wins over `[1]`. Without this fold the fragments
+---would survive as separate registry entries deriving the same pack name and
+---`vim.pack.add` would abort setup() with a conflicting-src error. Group
+---entries by every `[1]` shorthand their specs carry (plus the entry keyed at
+---the shorthand itself) and fold each group into its highest-ranked entry
+---(see fold_rank): losers concat their specs into the winner (re-sorted in
+---place so specs[1] stays the earliest-imported fragment — get_import_order
+---reads it) and the graph edges built on their srcs at import time are
+---rekeyed. A fold can hand the winner `[1]`s that connect it to
+---another group, so sweep to a fixpoint. Runs post-import so every fragment
+---is visible no matter which was imported first.
+local function coalesce_shorthand_overrides(state, utils)
+  local changed = true
+  while changed do
+    changed = false
+    local groups = {}
+    for src, entry in pairs(state.spec_registry) do
+      local seen = {}
+      for _, spec in ipairs(entry.specs) do
+        if type(spec[1]) == 'string' then
+          local shorthand = utils.github_url(spec[1])
+          if not seen[shorthand] then
+            seen[shorthand] = true
+            groups[shorthand] = groups[shorthand] or {}
+            table.insert(groups[shorthand], src)
+          end
+        end
+      end
+    end
+    for shorthand, srcs in pairs(groups) do
+      -- A fold earlier in this sweep may have consumed a member already.
+      local live = {}
+      for _, src in ipairs(srcs) do
+        if state.spec_registry[src] then
+          table.insert(live, src)
+        end
+      end
+      if state.spec_registry[shorthand] and not vim.tbl_contains(live, shorthand) then
+        table.insert(live, shorthand)
+      end
+      if #live > 1 then
+        local winner = live[1]
+        local winner_rank = fold_rank(state.spec_registry[winner], winner, shorthand)
+        for i = 2, #live do
+          local rank = fold_rank(state.spec_registry[live[i]], live[i], shorthand)
+          if rank > winner_rank then
+            winner, winner_rank = live[i], rank
+          end
+        end
+        for _, src in ipairs(live) do
+          if src ~= winner then
+            vim.list_extend(state.spec_registry[winner].specs, state.spec_registry[src].specs)
+            rekey_graph_edges(state, src, winner)
+            state.spec_registry[src] = nil
+            changed = true
+          end
+        end
+        table.sort(state.spec_registry[winner].specs, function(a, b)
+          return (a._import_order or 0) < (b._import_order or 0)
+        end)
+      end
+    end
+  end
+end
+
 ---Pre-compute merged_spec for all entries in the registry
 ---Creates pack_specs with merged data and returns sorted vim_packs array
 ---@return vim.pack.Spec[]
@@ -383,6 +524,8 @@ function M.resolve_all()
   local state = require('zpack.state')
   local utils = require('zpack.utils')
   local lazy = require('zpack.lazy')
+
+  coalesce_shorthand_overrides(state, utils)
 
   for src, entry in pairs(state.spec_registry) do
     if entry.specs and #entry.specs > 0 then
@@ -441,15 +584,13 @@ function M.resolve_all()
   -- fired yet). The registration load callback re-computes is_lazy_resolved
   -- with the live plugin arg for accuracy with function-form triggers — both
   -- calls flow through lazy.is_lazy so the answers stay consistent.
-  -- derive_name_from_src must match vim.pack.add's own derivation rule so
-  -- this pre-seed agrees with the registration callback's rewrite. If they
-  -- ever diverge, a stale derived-name key survives in name_to_src — harmless
-  -- (bounded, non-crashing, cleared on re-setup), but worth knowing.
+  -- resolve_plugin_name here and in the pack_spec below are the same call,
+  -- so this pre-seed agrees with the registration callback's rewrite (which
+  -- reads pack_spec.name) by construction.
   for src, entry in pairs(state.spec_registry) do
     if entry.merged_spec then
       entry.is_lazy_resolved = lazy.is_lazy(entry.merged_spec, nil, src)
-      local name = entry.merged_spec.name or utils.derive_name_from_src(src)
-      state.name_to_src[name] = src
+      state.name_to_src[utils.resolve_plugin_name(entry.merged_spec, src)] = src
     end
   end
   -- Drop the pre-load lazy-parent cache so the registration callback
@@ -469,7 +610,7 @@ function M.resolve_all()
       local pack_spec = {
         src = src,
         version = utils.normalize_version(entry.merged_spec),
-        name = entry.merged_spec.name or utils.derive_name_from_src(src),
+        name = utils.resolve_plugin_name(entry.merged_spec, src),
       }
       table.insert(vim_packs, pack_spec)
       state.src_to_pack_spec[src] = pack_spec

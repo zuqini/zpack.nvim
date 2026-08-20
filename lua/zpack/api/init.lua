@@ -62,7 +62,7 @@ local function entry_to_info(src, entry)
   if not plugin then
     local utils = require('zpack.utils')
     return {
-      name = entry.merged_spec.name or utils.derive_name_from_src(src),
+      name = utils.resolve_plugin_name(entry.merged_spec, src),
       src = src,
       status = 'installing',
       lazy = lazy_flag,

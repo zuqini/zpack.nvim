@@ -279,17 +279,41 @@ M.check_cond = function(spec, plugin, default_cond, src)
   return true
 end
 
----Normalize a plugin name for module matching
----Derive a plugin name from a src URL/path the same way `vim.pack.add`
----does when `name` is not explicitly set: basename of the URL/path,
----stripped of a trailing `.git`. Used to resolve a stable name before
----`vim.pack.add`'s load callback has populated `plugin.spec.name`.
+---Derive a plugin name from a source (URL, path, or `[1]` short name):
+---basename, stripped of a trailing `.git`. Used to resolve a stable name
+---before `vim.pack.add`'s load callback has populated `plugin.spec.name`.
 ---@param src string
 ---@return string
 M.derive_name_from_src = function(src)
   local trimmed = src:gsub('/+$', '')
   local basename = trimmed:match('([^/]+)$') or trimmed
   return (basename:gsub('%.git$', ''))
+end
+
+---Expand a `[1]` short name ("user/repo") to its GitHub URL. Shared by
+---`normalize_source` and `coalesce_shorthand_overrides` so the two sites
+---cannot drift on what a shorthand resolves to.
+---@param short_name string
+---@return string
+M.github_url = function(short_name)
+  return 'https://github.com/' .. short_name
+end
+
+---Resolve a plugin's display/pack name. lazy.nvim parity: the name derives
+---from `[1]` even when an explicit src/url/dir wins the source resolution,
+---so `{ 'user/repo', url = fork }` keeps the name "repo" regardless of the
+---fork's basename. An explicit `name` always wins.
+---@param merged_spec zpack.Spec
+---@param src string Normalized source (fallback name basis)
+---@return string
+M.resolve_plugin_name = function(merged_spec, src)
+  if merged_spec.name then
+    return merged_spec.name
+  end
+  if type(merged_spec[1]) == 'string' then
+    return M.derive_name_from_src(merged_spec[1])
+  end
+  return M.derive_name_from_src(src)
 end
 
 ---Inspired by lazy.nvim's Util.normname()

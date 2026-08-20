@@ -43,11 +43,11 @@
 ---@alias zpack.FtValue string|string[]
 
 ---@class zpack.Spec
----@field [1]? string Plugin short name (e.g., "user/repo"). Required if src/dir/url not provided
----@field src? string Custom git URL or local path. Required if [1]/dir/url not provided
----@field dir? string Local plugin directory path (lazy.nvim compat). Mapped to src
----@field url? string Custom git URL (lazy.nvim compat). Mapped to src
----@field name? string Custom plugin name. Overrides auto-derived name from URL
+---@field [1]? string Plugin short name (e.g., "user/repo"). Fallback source when src/dir/url not provided
+---@field src? string Custom git URL or local path. Highest-priority source, overrides [1]
+---@field dir? string Local plugin directory path (lazy.nvim compat). Mapped to src, overrides [1]
+---@field url? string Custom git URL (lazy.nvim compat). Mapped to src, overrides [1]
+---@field name? string Custom plugin name. Overrides the name derived from [1] (or the source URL)
 ---@field init? fun(plugin: zpack.Plugin?)
 ---@field build? false|string|(string|fun(plugin: zpack.Plugin?))[]|fun(plugin: zpack.Plugin?)
 ---@field enabled? boolean|(fun():boolean)
