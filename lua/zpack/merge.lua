@@ -426,93 +426,123 @@ local function rekey_graph_edges(state, old_src, new_src)
   end
 end
 
----Rank an entry for the coalesce fold. A non-shorthand-keyed entry carrying a
----`dev = true` fragment wins outright — dev outranks the whole explicit chain
----in normalize_source, independent of import order. Otherwise the latest
----explicit-source fragment wins (lazy.nvim later-fragment-wins); an entry
----with no explicit fragment (the bare-shorthand entry) ranks below any
----explicit one regardless of import order.
-local function fold_rank(entry, src, shorthand)
-  if src ~= shorthand then
-    for _, spec in ipairs(entry.specs) do
-      if spec.dev == true then
-        return math.huge
-      end
-    end
-  end
-  local latest = -1
-  for _, spec in ipairs(entry.specs) do
-    if type(spec.src) == 'string' or type(spec.url) == 'string'
-        or type(spec.dir) == 'string' then
-      latest = math.max(latest, spec._import_order or 0)
-    end
-  end
-  return latest
+local function merge_entry(entry)
+  entry.sorted_specs = M.sort_specs(entry.specs)
+  entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
 end
 
----lazy.nvim fragment parity: `{ 'user/repo' }` and `{ 'user/repo', url = fork }`
----are fragments of the SAME plugin, but normalize to different sources because
----an explicit src/url/dir wins over `[1]`. Without this fold the fragments
----would survive as separate registry entries deriving the same pack name and
----`vim.pack.add` would abort setup() with a conflicting-src error. Group
----entries by every `[1]` shorthand their specs carry (plus the entry keyed at
----the shorthand itself) and fold each group into its highest-ranked entry
----(see fold_rank): losers concat their specs into the winner (re-sorted in
----place so specs[1] stays the earliest-imported fragment — get_import_order
----reads it) and the graph edges built on their srcs at import time are
----rekeyed. A fold can hand the winner `[1]`s that connect it to
----another group, so sweep to a fixpoint. Runs post-import so every fragment
----is visible no matter which was imported first.
-local function coalesce_shorthand_overrides(state, utils)
-  local changed = true
-  while changed do
-    changed = false
-    local groups = {}
-    for src, entry in pairs(state.spec_registry) do
-      local seen = {}
-      for _, spec in ipairs(entry.specs) do
-        if type(spec[1]) == 'string' then
-          local shorthand = utils.github_url(spec[1])
-          if not seen[shorthand] then
-            seen[shorthand] = true
-            groups[shorthand] = groups[shorthand] or {}
-            table.insert(groups[shorthand], src)
-          end
-        end
-      end
+---Rank an entry for the coalesce fold as a (tier, import order) pair; compare
+---tier first, then order. A `dev = true` fragment that did not fall back to
+---its own `[1]` shorthand wins outright — dev outranks the whole explicit
+---chain in normalize_source, independent of import order. Below that, an
+---explicit-source fragment beats a bare one, and among bare entries a
+---top-level fragment beats a dependency-only one — the same
+---standalone-over-dep rule sort_specs applies to field merging. Within a
+---tier the latest-imported wins. lazy.nvim itself is pure
+---later-fragment-wins; the tiers are a deliberate divergence so the winner
+---does not depend on the order lua/plugins/*.lua files are imported.
+local function fold_rank(entry, src)
+  local explicit, top, dep = -1, -1, -1
+  for _, spec in ipairs(entry.specs) do
+    local order = spec._import_order or 0
+    if spec.dev == true and (type(spec[1]) ~= 'string' or src ~= util.github_url(spec[1])) then
+      return 3, order
     end
-    for shorthand, srcs in pairs(groups) do
-      -- A fold earlier in this sweep may have consumed a member already.
-      local live = {}
+    if type(spec.src) == 'string' or type(spec.url) == 'string'
+        or type(spec.dir) == 'string' then
+      explicit = math.max(explicit, order)
+    elseif spec._is_dependency then
+      dep = math.max(dep, order)
+    else
+      top = math.max(top, order)
+    end
+  end
+  if explicit >= 0 then
+    return 2, explicit
+  end
+  if top >= 0 then
+    return 1, top
+  end
+  return 0, dep
+end
+
+---The repos an entry names: its registry src plus the URL of every `[1]` its
+---fragments carry. Two entries naming a repo in common are the user spelling
+---one repo two ways (lazy.nvim's fork-override idiom, or `{ url = X }` next
+---to `{ 'user/repo', url = fork }`); a fold joining entries with no repo in
+---common is an inference zpack made for them, so the caller warns.
+local function named_repos(entry, src)
+  local repos = { [src] = true }
+  for _, spec in ipairs(entry.specs) do
+    if type(spec[1]) == 'string' then
+      repos[util.github_url(spec[1])] = true
+    end
+  end
+  return repos
+end
+
+local function share_a_repo(a, b)
+  for repo in pairs(a) do
+    if b[repo] then
+      return true
+    end
+  end
+  return false
+end
+
+---lazy.nvim parity: plugins are keyed by derived name, so `{ 'user/repo' }`
+---and `{ 'user/repo', url = fork }` — or `{ 'old-owner/repo' }` and
+---`{ 'new-owner/repo' }` after a GitHub rename — are fragments of the SAME
+---plugin even though they normalize to different sources. Without this fold
+---they would reach vim.pack.add as separate entries deriving the same pack
+---name and abort setup() with a conflicting-src error. Group entries by the
+---name their merged_spec resolves to — the exact name handed to vim.pack, so
+---the fold set is the conflict set and nothing more (grouping by every `[1]`
+---a fragment carries over-folds: `{ 'user/repo', name = 'alias' }` would
+---swallow an unrelated `other/repo`) — and fold each group into its
+---highest-ranked entry (see fold_rank): losers concat their specs into the
+---winner, which is re-sorted so specs[1] stays the earliest-imported fragment
+---(get_import_order reads it) and re-merged. Graph edges built on the losers'
+---srcs at import time are rekeyed.
+local function coalesce_same_name(state, utils)
+  local groups = {}
+  for src, entry in pairs(state.spec_registry) do
+    if entry.merged_spec then
+      local name = utils.resolve_plugin_name(entry.merged_spec, src)
+      groups[name] = groups[name] or {}
+      table.insert(groups[name], src)
+    end
+  end
+  for name, srcs in pairs(groups) do
+    if #srcs > 1 then
+      local winner = srcs[1]
+      local winner_tier, winner_order = fold_rank(state.spec_registry[winner], winner)
+      for i = 2, #srcs do
+        local tier, order = fold_rank(state.spec_registry[srcs[i]], srcs[i])
+        if tier > winner_tier or (tier == winner_tier and order > winner_order) then
+          winner, winner_tier, winner_order = srcs[i], tier, order
+        end
+      end
+      local winner_entry = state.spec_registry[winner]
+      local winner_repos = named_repos(winner_entry, winner)
       for _, src in ipairs(srcs) do
-        if state.spec_registry[src] then
-          table.insert(live, src)
-        end
-      end
-      if state.spec_registry[shorthand] and not vim.tbl_contains(live, shorthand) then
-        table.insert(live, shorthand)
-      end
-      if #live > 1 then
-        local winner = live[1]
-        local winner_rank = fold_rank(state.spec_registry[winner], winner, shorthand)
-        for i = 2, #live do
-          local rank = fold_rank(state.spec_registry[live[i]], live[i], shorthand)
-          if rank > winner_rank then
-            winner, winner_rank = live[i], rank
+        if src ~= winner then
+          local loser = state.spec_registry[src]
+          if not share_a_repo(winner_repos, named_repos(loser, src)) then
+            utils.schedule_notify(
+              ("zpack: %s: %s and %s resolve to the same plugin; merged into %s"):format(name, src, winner, winner),
+              vim.log.levels.WARN
+            )
           end
+          vim.list_extend(winner_entry.specs, loser.specs)
+          rekey_graph_edges(state, src, winner)
+          state.spec_registry[src] = nil
         end
-        for _, src in ipairs(live) do
-          if src ~= winner then
-            vim.list_extend(state.spec_registry[winner].specs, state.spec_registry[src].specs)
-            rekey_graph_edges(state, src, winner)
-            state.spec_registry[src] = nil
-            changed = true
-          end
-        end
-        table.sort(state.spec_registry[winner].specs, function(a, b)
-          return (a._import_order or 0) < (b._import_order or 0)
-        end)
       end
+      table.sort(winner_entry.specs, function(a, b)
+        return (a._import_order or 0) < (b._import_order or 0)
+      end)
+      merge_entry(winner_entry)
     end
   end
 end
@@ -525,12 +555,16 @@ function M.resolve_all()
   local utils = require('zpack.utils')
   local lazy = require('zpack.lazy')
 
-  coalesce_shorthand_overrides(state, utils)
+  for _, entry in pairs(state.spec_registry) do
+    if entry.specs and #entry.specs > 0 then
+      merge_entry(entry)
+    end
+  end
+
+  coalesce_same_name(state, utils)
 
   for src, entry in pairs(state.spec_registry) do
     if entry.specs and #entry.specs > 0 then
-      entry.sorted_specs = M.sort_specs(entry.specs)
-      entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
       entry.enabled_result = utils.check_enabled(entry.merged_spec, src)
       -- `opts` is deliberately not stored on merged_spec; compute a boolean
       -- summary once here so existence checks in plugin_loader / startup can

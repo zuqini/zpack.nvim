@@ -291,8 +291,8 @@ M.derive_name_from_src = function(src)
 end
 
 ---Expand a `[1]` short name ("user/repo") to its GitHub URL. Shared by
----`normalize_source` and `coalesce_shorthand_overrides` so the two sites
----cannot drift on what a shorthand resolves to.
+---`normalize_source` and merge.lua's coalesce fold so the two sites cannot
+---drift on what a shorthand resolves to.
 ---@param short_name string
 ---@return string
 M.github_url = function(short_name)

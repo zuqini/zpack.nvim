@@ -61,7 +61,7 @@
   commit = "abc123",                    -- Git commit
 
   -- Plugin metadata
-  name = "my-plugin",                   -- Custom plugin name (optional, overrides the name derived from [1] / the source)
+  name = "my-plugin",                   -- Custom plugin name (optional, overrides the name derived from [1] / the source; specs deriving the same name fold into one plugin)
   main = "module.name",                 -- Explicit main module (auto-detected if not set)
   module = false,                       -- Disable module-based lazy loading for this plugin
 

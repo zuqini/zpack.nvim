@@ -22,6 +22,7 @@ Most of your lazy.nvim plugin specs will work as-is with zpack. However, zpack f
 
 Known gotchas when using zpack:
 - **install/update feedback**: `vim.pack` surfaces install/update progress via `:messages` (e.g. `vim.pack: Downloading updates (0/83)`). These messages are hidden if you have `vim.opt.cmdheight = 0` — raise it, check `:messages`, or route them through a notifier like [snacks.notifier](https://github.com/folke/snacks.nvim), [nvim-notify](https://github.com/rcarriga/nvim-notify), or [noice.nvim](https://github.com/folke/noice.nvim). Also see [noice.nvim with vim.pack](#noicenvim-with-vimpack) for compatibility notes
+- **same plugin, two owners**: specs deriving the same name (e.g. `williamboman/mason.nvim` in a `dependencies` list and `mason-org/mason.nvim` at top level) are folded into one plugin; a `dev = true` fragment wins, then an explicit `src`/`url`/`dir`, then a top-level spec over a dependency, and zpack warns unless the specs name a repo in common (a shared `[1]`, or a `src`/`url` equal to the other's `[1]`). Fields merge as usual, so `enabled = false` on either fragment disables the plugin. Point both at the current owner, or set `name` on one to keep them apart
 
 ## Compatibility Notes
 

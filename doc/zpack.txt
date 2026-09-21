@@ -672,11 +672,8 @@ parent's lazy trigger fires.
                 dir is given (lazy.nvim parity). Provide at least one of:
                 [1], src, dir, or url. Priority: src > url > dir > [1].
                 The plugin NAME still derives from [1] even when an
-                explicit source wins, and specs sharing a [1] merge into
-                one plugin even when only some of them carry the explicit
-                source (lazy.nvim fragment semantics). When several
-                fragments carry an explicit source, the last one imported
-                wins.
+                explicit source wins; specs deriving the same name merge
+                into one plugin — see |zpack-Spec.name| for precedence.
 
                                                              *zpack-Spec.src*
 src             (string, optional)
@@ -840,7 +837,15 @@ name            (string, optional)
                 Custom plugin name. Overrides the name derived from [1] (or
                 from the source URL when no [1] is given). Useful when you
                 need a specific directory name or want to avoid naming
-                conflicts.
+                conflicts. Specs deriving the same name are folded into one
+                plugin (lazy.nvim parity); when their sources differ (e.g.
+                `old-owner/repo` vs `new-owner/repo`), a `dev = true`
+                fragment wins, then an explicit `src`/`url`/`dir`, then a
+                top-level spec over a dependency, latest-imported within a
+                tier; zpack warns unless the specs name a repo in common (a
+                shared [1], or a `src`/`url` equal to the other's [1]).
+                Fields merge as usual, so `enabled = false` on either
+                fragment disables the plugin. Set `name` to keep them apart.
 
                                                             *zpack-Spec.main*
 main            (string, optional)

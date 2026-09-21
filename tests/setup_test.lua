@@ -309,30 +309,6 @@ describe("Setup and Initialization", function()
     assert.are.equal(fork2, state.name_to_src['flash.nvim'])
   end)
 
-  it("chained shorthand groups fold into a single entry across sweeps", function()
-    local state = require('zpack.state')
-    local fork = 'https://github.com/me/a-fork'
-
-    require('zpack').setup({
-      spec = {
-        { 'p/a', event = 'InsertEnter' },
-        { 'q/b', src = 'https://github.com/p/a' },
-        { 'p/a', url = fork },
-        { 'q/b', cmd = 'Bee' },
-      },
-      defaults = { confirm = false },
-    })
-
-    assert.is_nil(state.spec_registry['https://github.com/p/a'])
-    assert.is_nil(state.spec_registry['https://github.com/q/b'])
-    local entry = state.spec_registry[fork]
-    assert.is_not_nil(entry, "chained groups must converge on the fork entry")
-    assert.are.equal(4, #entry.specs,
-      "every fragment from both shorthand groups must fold into one entry")
-    assert.are.equal('InsertEnter', entry.merged_spec.event)
-    assert.are.equal('Bee', entry.merged_spec.cmd)
-  end)
-
   it("dependency on the plugin's own fork fragment leaves no empty reverse-graph set", function()
     local state = require('zpack.state')
     local fork = 'https://github.com/me/flash-fork'
@@ -370,6 +346,240 @@ describe("Setup and Initialization", function()
       "dev fragment must own the merged plugin even though the fork fragment is later")
     assert.is_nil(state.spec_registry[fork], "fork fragment must fold into the dev entry")
     assert.are.equal(dev_src, state.name_to_src['flash.nvim'])
+  end)
+
+  local function same_name_warnings()
+    helpers.flush_pending()
+    local found = {}
+    for _, notif in ipairs(_G.test_state.notifications) do
+      if notif.level == vim.log.levels.WARN and notif.msg:find('resolve to the same plugin', 1, true) then
+        table.insert(found, notif.msg)
+      end
+    end
+    return found
+  end
+
+  it("same-[1] fork override folds silently", function()
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', cmd = 'Flash' },
+        { 'folke/flash.nvim', url = 'https://github.com/me/flash-fork' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.are.same({}, same_name_warnings(),
+      "fragments naming the same [1] are an explicit override, not a source conflict")
+  end)
+
+  it("specs deriving the same name under different owners fold into one plugin", function()
+    local state = require('zpack.state')
+    local old = 'https://github.com/williamboman/mason.nvim'
+    local new = 'https://github.com/mason-org/mason.nvim'
+    local parent = 'https://github.com/test/lspconfig'
+    local configured = false
+
+    require('zpack').setup({
+      spec = {
+        { 'test/lspconfig', dependencies = { 'williamboman/mason.nvim' } },
+        { 'mason-org/mason.nvim', config = function() configured = true end },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[old], "dependency-only fragment must fold into the top-level one")
+    local entry = state.spec_registry[new]
+    assert.is_not_nil(entry, "top-level fragment must own the merged plugin")
+    assert.are.equal(2, #entry.specs)
+    assert.are.equal(new, state.name_to_src['mason.nvim'])
+
+    local names = {}
+    for _, pack_spec in ipairs(_G.test_state.vim_pack_calls[1]) do
+      if pack_spec.name == 'mason.nvim' then
+        table.insert(names, pack_spec.src)
+      end
+    end
+    assert.are.same({ new }, names, "vim.pack.add must receive a single mason.nvim spec")
+
+    assert.is_truthy(state.dependency_graph[parent][new], "parent's dep edge must be rekeyed onto the winner")
+    assert.is_nil(state.dependency_graph[parent][old])
+    assert.is_truthy(state.reverse_dependency_graph[new][parent])
+    assert.is_nil(state.reverse_dependency_graph[old])
+
+    assert.is_true(configured, "config from the folded fragment must run")
+
+    local warnings = same_name_warnings()
+    assert.are.equal(1, #warnings, "exactly one WARN per fold of differing sources")
+    assert.is_truthy(warnings[1]:find(old, 1, true), "warning must name the losing source")
+    assert.is_truthy(warnings[1]:find('merged into ' .. new, 1, true), "warning must name the winning source")
+  end)
+
+  it("specs deriving the same name fold regardless of import order", function()
+    local state = require('zpack.state')
+    local old = 'https://github.com/williamboman/mason.nvim'
+    local new = 'https://github.com/mason-org/mason.nvim'
+    local parent = 'https://github.com/test/lspconfig'
+    local configured = false
+
+    require('zpack').setup({
+      spec = {
+        { 'mason-org/mason.nvim', config = function() configured = true end },
+        { 'test/lspconfig', dependencies = { 'williamboman/mason.nvim' } },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[old], "top-level fragment must win even when imported first")
+    assert.is_not_nil(state.spec_registry[new])
+    assert.are.equal(new, state.name_to_src['mason.nvim'])
+    assert.is_truthy(state.dependency_graph[parent][new])
+    assert.is_nil(state.dependency_graph[parent][old])
+    assert.is_true(configured, "config from the top-level fragment must run")
+    assert.are.equal(1, #same_name_warnings())
+  end)
+
+  it("enabled = false on either same-name fragment disables the merged plugin (lazy.nvim parity)", function()
+    local state = require('zpack.state')
+    local configured = false
+
+    require('zpack').setup({
+      spec = {
+        { 'williamboman/mason.nvim', enabled = false },
+        { 'mason-org/mason.nvim', config = function() configured = true end },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    assert.is_nil(state.spec_registry['https://github.com/mason-org/mason.nvim'],
+      "the merged plugin must be pruned, not installed from the surviving owner")
+    assert.is_nil(state.name_to_src['mason.nvim'])
+    assert.is_false(configured)
+    assert.are.equal(1, #same_name_warnings())
+  end)
+
+  it("explicit dependency fragment outranks a bare top-level fragment", function()
+    local state = require('zpack.state')
+    local old = 'https://github.com/old/x'
+    local new = 'https://github.com/new/x'
+
+    require('zpack').setup({
+      spec = {
+        { 'new/x', cmd = 'X' },
+        { 'p/lsp', dependencies = { { 'old/x', url = old } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[new])
+    assert.are.equal(old, state.name_to_src['x'])
+    assert.are.equal('X', state.spec_registry[old].merged_spec.cmd)
+    assert.are.equal(1, #same_name_warnings())
+  end)
+
+  it("a folded [1]-less fragment keeps its own name, not the winner's basename", function()
+    local state = require('zpack.state')
+    local upstream = 'https://github.com/user/repo'
+    local fork = 'https://github.com/me/my-fork'
+    local unrelated = 'https://github.com/someone/my-fork'
+
+    require('zpack').setup({
+      spec = {
+        { url = upstream, event = 'InsertEnter' },
+        { 'user/repo', url = fork },
+        { 'someone/my-fork', cmd = 'Unrelated' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_nil(state.spec_registry[upstream])
+    assert.are.equal(fork, state.name_to_src['repo'])
+    assert.are.equal(unrelated, state.name_to_src['my-fork'],
+      "unrelated plugin sharing the fork's basename must survive")
+    assert.are.equal('Unrelated', state.spec_registry[unrelated].merged_spec.cmd)
+    assert.are.same({}, same_name_warnings(),
+      "a url equal to the other fragment's [1] names the same repo, not a source conflict")
+  end)
+
+  it("explicit name keeps same-basename specs apart", function()
+    local state = require('zpack.state')
+    local old = 'https://github.com/williamboman/mason.nvim'
+    local new = 'https://github.com/mason-org/mason.nvim'
+
+    require('zpack').setup({
+      spec = {
+        { 'mason-org/mason.nvim' },
+        { 'williamboman/mason.nvim', name = 'mason-legacy' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.is_not_nil(state.spec_registry[new])
+    assert.is_not_nil(state.spec_registry[old])
+    assert.are.equal(new, state.name_to_src['mason.nvim'])
+    assert.are.equal(old, state.name_to_src['mason-legacy'])
+    assert.are.same({}, same_name_warnings())
+  end)
+
+  it("explicit name on one fragment keeps same-[1] fragments apart (lazy.nvim parity)", function()
+    local state = require('zpack.state')
+    local upstream = 'https://github.com/folke/flash.nvim'
+    local fork = 'https://github.com/me/flash-fork'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', name = 'flash', url = fork },
+        { 'folke/flash.nvim', cmd = 'Flash' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.are.equal(fork, state.name_to_src['flash'])
+    assert.are.equal(upstream, state.name_to_src['flash.nvim'])
+    assert.are.same({}, same_name_warnings())
+  end)
+
+  it("entries fold by the name their merged spec resolves to, not by every [1] a fragment carries", function()
+    local state = require('zpack.state')
+    local upstream = 'https://github.com/user/repo'
+    local other = 'https://github.com/other/repo'
+
+    require('zpack').setup({
+      spec = {
+        { 'user/repo', event = 'InsertEnter' },
+        { 'user/repo', name = 'alias' },
+        { 'other/repo', cmd = 'Other' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.are.equal(upstream, state.name_to_src['alias'])
+    assert.are.equal('InsertEnter', state.spec_registry[upstream].merged_spec.event)
+    assert.are.equal(other, state.name_to_src['repo'],
+      "renaming user/repo via `name` must not fold an unrelated plugin with its old basename")
+    assert.are.equal('Other', state.spec_registry[other].merged_spec.cmd)
+    assert.are.same({}, same_name_warnings())
+  end)
+
+  it("a [1]-less fragment of a fork does not lend the fork's basename to the fold", function()
+    local state = require('zpack.state')
+    local fork = 'https://github.com/me/flash-fork'
+    local unrelated = 'https://github.com/someone/flash-fork'
+
+    require('zpack').setup({
+      spec = {
+        { 'folke/flash.nvim', url = fork },
+        { url = fork, cmd = 'Flash' },
+        { 'someone/flash-fork', cmd = 'Unrelated' },
+      },
+      defaults = { confirm = false },
+    })
+
+    assert.are.equal(fork, state.name_to_src['flash.nvim'])
+    assert.are.equal('Flash', state.spec_registry[fork].merged_spec.cmd)
+    assert.are.equal(unrelated, state.name_to_src['flash-fork'],
+      "unrelated plugin sharing the fork's basename must survive")
+    assert.are.same({}, same_name_warnings())
   end)
 
   it("dir field expands ~ to home directory", function()
