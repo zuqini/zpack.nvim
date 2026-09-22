@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.3](https://github.com/zuqini/zpack.nvim/compare/v2.0.2...v2.0.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* **merge:** fold specs deriving the same plugin name, matching lazy.nvim ([#40](https://github.com/zuqini/zpack.nvim/issues/40)) ([892385a](https://github.com/zuqini/zpack.nvim/commit/892385ac2010bce457772cb628af04a560d927ca)), closes [#39](https://github.com/zuqini/zpack.nvim/issues/39)
+
 ## [2.0.2](https://github.com/zuqini/zpack.nvim/compare/v2.0.1...v2.0.2) (2026-08-20)
 
 
