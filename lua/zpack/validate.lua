@@ -130,6 +130,17 @@ function M.validate_spec(spec)
 
   local errors = {}
   check(errors, '[1]', spec[1], 'string')
+  -- `[1]` is the source only when no src/url/dir is set and the spec is not
+  -- `dev` (a dev spec loads from dev.path; `[1]` reaches git only under
+  -- `dev.fallback = true`, which validate cannot see). `utils.expand_src` has
+  -- no path branch, so a path here becomes a github.com URL that does not
+  -- exist; `dir` is the expanded local-path field.
+  if type(spec[1]) == 'string' and spec[1]:match('^[~./]')
+      and spec.src == nil and spec.url == nil and spec.dir == nil
+      and spec.dev ~= true then
+    errors[#errors + 1] = ('[1] "%s" looks like a local path — use dir for local checkouts')
+        :format(spec[1])
+  end
   for _, field in ipairs(SORTED_SPEC_FIELDS) do
     check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
   end
