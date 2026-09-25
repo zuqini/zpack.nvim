@@ -152,6 +152,23 @@ describe("Setup and Initialization", function()
       "[1] shorthand must not be used when url is set")
   end)
 
+  it("[1] with a full git URL is used as-is, not prefixed with github.com", function()
+    local state = require('zpack.state')
+    local url = 'https://forge.example.com/owner/repo'
+
+    require('zpack').setup({
+      spec = { { url } },
+      defaults = { confirm = false },
+    })
+
+    assert.is_not_nil(state.spec_registry[url],
+      "a full URL in [1] must register under that URL")
+    assert.is_nil(state.spec_registry['https://github.com/' .. url],
+      "a full URL in [1] must not be prefixed with github.com")
+    assert.are.equal(url, state.name_to_src['repo'],
+      "plugin name derives from the URL basename")
+  end)
+
   it("source precedence is src > url > dir > [1]", function()
     local state = require('zpack.state')
 

@@ -402,7 +402,7 @@ describe("Spec Import", function()
   it("spec with a non-string source is skipped, not crashed on", function()
     local state = require('zpack.state')
     -- An over-nested spec — `[1]` is a table, not a "user/plugin" string.
-    -- normalize_source must not crash concatenating it; the spec is
+    -- normalize_source must not crash expanding it; the spec is
     -- skipped and setup() completes rather than aborting partway through.
     require('zpack').setup({ spec = { { { 'user/plugin' } } } })
     helpers.flush_pending()

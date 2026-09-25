@@ -57,8 +57,9 @@ end
 ---Normalize plugin source using priority: dev > src > url > dir > [1]
 ---lazy.nvim parity: `[1]` is only a fallback for deriving the URL, so an
 ---explicit src/url/dir wins — `{ 'user/repo', url = fork }` installs the fork.
----fold_rank in merge.lua mirrors this precedence and its explicit-field set;
----update both together.
+---fold_rank in merge.lua mirrors this precedence and its explicit-field set,
+---and validate_spec's local-path advisory in validate.lua mirrors the
+---"`[1]` is the source" condition; update all three together.
 ---@param spec zpack.Spec
 ---@return string|nil source URL/path, or nil if invalid
 ---@return string|nil error message if validation fails
@@ -72,7 +73,7 @@ local normalize_source = function(spec)
     return dev_path
   end
   -- Each source field must be a string; a non-string (over-nested spec or
-  -- typo) would crash the `[1]` concat or `dir` expand. Skip rather than
+  -- typo) would crash the `[1]` or `dir` expansion. Skip rather than
   -- abort setup().
   if type(spec.src) == 'string' then
     return spec.src

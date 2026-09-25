@@ -194,15 +194,15 @@ describe('latch_first_call', function()
 end)
 
 describe("expand_src", function()
-  local utils = require('zpack.utils')
-
   it("expands a short name to a GitHub URL", function()
+    local utils = require('zpack.utils')
     assert.are.equal('https://github.com/user/repo', utils.expand_src('user/repo'))
   end)
 
   it("returns full URLs unchanged", function()
+    local utils = require('zpack.utils')
     local urls = {
-      'https://forge.barrettruth.com/barrettruth/canola.nvim',
+      'https://forge.example.com/owner/repo',
       'http://example.com/user/repo.git',
       'ssh://git@example.com/user/repo.git',
       'git@example.com:user/repo.git',
@@ -213,9 +213,13 @@ describe("expand_src", function()
     end
   end)
 
-  it("returns local paths unchanged", function()
-    assert.are.equal('/home/user/repo', utils.expand_src('/home/user/repo'))
-    assert.are.equal('~/repo', utils.expand_src('~/repo'))
-    assert.are.equal('./repo', utils.expand_src('./repo'))
+  it("treats paths as shorthand (local checkouts use dir)", function()
+    local utils = require('zpack.utils')
+    -- vim.pack gives src to git verbatim, so a path in [1] would clone
+    -- literally; `dir` is the expanded local-path field. lazy.nvim parity:
+    -- anything that is not a git URL is owner/repo shorthand.
+    assert.are.equal('https://github.com/~/repo', utils.expand_src('~/repo'))
+    assert.are.equal('https://github.com/./repo', utils.expand_src('./repo'))
+    assert.are.equal('https://github.com//home/user/repo', utils.expand_src('/home/user/repo'))
   end)
 end)

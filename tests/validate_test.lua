@@ -148,6 +148,30 @@ describe("Spec Validation", function()
     assert.is_truthy(errors[1]:find('[1]', 1, true) ~= nil, "error should name the [1] field")
   end)
 
+  it("validate_spec flags a [1] that looks like a local path", function()
+    local validate = require('zpack.validate')
+    for _, path in ipairs({ '~/repo', './repo', '/home/user/repo' }) do
+      local errors = validate.validate_spec({ path })
+      assert.are.equal(1, #errors, path)
+      assert.is_truthy(errors[1]:find('use dir', 1, true) ~= nil,
+        path .. " should point at dir")
+    end
+    assert.are.equal(0, #validate.validate_spec({ 'https://forge.example.com/owner/repo' }))
+    assert.are.equal(0, #validate.validate_spec({ 'git@example.com:owner/repo.git' }))
+  end)
+
+  it("validate_spec does not flag a path-like [1] when an explicit source is set", function()
+    local validate = require('zpack.validate')
+    -- With src/url/dir present, [1] only feeds the name and never reaches git.
+    assert.are.equal(0, #validate.validate_spec({ '~/repo', dir = '~/repo' }))
+    assert.are.equal(0, #validate.validate_spec({ './repo', src = 'https://forge.example.com/owner/repo' }))
+    assert.are.equal(0, #validate.validate_spec({ '/home/user/repo', url = 'https://forge.example.com/owner/repo' }))
+    -- A dev spec loads from dev.path; [1] reaches git only under
+    -- dev.fallback = true with a missing checkout, which validate cannot
+    -- see, so it is not flagged.
+    assert.are.equal(0, #validate.validate_spec({ '~/repo', dev = true }))
+  end)
+
   it("validate_spec rejects a non-table spec", function()
     local validate = require('zpack.validate')
     local errors = validate.validate_spec('user/plugin')
