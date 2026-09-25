@@ -72,7 +72,7 @@ local normalize_source = function(spec)
     return dev_path
   end
   -- Each source field must be a string; a non-string (over-nested spec or
-  -- typo) would crash the `[1]` concat or `dir` expand. Skip rather than
+  -- typo) would crash the `[1]` or `dir` expansion. Skip rather than
   -- abort setup().
   if type(spec.src) == 'string' then
     return spec.src

@@ -433,7 +433,7 @@ end
 
 ---Rank an entry for the coalesce fold as a (tier, import order) pair; compare
 ---tier first, then order. A `dev = true` fragment that did not fall back to
----its own `[1]` shorthand wins outright — dev outranks the whole explicit
+---its own `[1]` wins outright — dev outranks the whole explicit
 ---chain in normalize_source, independent of import order. Below that, an
 ---explicit-source fragment beats a bare one, and among bare entries a
 ---top-level fragment beats a dependency-only one — the same
