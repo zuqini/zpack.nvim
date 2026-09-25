@@ -290,14 +290,16 @@ M.derive_name_from_src = function(src)
   return (basename:gsub('%.git$', ''))
 end
 
----Resolve a `[1]` value to a source. `user/repo` shorthand expands to its GitHub URL; full URLs and
----paths are returned unchanged. Shared by
----`normalize_source` and merge.lua's coalesce fold so the two sites cannot
----drift on what a shorthand resolves to.
----@param src string
+---Resolve a `[1]` value to a source. `owner/repo` shorthand expands to its
+---GitHub URL; a full git URL (`scheme://`, `user@host:`) is returned
+---unchanged (lazy.nvim parity). Filesystem paths are not recognized: vim.pack
+---hands src to git verbatim, so local checkouts belong in `dir`, which
+---normalize_source expands. Shared by `normalize_source` and merge.lua's
+---coalesce fold so the two sites cannot drift on what a shorthand resolves to.
+---@param src string `[1]` value: `owner/repo` or a full git URL
 ---@return string
 M.expand_src = function(src)
-  if src:match('^%a[%w+.-]*://') or src:match('^[%w_.-]+@[^/]+:') or src:match('^[/~.]') then
+  if src:match('^%a[%w+.-]*://') or src:match('^[%w_.-]+@[^/]+:') then
     return src
   end
   return 'https://github.com/' .. src
