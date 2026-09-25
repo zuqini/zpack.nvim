@@ -81,7 +81,7 @@ local normalize_source = function(spec)
   elseif type(spec.dir) == 'string' then
     return vim.fn.expand(spec.dir)
   elseif type(spec[1]) == 'string' then
-    return utils.github_url(spec[1])
+    return utils.expand_src(spec[1])
   else
     return nil, "spec must provide one of: [1], src, dir, or url"
   end

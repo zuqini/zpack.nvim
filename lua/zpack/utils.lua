@@ -290,13 +290,17 @@ M.derive_name_from_src = function(src)
   return (basename:gsub('%.git$', ''))
 end
 
----Expand a `[1]` short name ("user/repo") to its GitHub URL. Shared by
+---Resolve a `[1]` value to a source. `user/repo` shorthand expands to its GitHub URL; full URLs and
+---paths are returned unchanged. Shared by
 ---`normalize_source` and merge.lua's coalesce fold so the two sites cannot
 ---drift on what a shorthand resolves to.
----@param short_name string
+---@param src string
 ---@return string
-M.github_url = function(short_name)
-  return 'https://github.com/' .. short_name
+M.expand_src = function(src)
+  if src:match('^%a[%w+.-]*://') or src:match('^[%w_.-]+@[^/]+:') or src:match('^[/~.]') then
+    return src
+  end
+  return 'https://github.com/' .. src
 end
 
 ---Resolve a plugin's display/pack name. lazy.nvim parity: the name derives

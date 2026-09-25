@@ -445,7 +445,7 @@ local function fold_rank(entry, src)
   local explicit, top, dep = -1, -1, -1
   for _, spec in ipairs(entry.specs) do
     local order = spec._import_order or 0
-    if spec.dev == true and (type(spec[1]) ~= 'string' or src ~= util.github_url(spec[1])) then
+    if spec.dev == true and (type(spec[1]) ~= 'string' or src ~= util.expand_src(spec[1])) then
       return 3, order
     end
     if type(spec.src) == 'string' or type(spec.url) == 'string'
@@ -475,7 +475,7 @@ local function named_repos(entry, src)
   local repos = { [src] = true }
   for _, spec in ipairs(entry.specs) do
     if type(spec[1]) == 'string' then
-      repos[util.github_url(spec[1])] = true
+      repos[util.expand_src(spec[1])] = true
     end
   end
   return repos
