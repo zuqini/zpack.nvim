@@ -595,9 +595,9 @@ parent's lazy trigger fires.
 >lua
     {
       -- Plugin source (provide at least one; src > url > dir > [1])
-      [1] = "user/repo",                    -- Short name (github.com/...)
-      src = "https://...",                  -- Custom git URL or local path
-      dir = "/path/to/plugin",              -- Local path (lazy.nvim compat, ~ expanded)
+      [1] = "user/repo",                    -- GitHub short name, or a full git URL
+      src = "https://...",                  -- Git URL, passed to git verbatim
+      dir = "/path/to/plugin",              -- Local checkout (~ expanded; lazy.nvim compat)
       url = "https://...",                  -- Git URL (lazy.nvim compat)
 
       -- Dependencies
@@ -667,25 +667,31 @@ parent's lazy trigger fires.
 
                                                             *zpack-Spec.[1]*
 [1]             (string, optional)
-                Plugin short name (e.g., "user/repo"). Expands to
-                `https://github.com/{[1]}` when no explicit src, url, or
-                dir is given (lazy.nvim parity). Provide at least one of:
-                [1], src, dir, or url. Priority: src > url > dir > [1].
+                Plugin short name (e.g., "user/repo") or a full git URL.
+                `owner/repo` shorthand expands to `https://github.com/{[1]}`
+                when no explicit src, url, or dir is given; a full git URL
+                (any `scheme://` URL or scp-style `user@host:`) is used
+                as-is (lazy.nvim parity). Use |zpack-Spec.dir| for local
+                paths.
+                Provide at least one of: [1], src, dir, or url.
+                Priority: src > url > dir > [1].
                 The plugin NAME still derives from [1] even when an
                 explicit source wins; specs deriving the same name merge
                 into one plugin — see |zpack-Spec.name| for precedence.
 
                                                              *zpack-Spec.src*
 src             (string, optional)
-                Custom git URL or local path for the plugin source.
+                Custom git URL for the plugin source. Passed to git
+                verbatim: an absolute local path works, but `~` is not
+                expanded — use |zpack-Spec.dir| for local checkouts.
                 Overrides [1] when both are set.
 
                                                              *zpack-Spec.dir*
 dir             (string, optional)
-                Local plugin directory path. For lazy.nvim compatibility.
-                Paths are automatically expanded (e.g., `~` expands to home
-                directory). Mapped to `src` internally. Overrides [1] when
-                both are set.
+                Local plugin directory. This is the field for local
+                checkouts: the path is |expand()|ed, so `~` and environment
+                variables work. lazy.nvim compatibility; mapped to `src`
+                internally. Overrides [1] when both are set.
 
                                                              *zpack-Spec.url*
 url             (string, optional)
@@ -697,9 +703,10 @@ url             (string, optional)
 dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 Plugin dependencies. Dependencies are automatically loaded
                 before the parent plugin when the parent's lazy trigger fires.
-                Can be a string (plugin short name), array of strings, inline
-                spec, or array of specs. Dependency specs can have their own
-                configuration (opts, config, etc.) and nested dependencies.
+                Can be a string (a `[1]` value, see |zpack-Spec|), array
+                of strings, inline spec, or array of specs. Dependency
+                specs can have their own configuration (opts, config, etc.)
+                and nested dependencies.
 
                                                          *zpack-Spec.enabled*
 enabled         (boolean|function, optional)
