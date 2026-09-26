@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.4](https://github.com/zuqini/zpack.nvim/compare/v2.0.3...v2.0.4) (2026-09-25)
+
+
+### Bug Fixes
+
+* **utils:** allow non-GitHub URLs while still expanding the short form GitHub owner/repo paths ([#42](https://github.com/zuqini/zpack.nvim/issues/42)) ([a6fdbf5](https://github.com/zuqini/zpack.nvim/commit/a6fdbf521a577193beb57116c8b7ad217cf877b2))
+* **utils:** only pass git URLs through [1]; flag local paths in validate ([#44](https://github.com/zuqini/zpack.nvim/issues/44)) ([451a0bb](https://github.com/zuqini/zpack.nvim/commit/451a0bbd0a4ae7f84aec780a27e3a89824976978)), closes [#42](https://github.com/zuqini/zpack.nvim/issues/42)
+
 ## [2.0.3](https://github.com/zuqini/zpack.nvim/compare/v2.0.2...v2.0.3) (2026-09-22)
 
 
