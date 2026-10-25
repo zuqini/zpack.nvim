@@ -62,6 +62,7 @@
 ---@field keys? zpack.KeysValue|fun(plugin: zpack.Plugin?):zpack.KeysValue
 ---@field config? fun(plugin: zpack.Plugin?, opts: table)|true
 ---@field opts? table|fun(plugin: zpack.Plugin?, opts: table):table
+---@field opts_extend? string[] Opts keys whose lists are appended across specs, not replaced. Dots reach nested keys (lazy.nvim parity)
 ---@field main? string
 ---@field event? zpack.EventValue|fun(plugin: zpack.Plugin?):zpack.EventValue
 ---@field pattern? string|string[] Global fallback pattern applied to all events (unless zpack.EventSpec specifies its own)

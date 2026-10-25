@@ -28,6 +28,7 @@
   -- Plugin configuration
   opts = {},                            -- Options passed to setup(), triggers auto-setup
   -- opts = function(plugin, opts) return {} end, -- Can also be a function
+  opts_extend = { "ensure_installed" }, -- Opts keys whose lists are appended across specs, not replaced (lazy.nvim parity)
 
   -- Lifecycle hooks
   init = function(plugin) end,          -- Runs before plugin loads, useful for certain vim plugins

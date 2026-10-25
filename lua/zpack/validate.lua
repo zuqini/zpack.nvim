@@ -101,6 +101,7 @@ local SPEC_FIELD_TYPES = {
   build = { 'string', 'function', 'table', 'boolean' },
   config = { 'function', 'boolean' },
   opts = { 'table', 'function' },
+  opts_extend = 'table',
   event = { 'string', 'table', 'function' },
   cmd = { 'string', 'table', 'function' },
   ft = { 'string', 'table', 'function' },
@@ -143,6 +144,11 @@ function M.validate_spec(spec)
   end
   for _, field in ipairs(SORTED_SPEC_FIELDS) do
     check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
+  end
+  if type(spec.opts_extend) == 'table' then
+    for i, key in ipairs(spec.opts_extend) do
+      check(errors, ('opts_extend[%d]'):format(i), key, 'string')
+    end
   end
 
   -- Every field above is optional, so a spec with no source at all passes

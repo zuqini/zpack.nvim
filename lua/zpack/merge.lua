@@ -265,13 +265,77 @@ function M.merge_spec_array(specs)
   return result
 end
 
+---@class zpack.OptsExtendNode
+---@field concat? boolean
+---@field children table<string, zpack.OptsExtendNode>
+
+---Build a tree from the dotted `opts_extend` keys of every spec: `{ 'a',
+---'a.b' }` marks `a` for concatenation and also descends into `a.b` for when
+---`a` is a dict. Non-string keys are skipped; validate_spec reports them.
+---@param specs zpack.Spec[]
+---@return zpack.OptsExtendNode
+local function extend_tree(specs)
+  local root = { children = {} }
+  for _, spec in ipairs(specs) do
+    for _, key in ipairs(type(spec.opts_extend) == "table" and spec.opts_extend or {}) do
+      if type(key) == "string" then
+        local node = root
+        for _, k in ipairs(vim.split(key, ".", { plain = true })) do
+          node.children[k] = node.children[k] or { children = {} }
+          node = node.children[k]
+        end
+        node.concat = true
+      end
+    end
+  end
+  return root
+end
+
+---Mirrors vim.tbl_deep_extend: non-empty lists are leaves, not merged by index.
+local function can_merge(v)
+  return type(v) == "table" and (next(v) == nil or not vim.islist(v))
+end
+
+---vim.tbl_deep_extend("force", base, value), except that a list at an
+---`opts_extend` key is concatenated onto the base list (lazy.nvim's
+---`opts_extend`). Values on an extend path are copied, never aliased, so
+---function-form opts that edit them in place cannot reach a spec's own opts.
+---@param base table
+---@param value table
+---@param node? zpack.OptsExtendNode
+---@return table
+local function merge_opts(base, value, node)
+  local result = {}
+  for k, v in pairs(base) do
+    result[k] = v
+  end
+  for k, v in pairs(value) do
+    local b = base[k]
+    local child = node and node.children[k]
+    if child and child.concat and vim.islist(v) and (b == nil or vim.islist(b)) then
+      result[k] = vim.list_extend(vim.list_slice(b or {}), v)
+    elseif can_merge(v) and (can_merge(b) or (child and b == nil)) then
+      result[k] = merge_opts(b or {}, v, child)
+    else
+      result[k] = v
+    end
+  end
+  return result
+end
+
 ---Resolve opts through all specs, supporting function-form opts. Throws
 ---if any function-form opts throws — callers must pcall.
+---
+---`opts_extend` keys from every spec apply to every merge. lazy.nvim reads
+---only the nearest `opts_extend` at or before each spec, so lists merged
+---before the declaring spec are replaced; the union is a deliberate
+---divergence so the result does not depend on import order.
 ---@param specs zpack.Spec[]
 ---@param plugin zpack.Plugin
 ---@return table
 function M.resolve_opts(specs, plugin)
   local accumulated = {}
+  local extend = extend_tree(specs)
 
   for _, spec in ipairs(specs) do
     local opts = spec.opts
@@ -282,7 +346,7 @@ function M.resolve_opts(specs, plugin)
           accumulated = result
         end
       elseif type(opts) == "table" then
-        accumulated = vim.tbl_deep_extend("force", accumulated, opts)
+        accumulated = merge_opts(accumulated, opts, extend)
       end
     end
   end

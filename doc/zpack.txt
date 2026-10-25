@@ -612,6 +612,7 @@ parent's lazy trigger fires.
       -- Plugin configuration
       opts = {},                            -- Options passed to setup()
       -- opts = function(plugin, opts) return {} end,
+      opts_extend = { "ensure_installed" }, -- Concatenate these opts lists
 
       -- Lifecycle hooks
       init = function(plugin) end,          -- Runs before load
@@ -747,6 +748,30 @@ opts            (table|function(plugin, opts), optional)
                 When a custom `config` function is provided, the resolved
                 `opts` is passed as the second argument, but you are
                 responsible for calling `setup()` yourself.
+
+                                                     *zpack-Spec.opts_extend*
+opts_extend     (string[], optional)
+                Keys in `opts` whose lists get appended to instead of
+                replaced when several specs for the same plugin set `opts`.
+                Use dots for nested keys, e.g. `"sources.default"`.
+                Duplicates are kept. Only lists are appended; a table with
+                named keys at that path merges as usual.
+
+                `opts_extend` from all specs of the plugin is combined, so
+                it only needs to be set on one of them. lazy.nvim parity,
+                with one difference: lazy.nvim only appends from the spec
+                that sets `opts_extend` onward, and lists from earlier
+                specs get replaced.
+>lua
+                -- plugins/treesitter.lua
+                { 'nvim-treesitter/nvim-treesitter',
+                  opts_extend = { 'ensure_installed' },
+                  opts = { ensure_installed = { 'bash', 'c' } } }
+                -- plugins/rust.lua
+                { 'nvim-treesitter/nvim-treesitter',
+                  opts = { ensure_installed = { 'rust' } } }
+                -- ensure_installed ends up with bash, c and rust
+<
 
                                                             *zpack-Spec.init*
 init            (function(plugin), optional)

@@ -120,9 +120,24 @@ describe("Spec Validation", function()
       cmd = { 'Foo', 'Bar' },
       config = true,
       opts = {},
+      opts_extend = { 'ensure_installed' },
       enabled = function() return true end,
     })
     assert.are.equal(0, #errors)
+  end)
+
+  it("validate_spec flags a non-table opts_extend", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', opts_extend = 'ensure_installed' })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('opts_extend', 1, true) ~= nil, "error should name opts_extend")
+  end)
+
+  it("validate_spec flags a non-string opts_extend key", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', opts_extend = { 'ok', 1 } })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('opts_extend[2]', 1, true) ~= nil, "error should name opts_extend[2]")
   end)
 
   it("validate_spec flags a non-boolean lazy", function()
