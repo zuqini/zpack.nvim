@@ -296,10 +296,31 @@ local function can_merge(v)
   return type(v) == "table" and (next(v) == nil or not vim.islist(v))
 end
 
+---Copy the plain tables in `v`. Tables with a metatable (objects,
+---vim.empty_dict()), functions and userdata are kept by reference.
+---@param v any
+---@param seen? table<table, table>
+---@return any
+local function copy_plain(v, seen)
+  if type(v) ~= "table" or getmetatable(v) ~= nil then
+    return v
+  end
+  seen = seen or {}
+  if not seen[v] then
+    local copy = {}
+    seen[v] = copy
+    for k, x in pairs(v) do
+      copy[k] = copy_plain(x, seen)
+    end
+  end
+  return seen[v]
+end
+
 ---vim.tbl_deep_extend("force", base, value), except that a list at an
 ---`opts_extend` key is concatenated onto the base list (lazy.nvim's
----`opts_extend`). Values on an extend path are copied, never aliased, so
----function-form opts that edit them in place cannot reach a spec's own opts.
+---`opts_extend`), and plain tables from `value` are copied rather than
+---aliased, so function-form opts or a plugin's setup() that edit the
+---result in place cannot reach a spec's own opts.
 ---@param base table
 ---@param value table
 ---@param node? zpack.OptsExtendNode
@@ -313,11 +334,11 @@ local function merge_opts(base, value, node)
     local b = base[k]
     local child = node and node.children[k]
     if child and child.concat and vim.islist(v) and (b == nil or vim.islist(b)) then
-      result[k] = vim.list_extend(vim.list_slice(b or {}), v)
-    elseif can_merge(v) and (can_merge(b) or (child and b == nil)) then
-      result[k] = merge_opts(b or {}, v, child)
+      result[k] = vim.list_extend(vim.list_slice(b or {}), copy_plain(v))
+    elseif can_merge(v) and can_merge(b) then
+      result[k] = merge_opts(b, v, child)
     else
-      result[k] = v
+      result[k] = copy_plain(v)
     end
   end
   return result

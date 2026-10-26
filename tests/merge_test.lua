@@ -536,6 +536,47 @@ describe("Merge Module Unit Tests", function()
     assert.are.same({ ensure_installed = { 'bash' }, sources = { default = { 'lsp' } } }, specs[1].opts)
   end)
 
+  it("resolve_opts keeps function-form opts from editing a spec's other tables", function()
+    local merge = require('zpack.merge')
+
+    local specs = {
+      { opts = { sections = { lualine_x = { 'encoding' } } } },
+      { opts = function(_, opts) table.insert(opts.sections.lualine_x, 'copilot') end },
+    }
+    merge.resolve_opts(specs, {})
+    local second = merge.resolve_opts(specs, {})
+
+    assert.are.same({ 'encoding', 'copilot' }, second.sections.lualine_x)
+    assert.are.same({ sections = { lualine_x = { 'encoding' } } }, specs[1].opts)
+  end)
+
+  it("resolve_opts result can be edited without reaching a lone spec's opts", function()
+    local merge = require('zpack.merge')
+
+    local specs = { { opts = { nested = { list = { 1 } } } } }
+    local result = merge.resolve_opts(specs, {})
+    table.insert(result.nested.list, 2)
+
+    assert.are.same({ nested = { list = { 1 } } }, specs[1].opts)
+  end)
+
+  it("resolve_opts keeps functions, objects and cycles intact", function()
+    local merge = require('zpack.merge')
+
+    local fn = function() end
+    local object = setmetatable({}, { __index = {} })
+    local cyclic = { name = 'c' }
+    cyclic.self = cyclic
+    local specs = { { opts = { fn = fn, object = object, empty = vim.empty_dict(), cyclic = cyclic } } }
+    local result = merge.resolve_opts(specs, {})
+
+    assert.are.equal(fn, result.fn)
+    assert.are.equal(object, result.object)
+    assert.are.equal(getmetatable(vim.empty_dict()), getmetatable(result.empty))
+    assert.are_not.equal(cyclic, result.cyclic)
+    assert.are.equal(result.cyclic, result.cyclic.self)
+  end)
+
   it("keys with different modes are not deduplicated", function()
     require('zpack').setup({
       spec = {
