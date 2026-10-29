@@ -577,6 +577,91 @@ describe("Merge Module Unit Tests", function()
     assert.are.equal(result.cyclic, result.cyclic.self)
   end)
 
+  it("resolve_opts keeps a table shared between two opts keys shared", function()
+    local merge = require('zpack.merge')
+
+    local shared = { 'a' }
+    local result = merge.resolve_opts({ { opts = { x = shared, y = { z = shared } } } }, {})
+
+    assert.are_not.equal(shared, result.x)
+    assert.are.equal(result.x, result.y.z)
+  end)
+
+  it("resolve_opts merges a cyclic table set by two specs", function()
+    local merge = require('zpack.merge')
+
+    local mod = { name = 'm' }
+    mod.self = mod
+    local result = merge.resolve_opts({ { opts = { m = mod } }, { opts = { m = mod } } }, {})
+
+    assert.are.equal('m', result.m.name)
+    assert.are.equal(result.m, result.m.self)
+  end)
+
+  it("resolve_opts keeps vim.empty_dict() a dict when specs merge it", function()
+    local merge = require('zpack.merge')
+
+    local specs = {
+      { opts = { settings = vim.empty_dict(), init = vim.empty_dict() } },
+      { opts = { settings = vim.empty_dict(), init = { a = 1 } } },
+    }
+    local result = merge.resolve_opts(specs, {})
+
+    assert.are.equal('{}', vim.json.encode(result.settings))
+    assert.are.equal(getmetatable(vim.empty_dict()), getmetatable(result.init))
+    assert.are.equal(1, result.init.a)
+  end)
+
+  it("resolve_opts replaces an object rather than merging into it", function()
+    local merge = require('zpack.merge')
+
+    local class = { __index = { hi = function() return 'hi' end } }
+    local object = setmetatable({ f = 1 }, class)
+    local result = merge.resolve_opts({ { opts = { o = { g = 2 } } }, { opts = { o = object } } }, {})
+    assert.are.equal(object, result.o)
+
+    result = merge.resolve_opts({ { opts = { o = object } }, { opts = { o = { g = 2 } } } }, {})
+    assert.are.same({ g = 2 }, result.o)
+    assert.are.equal('hi', object:hi())
+    assert.are.equal(1, object.f)
+  end)
+
+  it("resolve_opts appends the list entries of a table that also has named keys", function()
+    local merge = require('zpack.merge')
+
+    local specs = {
+      { opts_extend = { 'spec' }, opts = { spec = { { '<leader>f' }, { '<leader>g' } } } },
+      { opts = { spec = { mode = { 'n', 'x' }, { '<leader>r' } } } },
+      { opts = { spec = { { '<leader>t' }, icon = 'x' } } },
+    }
+    local result = merge.resolve_opts(specs, {})
+
+    assert.are.same({
+      { '<leader>f' }, { '<leader>g' }, { '<leader>r' }, { '<leader>t' },
+      mode = { 'n', 'x' }, icon = 'x',
+    }, result.spec)
+  end)
+
+  it("resolve_opts keeps a table returned by function-form opts from being edited", function()
+    local merge = require('zpack.merge')
+
+    local defaults = { list = { 'a' } }
+    local specs = { { opts = function() return defaults end } }
+    local result = merge.resolve_opts(specs, {})
+    table.insert(result.list, 'b')
+
+    assert.are.same({ list = { 'a' } }, defaults)
+    assert.are.same({ list = { 'a' } }, merge.resolve_opts(specs, {}))
+  end)
+
+  it("merge_spec_array leaves opts_extend to resolve_opts", function()
+    local merge = require('zpack.merge')
+
+    local merged = merge.merge_spec_array({ { opts_extend = { 'a' } }, { opts_extend = { 'b' } } })
+
+    assert.is_nil(merged.opts_extend)
+  end)
+
   it("keys with different modes are not deduplicated", function()
     require('zpack').setup({
       spec = {

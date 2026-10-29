@@ -10,8 +10,9 @@ M.AND_LOGIC_ENABLED = "and_logic_enabled"
 -- `opts` is intentionally absent from this table. It is resolved lazily at
 -- load time by `resolve_opts` so that function-form opts (which receive the
 -- accumulated opts and may return a replacement) are handled with a single
--- authoritative code path. `merge_specs` skips `opts` entirely; callers that
--- need to know "does any spec contribute opts?" read `entry.has_opts`.
+-- authoritative code path. `merge_specs` skips `opts` and `opts_extend`
+-- (which `resolve_opts` reads from every spec); callers that need to know
+-- "does any spec contribute opts?" read `entry.has_opts`.
 M.field_strategies = {
   name = M.OVERRIDE,
   main = M.OVERRIDE,
@@ -202,9 +203,10 @@ function M.merge_specs(base, incoming)
   for k in pairs(incoming) do all_keys[k] = true end
 
   for key in pairs(all_keys) do
-    -- 'opts' is intentionally not merged here: it is resolved lazily via
-    -- resolve_opts at load time (see the comment above M.field_strategies).
-    if key ~= "opts" then
+    -- 'opts' and 'opts_extend' are intentionally not merged here: they are
+    -- resolved lazily via resolve_opts at load time (see the comment above
+    -- M.field_strategies).
+    if key ~= "opts" and key ~= "opts_extend" then
       if internal_fields[key] then
         result[key] = incoming[key] ~= nil and incoming[key] or base[key]
       else
@@ -253,8 +255,9 @@ end
 
 ---Merge an array of specs in order (lowest priority first).
 ---Always returns a fresh table (never a reference to any input spec), and
----`opts` is always absent from the result — it is resolved at load time via
----`resolve_opts` so function-form opts are handled consistently.
+---`opts` and `opts_extend` are always absent from the result — opts are
+---resolved at load time via `resolve_opts` so function-form opts are handled
+---consistently.
 ---@param specs zpack.Spec[]
 ---@return zpack.Spec
 function M.merge_spec_array(specs)
@@ -291,23 +294,35 @@ local function extend_tree(specs)
   return root
 end
 
----Mirrors vim.tbl_deep_extend: non-empty lists are leaves, not merged by index.
-local function can_merge(v)
-  return type(v) == "table" and (next(v) == nil or not vim.islist(v))
+local EMPTY_DICT_MT = getmetatable(vim.empty_dict())
+
+---Plain tables are copied and merged. Tables with any other metatable than
+---vim.empty_dict()'s are objects: kept by reference and never merged into.
+local function is_plain(v)
+  if type(v) ~= "table" then
+    return false
+  end
+  local mt = getmetatable(v)
+  return mt == nil or mt == EMPTY_DICT_MT
 end
 
----Copy the plain tables in `v`. Tables with a metatable (objects,
----vim.empty_dict()), functions and userdata are kept by reference.
+---Mirrors vim.tbl_deep_extend: non-empty lists are leaves, not merged by index.
+local function can_merge(v)
+  return is_plain(v) and (next(v) == nil or not vim.islist(v))
+end
+
+---Copy the plain tables in `v`, keeping vim.empty_dict() marked as a dict.
+---`seen` maps each source table to its copy, so shared and cyclic
+---references stay shared in the copy.
 ---@param v any
----@param seen? table<table, table>
+---@param seen table<table, table>
 ---@return any
 local function copy_plain(v, seen)
-  if type(v) ~= "table" or getmetatable(v) ~= nil then
+  if not is_plain(v) then
     return v
   end
-  seen = seen or {}
   if not seen[v] then
-    local copy = {}
+    local copy = setmetatable({}, getmetatable(v))
     seen[v] = copy
     for k, x in pairs(v) do
       copy[k] = copy_plain(x, seen)
@@ -316,31 +331,81 @@ local function copy_plain(v, seen)
   return seen[v]
 end
 
----vim.tbl_deep_extend("force", base, value), except that a list at an
----`opts_extend` key is concatenated onto the base list (lazy.nvim's
----`opts_extend`), and plain tables from `value` are copied rather than
----aliased, so function-form opts or a plugin's setup() that edit the
----result in place cannot reach a spec's own opts.
+---@param t table
+---@return any[] list the entries at 1..n
+---@return table named every other key
+local function split_list(t)
+  local list, named = {}, setmetatable({}, getmetatable(t))
+  for i, x in ipairs(t) do
+    list[i] = x
+  end
+  for k, x in pairs(t) do
+    if list[k] == nil then
+      named[k] = x
+    end
+  end
+  return list, named
+end
+
+---@class zpack.MergeState
+---@field seen table<table, table> copy_plain's source-to-copy map
+---@field merging table<table, table> results of the merges in progress, keyed by `value`
+
+local merge_opts
+
+---Append the list entries of `value` to those of `base` and merge their
+---other keys as usual, so a which-key style `{ mode = 'x', { ... } }` keeps
+---both the earlier entries and `mode`.
+---@param base table
+---@param value table
+---@param node zpack.OptsExtendNode
+---@param state zpack.MergeState
+---@return table
+local function concat(base, value, node, state)
+  local base_list, base_named = split_list(base)
+  local value_list, value_named = split_list(value)
+  local result = merge_opts(base_named, value_named, node, state)
+  for i, x in ipairs(base_list) do
+    result[i] = x
+  end
+  for i, x in ipairs(value_list) do
+    result[#base_list + i] = copy_plain(x, state.seen)
+  end
+  return result
+end
+
+---vim.tbl_deep_extend("force", base, value), except that lists at an
+---`opts_extend` key are concatenated (lazy.nvim's `opts_extend`), objects
+---are replaced rather than merged into, and plain tables from `value` are
+---copied rather than aliased, so function-form opts or a plugin's setup()
+---that edit the result in place cannot reach a spec's own opts.
 ---@param base table
 ---@param value table
 ---@param node? zpack.OptsExtendNode
+---@param state zpack.MergeState
 ---@return table
-local function merge_opts(base, value, node)
-  local result = {}
+function merge_opts(base, value, node, state)
+  if state.merging[value] then
+    return state.merging[value]
+  end
+  local dict = getmetatable(base) == EMPTY_DICT_MT or getmetatable(value) == EMPTY_DICT_MT
+  local result = dict and vim.empty_dict() or {}
+  state.merging[value] = result
   for k, v in pairs(base) do
     result[k] = v
   end
   for k, v in pairs(value) do
     local b = base[k]
     local child = node and node.children[k]
-    if child and child.concat and vim.islist(v) and (b == nil or vim.islist(b)) then
-      result[k] = vim.list_extend(vim.list_slice(b or {}), copy_plain(v))
+    if child and child.concat and is_plain(v) and (b == nil or is_plain(b)) then
+      result[k] = concat(b or {}, v, child, state)
     elseif can_merge(v) and can_merge(b) then
-      result[k] = merge_opts(b, v, child)
+      result[k] = merge_opts(b, v, child, state)
     else
-      result[k] = copy_plain(v)
+      result[k] = copy_plain(v, state.seen)
     end
   end
+  state.merging[value] = nil
   return result
 end
 
@@ -363,11 +428,11 @@ function M.resolve_opts(specs, plugin)
     if opts ~= nil then
       if type(opts) == "function" then
         local result = opts(plugin, accumulated)
-        if type(result) == "table" then
-          accumulated = result
+        if type(result) == "table" and result ~= accumulated then
+          accumulated = copy_plain(result, {})
         end
       elseif type(opts) == "table" then
-        accumulated = merge_opts(accumulated, opts, extend)
+        accumulated = merge_opts(accumulated, opts, extend, { seen = {}, merging = {} })
       end
     end
   end

@@ -146,8 +146,14 @@ function M.validate_spec(spec)
     check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
   end
   if type(spec.opts_extend) == 'table' then
+    if not vim.islist(spec.opts_extend) then
+      errors[#errors + 1] = 'opts_extend: expected a list of opts keys'
+    end
     for i, key in ipairs(spec.opts_extend) do
       check(errors, ('opts_extend[%d]'):format(i), key, 'string')
+      if type(key) == 'string' and vim.list_contains(vim.split(key, '.', { plain = true }), '') then
+        errors[#errors + 1] = ('opts_extend[%d] "%s" has an empty segment'):format(i, key)
+      end
     end
   end
 
