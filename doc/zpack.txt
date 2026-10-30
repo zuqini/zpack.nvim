@@ -749,6 +749,11 @@ opts            (table|function(plugin, opts), optional)
                 `opts` is passed as the second argument, but you are
                 responsible for calling `setup()` yourself.
 
+                Each opts function, `config` and `setup()` get their own copy
+                of the plain tables in opts, so editing opts in place never
+                reaches your specs. Tables with a metatable (other than
+                |vim.empty_dict()|'s) are not copied.
+
                                                      *zpack-Spec.opts_extend*
 opts_extend     (string|string[], optional)
                 Keys in `opts` whose lists get appended to instead of

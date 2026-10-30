@@ -280,6 +280,26 @@ local function is_plain(v)
   return mt == nil or mt == EMPTY_DICT_MT
 end
 
+---Copy the plain tables in `v`, keeping vim.empty_dict() marked as a dict;
+---objects are kept by reference. `seen` maps each source table to its copy,
+---so shared and cyclic references stay shared in the copy.
+---@param v any
+---@param seen table<table, table>
+---@return any
+local function copy_plain(v, seen)
+  if not is_plain(v) then
+    return v
+  end
+  if not seen[v] then
+    local copy = setmetatable({}, getmetatable(v))
+    seen[v] = copy
+    for k, x in pairs(v) do
+      copy[k] = copy_plain(x, seen)
+    end
+  end
+  return seen[v]
+end
+
 local function has_index_keys(t)
   for k in pairs(t) do
     if type(k) == "number" then
@@ -361,6 +381,10 @@ end
 ---Resolve opts through all specs, supporting function-form opts. Throws
 ---if any function-form opts throws — callers must pcall.
 ---
+---Each opts function and the caller get their own copy of the plain tables,
+---so editing opts in place (or setup() doing so) cannot reach a spec's or an
+---earlier function's tables and pile up across `:ZPack reload`.
+---
 ---`opts_extend` is the merged spec's: the union over every spec, applied to
 ---every merge. lazy.nvim reads only the nearest `opts_extend` at or before
 ---each spec, so lists merged before the first declaring spec replace each
@@ -382,16 +406,15 @@ function M.resolve_opts(specs, plugin, opts_extend)
   for _, spec in ipairs(specs) do
     local opts = spec.opts
     if type(opts) == "function" then
-      local result = opts(plugin, accumulated)
-      if type(result) == "table" then
-        accumulated = result
-      end
+      local copy = copy_plain(accumulated, {})
+      local result = opts(plugin, copy)
+      accumulated = type(result) == "table" and result or copy
     elseif type(opts) == "table" then
       accumulated = merge_opts(accumulated, opts, paths)
     end
   end
 
-  return accumulated
+  return copy_plain(accumulated, {})
 end
 
 local function entry_is_dep_only(entry)
