@@ -708,9 +708,14 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 of strings, inline spec, or array of specs. Dependency
                 specs can have their own configuration (opts, config, etc.)
                 and nested dependencies. When the parent is disabled or
-                skipped as `optional`, its dependency specs are dropped with
-                it (lazy.nvim parity), including their configuration of a
-                plugin that other specs keep enabled.
+                skipped as `optional`, its dependency specs (and its
+                `specs`) are dropped with it, as in lazy.nvim: they no
+                longer configure, enable, disable or add dependencies to a
+                plugin that other specs keep. Such a plugin keeps its name
+                even if a dropped spec set `name`, and installs from the
+                source its remaining specs give. A spec table listed under
+                several plugins stays while any of them does. A plugin
+                skipped by `cond` keeps its dependency specs.
 
                                                          *zpack-Spec.enabled*
 enabled         (boolean|function, optional)
@@ -785,9 +790,9 @@ opts_extend     (string|string[], optional)
                 opts, e.g. `function(_, o) o.ensure_installed = { 'x' } end`.
                 Lists are appended in merge order: specs pulled in as
                 `dependencies` first, then top-level specs in import order.
-                Specs listed under the `dependencies` of a plugin that is
-                disabled or skipped as `optional` are left out, as in
-                lazy.nvim. lazy.nvim differs:
+                Specs listed under the `dependencies` or `specs` of a
+                plugin that is disabled or skipped as `optional` are left
+                out, as in lazy.nvim. lazy.nvim differs:
                 - Each spec uses the nearest `opts_extend` at or before it.
                   A spec with none in effect replaces the lists before it,
                   so of the lists set before the first `opts_extend`, only
@@ -979,7 +984,9 @@ specs           (zpack.Spec|zpack.Spec[], optional)
                 lazy.nvim parity. Companion plugin specs grouped with this
                 one. Unlike `dependencies`, these are peers (NOT loaded
                 before this plugin) — they walk through the normal import
-                path and become first-class registry entries.
+                path and become first-class registry entries. They are
+                dropped with this plugin when it is disabled or skipped as
+                `optional` (see |zpack-Spec.dependencies|).
 
                                                      *zpack-Spec.deactivate*
 deactivate      (function(plugin), optional)

@@ -295,6 +295,155 @@ describe("specs declared under a removed plugin's dependencies", function()
     end)
   end
 
+  local GH = 'https://github.com/'
+
+  local function setup_spec(spec)
+    require('zpack').setup({ spec = spec, defaults = { confirm = false } })
+    helpers.flush_pending()
+    return require('zpack.state')
+  end
+
+  local function pack_add_names()
+    local names = {}
+    for _, call in ipairs(_G.test_state.vim_pack_calls) do
+      for _, pack in ipairs(call) do
+        names[#names + 1] = pack.name .. ' <- ' .. pack.src
+      end
+    end
+    table.sort(names)
+    return names
+  end
+
+  local function warnings()
+    local msgs = {}
+    for _, n in ipairs(_G.test_state.notifications) do
+      if n.level == vim.log.levels.WARN then
+        msgs[#msgs + 1] = n.msg
+      end
+    end
+    return msgs
+  end
+
+  it("do not disable a plugin that stays, or its dependents", function()
+    local state = setup_spec({
+      { 'test/dap', enabled = false, dependencies = { { 'test/mason', enabled = false } } },
+      { 'test/mason' },
+      { 'test/lsp', dependencies = { 'test/mason' } },
+    })
+    assert.is_not_nil(state.spec_registry[GH .. 'test/mason'])
+    assert.is_not_nil(state.spec_registry[GH .. 'test/lsp'])
+    assert.are.same({}, warnings())
+  end)
+
+  it("do not disable a plugin through a dependency only they declared", function()
+    local state = setup_spec({
+      { 'test/p', enabled = false, dependencies = { { 'test/a', dependencies = { 'test/z' } } } },
+      { 'test/a' },
+      { 'test/z', enabled = false },
+    })
+    assert.is_not_nil(state.spec_registry[GH .. 'test/a'])
+    assert.are.same({}, warnings())
+  end)
+
+  it("do not add their dependencies to a plugin that stays", function()
+    local state = setup_spec({
+      { 'test/p', enabled = false, dependencies = { { 'test/a', dependencies = { 'test/x' } } } },
+      { 'test/a' },
+      { 'test/x', cmd = 'XCmd' },
+    })
+    assert.is_nil(state.dependency_graph[GH .. 'test/a'])
+    assert.is_nil(state.reverse_dependency_graph[GH .. 'test/x'])
+    assert.are.same({}, state.spec_registry[GH .. 'test/a'].plugin.dependencies)
+    assert.are.same({ 'a' }, _G.test_state.loaded_plugins)
+  end)
+
+  it("leave the plugin the name it was folded under", function()
+    setup_spec({
+      { 'test/p', enabled = false, dependencies = { { 'user/repo', name = 'alias' } } },
+      { 'user/repo' },
+      { 'other/repo' },
+    })
+    assert.are.same({ 'alias <- ' .. GH .. 'user/repo', 'repo <- ' .. GH .. 'other/repo' }, pack_add_names())
+  end)
+
+  it("do not decide where the plugin installs from", function()
+    local state = setup_spec({
+      { 'test/p', enabled = false, dependencies = { { 'user/repo', url = 'https://example.com/fork/repo' } } },
+      { 'user/repo', dependencies = { 'test/dep' } },
+      { 'test/top', dependencies = { 'user/repo' } },
+    })
+    assert.are.same({ 'dep <- ' .. GH .. 'test/dep', 'repo <- ' .. GH .. 'user/repo', 'top <- ' .. GH .. 'test/top' },
+      pack_add_names())
+    assert.is_true(state.dependency_graph[GH .. 'user/repo'][GH .. 'test/dep'])
+    assert.is_true(state.dependency_graph[GH .. 'test/top'][GH .. 'user/repo'])
+  end)
+
+  it("include those under the parent's specs", function()
+    local received
+    setup_spec({
+      { 'test/theme', enabled = false, specs = { { 'test/bufferline', opts = { from_theme = true } }, { 'test/extra' } } },
+      { 'test/bufferline', opts = { base = true }, config = function(_, opts) received = opts end },
+    })
+    assert.are.same({ base = true }, received)
+    assert.are.same({ 'bufferline <- ' .. GH .. 'test/bufferline' }, pack_add_names())
+  end)
+
+  it("log a plugin left with only optional specs", function()
+    setup_spec({
+      { 'test/dap', enabled = false, dependencies = { 'test/ui' } },
+      { 'test/ui', optional = true },
+    })
+    local logged = vim.tbl_filter(function(n)
+      return n.msg:find('test/ui skipped', 1, true) ~= nil
+    end, _G.test_state.notifications)
+    assert.are.equal(1, #logged)
+  end)
+
+  for _, field in ipairs({ 'specs', 'dependencies' }) do
+    it(("still disable a plugin before an optional parent's %s go"):format(field), function()
+      local state = setup_spec({
+        { 'test/o', optional = true, [field] = { { 'test/x', enabled = false } } },
+        { 'test/x' },
+        { 'test/user', dependencies = { 'test/x' } },
+      })
+      assert.is_nil(state.spec_registry[GH .. 'test/x'])
+      assert.is_nil(state.spec_registry[GH .. 'test/user'])
+    end)
+  end
+
+  it("still disable a plugin before a nested optional parent goes", function()
+    local state = setup_spec({
+      { 'test/t', specs = { { 'test/o', optional = true, specs = { { 'test/y', enabled = false } } }, { 'test/y' } } },
+    })
+    assert.is_nil(state.spec_registry[GH .. 'test/y'])
+    assert.is_not_nil(state.spec_registry[GH .. 'test/t'])
+  end)
+
+  -- The outcome used to depend on pairs() order, so try several names.
+  for _, names in ipairs({
+    { 'beta', 'gamma', 'd' }, { 'a1', 'z9', 'm5' }, { 'q', 'b', 'x' }, { 'zz', 'aa', 'mm' },
+    { 'dap', 'mason', 'lsp' }, { 'k', 'kk', 'kkk' }, { 'x2', 'x1', 'x3' }, { 'n', 'o', 'p' },
+  }) do
+    local disabled, kept, dep = 'test/' .. names[1], 'test/' .. names[2], 'test/' .. names[3]
+    it(("do not disable a plugin through a dependency declared under a nested disabled plugin (%s)")
+      :format(table.concat(names, ',')), function()
+      local state = setup_spec({
+        { 'test/r', specs = { { disabled, enabled = false, dependencies = { { kept, dependencies = { dep } } } } } },
+        { kept },
+        { dep, enabled = false },
+      })
+      assert.is_not_nil(state.spec_registry[GH .. kept])
+      assert.are.same({}, warnings())
+    end)
+  end
+
+  it("keep the edge to a table listed in both a parent's dependencies and specs", function()
+    local x = { 'test/x', cmd = 'XCmd' }
+    local state = setup_spec({ { 'test/p', dependencies = { x }, specs = { x } } })
+    assert.is_true(state.dependency_graph[GH .. 'test/p'][GH .. 'test/x'])
+    assert.are.same({ 'p', 'x' }, _G.test_state.loaded_plugins)
+  end)
+
   it("stay when the parent stays", function()
     local opts = setup_with({
       'test/dap',

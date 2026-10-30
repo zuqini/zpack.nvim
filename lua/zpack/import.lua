@@ -219,14 +219,13 @@ local import_from_module = function(module_path, ctx)
   end
 end
 
----Register a spec's dependencies into the dependency graph and import them.
+---Import a spec's dependencies as its children.
 ---@param spec zpack.Spec
 ---@param src string Normalized source of the parent spec
 ---@param ctx zpack.ProcessContext
 local register_dependencies = function(spec, src, ctx)
   local dep_specs = normalize_dependencies(spec.dependencies, src)
-  state.dependency_graph[src] = state.dependency_graph[src] or {}
-  local dep_ctx = vim.tbl_extend('force', ctx, { is_dependency = true })
+  local dep_ctx = vim.tbl_extend('force', ctx, { is_dependency = true, parent = spec })
   for _, dep_spec in ipairs(dep_specs) do
     local dep_src, err = normalize_source(dep_spec)
     if not dep_src then
@@ -234,13 +233,6 @@ local register_dependencies = function(spec, src, ctx)
         utils.schedule_notify(("Invalid dependency for %s: %s"):format(src, err), vim.log.levels.WARN)
       end
     else
-      if not state.dependency_graph[src][dep_src] then
-        state.dependency_graph[src][dep_src] = true
-        state.reverse_dependency_graph[dep_src] = state.reverse_dependency_graph[dep_src] or {}
-        state.reverse_dependency_graph[dep_src][src] = true
-      end
-      dep_spec._parent_specs = dep_spec._parent_specs or {}
-      dep_spec._parent_specs[spec] = true
       M.import_specs(dep_spec, dep_ctx)
     end
   end
@@ -308,6 +300,15 @@ local import_one_spec = function(spec, ctx)
   end
   local is_dep = ctx.is_dependency or false
 
+  if ctx.parent then
+    state.spec_parents[spec] = state.spec_parents[spec] or {}
+    state.spec_parents[spec][ctx.parent] = true
+    state.spec_children[ctx.parent] = state.spec_children[ctx.parent] or {}
+    state.spec_children[ctx.parent][spec] = state.spec_children[ctx.parent][spec] or is_dep
+  else
+    state.top_specs[spec] = true
+  end
+  state.spec_src[spec] = src
   spec._import_order = state.import_order
   state.import_order = state.import_order + 1
   spec._is_dependency = is_dep
@@ -321,7 +322,7 @@ local import_one_spec = function(spec, ctx)
   -- Walk dependencies unconditionally. `enabled` is evaluated post-merge
   -- in resolve_all; gating the dep walk on the raw pre-merge spec would
   -- call function-form `enabled` eagerly at import time and diverge from
-  -- the merged truth. prune_disabled_subtrees handles cleanup afterward.
+  -- the merged truth. prune_disabled handles cleanup afterward.
   if spec.dependencies then
     register_dependencies(spec, src, ctx)
   end
@@ -329,7 +330,7 @@ local import_one_spec = function(spec, ctx)
   -- Nested `specs` are peer plugins; reset is_dependency so a parent
   -- reached via a `dependencies` chain doesn't propagate dep-status down.
   if spec.specs then
-    local peer_ctx = vim.tbl_extend('force', ctx, { is_dependency = false })
+    local peer_ctx = vim.tbl_extend('force', ctx, { is_dependency = false, parent = spec })
     M.import_specs(spec.specs, peer_ctx)
   end
 end
