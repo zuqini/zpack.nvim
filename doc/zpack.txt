@@ -748,6 +748,17 @@ opts            (table|function(plugin, opts), optional)
                 plugin are merged - each opts function receives the result from
                 previous specs.
 
+                Set a key to `vim.NIL` to remove it, as in lazy.nvim. It is
+                removed only where specs merge: at the top level of opts
+                (unless these or the earlier opts are a non-empty list), and
+                in a table merged into the one an earlier spec set at the
+                same place. A table that replaces the earlier value keeps the
+                `vim.NIL` inside it (nothing, a scalar or a non-empty list was
+                there, or it is a non-empty list itself), and so do opts a
+                function returns or edits. To hand a plugin a JSON `null`
+                (e.g. in LSP settings), nest it in a table no earlier spec
+                sets, or set it from function-form opts.
+
                 When a custom `config` function is provided, the resolved
                 `opts` is passed as the second argument, but you are
                 responsible for calling `setup()` yourself.
