@@ -489,6 +489,56 @@ describe("specs declared under a removed plugin's dependencies", function()
     assert.are.equal(1, calls)
   end)
 
+  it("evaluate a function-form enabled once when a dropped spec of the plugin set enabled", function()
+    local calls = 0
+    setup_spec({
+      { 'test/x', enabled = function() calls = calls + 1 return true end },
+      { 'test/p', enabled = false, dependencies = { { 'test/x', enabled = true } } },
+    })
+    assert.are.equal(1, calls)
+  end)
+
+  it("do not cascade to a plugin that has only optional specs", function()
+    local state = setup_spec({
+      { 'test/mason' },
+      { 'test/dap', optional = true, dependencies = { { 'test/mason', opts = {} } } },
+      { 'test/mason', enabled = false },
+    })
+    assert.is_nil(state.spec_registry[GH .. 'test/dap'])
+    assert.are.same({}, warnings())
+  end)
+
+  it("drop a plugin settled by a top-level spec before one resting on its specs", function()
+    local state = setup_spec({
+      { 'test/x', dependencies = { 'test/d', { 'test/y', enabled = false } } },
+      { 'test/y' },
+      { 'test/d', enabled = false },
+      { 'test/q', dependencies = { { 'test/x', enabled = false } } },
+      { 'test/a', dependencies = { 'test/y' } },
+    })
+    assert.is_nil(state.spec_registry[GH .. 'test/x'])
+    assert.is_not_nil(state.spec_registry[GH .. 'test/y'])
+    assert.is_not_nil(state.spec_registry[GH .. 'test/a'])
+  end)
+
+  -- lua/plugins/*.lua files import in name order, so try both.
+  for _, avante_first in ipairs({ true, false }) do
+    it(("do not disable through specs declared under a cascade-disabled plugin (%s first)")
+      :format(avante_first and 'avante' or 'blink'), function()
+      local avante = { 'yetone/avante.nvim', event = 'VeryLazy', dependencies = { 'hrsh7th/nvim-cmp' } }
+      local blink = {
+        'saghen/blink.cmp',
+        event = 'InsertEnter',
+        dependencies = { { 'rafamadriz/friendly-snippets', enabled = false } },
+        specs = { { 'hrsh7th/nvim-cmp', enabled = false } },
+      }
+      local state = setup_spec(avante_first and { avante, blink } or { blink, avante })
+      assert.is_not_nil(state.spec_registry[GH .. 'yetone/avante.nvim'])
+      assert.is_not_nil(state.spec_registry[GH .. 'hrsh7th/nvim-cmp'])
+      assert.is_nil(state.spec_registry[GH .. 'saghen/blink.cmp'])
+    end)
+  end
+
   it("are not kept in state after setup", function()
     local state = setup_spec({ { 'test/p', enabled = false, dependencies = { 'test/x' } }, { 'test/x' } })
     assert.is_nil(next(state.top_specs))
