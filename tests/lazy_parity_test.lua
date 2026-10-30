@@ -437,6 +437,58 @@ describe("specs declared under a removed plugin's dependencies", function()
     end)
   end
 
+  for _, names in ipairs({
+    { 'n1', 'n2' }, { 'n2', 'n1' }, { 'aa', 'zz' }, { 'zz', 'aa' }, { 'k', 'kk' }, { 'kk', 'k' },
+    { 'q', 'b' }, { 'b', 'q' }, { 'dap', 'mason' }, { 'mason', 'dap' },
+  }) do
+    local first, second = 'test/' .. names[1], 'test/' .. names[2]
+    local label = table.concat(names, ',')
+
+    it(("do not disable a plugin through a dependency declared under a cascade-disabled plugin (%s)")
+      :format(label), function()
+      local state = setup_spec({
+        { 'test/r', specs = { { first, dependencies = { 'test/x', { second, dependencies = { 'test/y' } } } } } },
+        { second },
+        { 'test/x', enabled = false },
+        { 'test/y', enabled = false },
+      })
+      assert.is_nil(state.spec_registry[GH .. first])
+      assert.is_not_nil(state.spec_registry[GH .. second])
+      assert.are.equal(1, #warnings())
+    end)
+
+    it(("do not disable a plugin through a nested disabled plugin's dependencies (%s)"):format(label), function()
+      local state = setup_spec({
+        { 'test/top', dependencies = { { first, enabled = false, dependencies = { { second, enabled = false } } } } },
+        { second },
+        { 'test/c', dependencies = { second } },
+      })
+      assert.is_not_nil(state.spec_registry[GH .. second])
+      assert.is_not_nil(state.spec_registry[GH .. 'test/c'])
+    end)
+
+    it(("do not disable a plugin through the specs of a cascade-disabled plugin (%s)"):format(label), function()
+      local state = setup_spec({
+        { 'test/user', dependencies = { first } },
+        { first },
+        { 'test/gone', dependencies = { second }, specs = { { first, enabled = false } } },
+        { second, enabled = false },
+      })
+      assert.is_not_nil(state.spec_registry[GH .. 'test/user'])
+      assert.is_not_nil(state.spec_registry[GH .. first])
+      assert.is_nil(state.spec_registry[GH .. 'test/gone'])
+    end)
+  end
+
+  it("evaluate a function-form enabled once", function()
+    local calls = 0
+    setup_spec({
+      { 'test/p', enabled = false, dependencies = { { 'test/x', opts = { a = 1 } } } },
+      { 'test/x', enabled = function() calls = calls + 1 return true end },
+    })
+    assert.are.equal(1, calls)
+  end)
+
   it("keep the edge to a table listed in both a parent's dependencies and specs", function()
     local x = { 'test/x', cmd = 'XCmd' }
     local state = setup_spec({ { 'test/p', dependencies = { x }, specs = { x } } })

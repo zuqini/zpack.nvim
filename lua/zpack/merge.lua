@@ -549,15 +549,6 @@ end
 
 local EMPTY = {}
 
-local function is_top(state, entry)
-  for _, spec in ipairs(entry.specs) do
-    if not state.top_specs[spec] then
-      return false
-    end
-  end
-  return true
-end
-
 ---A spec declared in a parent's `dependencies` or `specs` lives while a
 ---chain of parent specs still leads to the top level: one listed under two
 ---plugins stays while either remains, and tables listing each other go
@@ -581,21 +572,39 @@ local function is_live(state, dead, spec, seen)
   return false
 end
 
----The src of a disabled plugin one of the entry's specs depends on.
-local function disabled_dependency(state, prune, entry)
+---Re-merge an entry whose specs changed. It keeps the name the fold gave it
+---(lazy.nvim fixes a plugin's name when a fragment is added), so dropping a
+---spec that set `name` never renames an install or collides with another
+---plugin. `enabled` is evaluated again only when a dropped spec set it.
+local function refresh_entry(utils, prune, src, entry)
+  prune.stale[src] = nil
+  local kept = {}
+  local lost_enabled = false
   for _, spec in ipairs(entry.specs) do
-    for child, is_dep in pairs(state.spec_children[spec] or EMPTY) do
-      local dep_src = state.spec_src[child]
-      if is_dep and prune.disabled[dep_src] then
-        return dep_src
-      end
+    if not prune.dead[spec] then
+      kept[#kept + 1] = spec
+    elseif spec.enabled ~= nil then
+      lost_enabled = true
     end
+  end
+  if #kept < #entry.specs then
+    prune.trimmed[src] = true
+  end
+  entry.specs = kept
+  if #kept > 0 then
+    local name = utils.resolve_plugin_name(entry.merged_spec, src)
+    merge_entry(entry)
+    entry.merged_spec.name = name
+    if lost_enabled then
+      entry.enabled_result = utils.check_enabled(entry.merged_spec, src)
+    end
+    entry.has_opts = contributes_opts(entry)
   end
 end
 
----Remove src's entry and every spec declared under its specs. Entries that
----lose specs are marked stale and queued for another look, and the plugins
----depending on a disabled one are queued for the cascade.
+---Remove src's entry and every spec declared under its specs, and queue the
+---entries that lose specs to be re-merged and looked at again. Removing a
+---disabled plugin also queues the plugins whose specs depend on it.
 local function remove_entry(state, prune, src, disabled)
   local removed = state.spec_registry[src]
   state.spec_registry[src] = nil
@@ -604,12 +613,12 @@ local function remove_entry(state, prune, src, disabled)
     for _, spec in ipairs(removed.specs) do
       for parent in pairs(state.spec_parents[spec] or EMPTY) do
         if state.spec_children[parent][spec] and not prune.dead[parent] then
-          prune.check_deps[state.spec_src[parent]] = true
+          prune.dirty[state.spec_src[parent]] = true
         end
       end
     end
   end
-  local stack = {}
+  local stack, touched = {}, {}
   for i, spec in ipairs(removed.specs) do
     stack[i] = spec
   end
@@ -618,147 +627,130 @@ local function remove_entry(state, prune, src, disabled)
     if not prune.dead[spec] then
       prune.dead[spec] = true
       for child in pairs(state.spec_children[spec] or EMPTY) do
-        if not is_live(state, prune.dead, child) then
+        if not prune.dead[child] and not is_live(state, prune.dead, child) then
           table.insert(stack, child)
-          local child_src = state.spec_src[child]
-          if state.spec_registry[child_src] then
-            prune.stale[child_src] = true
-            prune.trimmed[child_src] = true
-            prune.dirty[child_src] = true
-            prune.optional[child_src] = true
-          end
+          touched[state.spec_src[child]] = true
         end
       end
     end
   end
-end
-
----Re-merge a stale entry without its removed specs. It keeps the name the
----fold gave it (lazy.nvim fixes a plugin's name when a fragment is added),
----so dropping a spec that set `name` never renames an install or collides
----with another plugin.
-local function refresh_entry(state, utils, prune, src, entry)
-  prune.stale[src] = nil
-  local kept = {}
-  for _, spec in ipairs(entry.specs) do
-    if not prune.dead[spec] then
-      kept[#kept + 1] = spec
+  for child_src in pairs(touched) do
+    if state.spec_registry[child_src] then
+      prune.stale[child_src] = true
+      prune.dirty[child_src] = true
     end
   end
-  entry.specs = kept
-  if #kept > 0 then
-    local name = utils.resolve_plugin_name(entry.merged_spec, src)
-    merge_entry(entry)
-    entry.merged_spec.name = name
-    entry.enabled_result = utils.check_enabled(entry.merged_spec, src)
-    entry.has_opts = contributes_opts(entry)
-    prune.nested[src] = not is_top(state, entry) or nil
-  end
 end
 
-local function current_entry(state, utils, prune, src)
-  local entry = state.spec_registry[src]
-  if entry and prune.stale[src] then
-    refresh_entry(state, utils, prune, src, entry)
-  end
-  return entry
-end
-
-local function drop_if_disabled(state, prune, src, entry)
+---Why an entry has to go, if it does: it has no specs left, it is disabled,
+---or one of its specs depends on a disabled plugin. The reason is settled
+---when only top-level specs give it, since those are never dropped;
+---otherwise a later removal may drop the spec it rests on.
+local function removal_reason(state, prune, entry)
   if #entry.specs == 0 then
-    remove_entry(state, prune, src)
-  elseif entry.enabled_result == false then
-    remove_entry(state, prune, src, true)
+    return 'empty', nil, true
   end
-end
-
----lazy.nvim's fix_disabled: remove disabled plugins and plugins left with
----no specs, top-level-only ones first, since a spec under another plugin may
----set `enabled = false` and be dropped with it.
-local function drop_disabled(state, utils, prune)
-  while next(prune.dirty) do
-    local batch = prune.dirty
-    prune.dirty = {}
-    local nested = {}
-    for src in pairs(batch) do
-      local entry = current_entry(state, utils, prune, src)
-      if entry and prune.nested[src] then
-        nested[#nested + 1] = src
-      elseif entry then
-        drop_if_disabled(state, prune, src, entry)
+  if entry.enabled_result == false then
+    for _, spec in ipairs(entry.specs) do
+      if spec.enabled ~= nil and not state.top_specs[spec] then
+        return 'disabled', nil, false
       end
     end
-    for _, src in ipairs(nested) do
-      local entry = current_entry(state, utils, prune, src)
-      if entry then
-        drop_if_disabled(state, prune, src, entry)
+    return 'disabled', nil, true
+  end
+  local nested_dep
+  for _, spec in ipairs(entry.specs) do
+    for child, is_dep in pairs(state.spec_children[spec] or EMPTY) do
+      local dep_src = state.spec_src[child]
+      if is_dep and prune.disabled[dep_src] then
+        if state.top_specs[spec] then
+          return 'dependency', dep_src, true
+        end
+        nested_dep = nested_dep or dep_src
       end
     end
   end
-end
-
----lazy.nvim's fix_optional: remove plugins whose specs are all optional.
-local function drop_optional(state, utils, prune)
-  local batch = prune.optional
-  prune.optional = {}
-  local removed = false
-  for src in pairs(batch) do
-    local entry = current_entry(state, utils, prune, src)
-    if entry and not has_required_spec(entry) then
-      if #entry.specs > 0 then
-        utils.schedule_notify(
-          ("%s skipped: declared `optional = true` and never referenced elsewhere"):format(src),
-          vim.log.levels.DEBUG
-        )
-      end
-      remove_entry(state, prune, src)
-      removed = true
-    end
+  if nested_dep then
+    return 'dependency', nested_dep, false
   end
-  return removed
 end
 
-local function drop_if_dependent(state, utils, prune, src, entry)
-  local dep_src = disabled_dependency(state, prune, entry)
-  if dep_src then
+local function drop(state, utils, prune, src, reason, dep_src)
+  if reason == 'dependency' then
     utils.schedule_notify(
       ("%s disabled because its dependency %s has enabled=false"):format(src, dep_src),
       vim.log.levels.WARN
     )
-    remove_entry(state, prune, src, true)
-    return true
+  elseif reason == 'optional' then
+    utils.schedule_notify(
+      ("%s skipped: declared `optional = true` and never referenced elsewhere"):format(src),
+      vim.log.levels.DEBUG
+    )
   end
-  return false
+  remove_entry(state, prune, src, reason == 'disabled' or reason == 'dependency')
 end
 
----A plugin whose remaining specs depend on a disabled plugin cannot work, so
----it is disabled too. Runs once nothing else is left to remove, top-level-only
----plugins first, so a dependency declared under a plugin that is going away
----does not count.
-local function drop_dependents(state, utils, prune)
-  local batch = prune.check_deps
-  prune.check_deps = {}
-  local nested = {}
-  local removed = false
-  for src in pairs(batch) do
-    local entry = current_entry(state, utils, prune, src)
-    if entry and prune.nested[src] then
-      nested[#nested + 1] = src
-    elseif entry and drop_if_dependent(state, utils, prune, src, entry) then
-      removed = true
+---The import order of an entry's first spec declared under another plugin.
+local function nested_order(state, entry)
+  for _, spec in ipairs(entry.specs) do
+    if not state.top_specs[spec] then
+      return spec._import_order or 0
     end
   end
-  for _, src in ipairs(nested) do
-    if removed then
-      prune.check_deps[src] = true
+  return 0
+end
+
+---lazy.nvim's fix_disabled and fix_optional, with zpack's rule that a plugin
+---depending on a disabled one is disabled too. Settled removals go first,
+---then the others one at a time in import order, since a parent imports
+---before the specs declared under it and may take them away. Plugins whose
+---specs are all `optional` go together once nothing else is left, as in
+---lazy.nvim.
+local function drop_unused(state, utils, prune)
+  while next(prune.dirty) do
+    local batch = prune.dirty
+    prune.dirty = {}
+    local optional, nested = {}, {}
+    for src in pairs(batch) do
+      local entry = state.spec_registry[src]
+      if entry and prune.stale[src] then
+        refresh_entry(utils, prune, src, entry)
+      end
+      if entry then
+        local reason, dep_src, settled = removal_reason(state, prune, entry)
+        if settled then
+          drop(state, utils, prune, src, reason, dep_src)
+        elseif reason then
+          nested[#nested + 1] = { src = src, reason = reason, dep_src = dep_src, order = nested_order(state, entry) }
+        elseif not has_required_spec(entry) then
+          optional[#optional + 1] = src
+        end
+      end
+    end
+    if next(prune.dirty) then
+      for _, src in ipairs(optional) do
+        prune.dirty[src] = true
+      end
+      for _, item in ipairs(nested) do
+        prune.dirty[item.src] = true
+      end
+    elseif #nested > 0 then
+      table.sort(nested, function(a, b)
+        return a.order < b.order
+      end)
+      drop(state, utils, prune, nested[1].src, nested[1].reason, nested[1].dep_src)
+      for i = 2, #nested do
+        prune.dirty[nested[i].src] = true
+      end
+      for _, src in ipairs(optional) do
+        prune.dirty[src] = true
+      end
     else
-      local entry = current_entry(state, utils, prune, src)
-      if entry and drop_if_dependent(state, utils, prune, src, entry) then
-        removed = true
+      for _, src in ipairs(optional) do
+        drop(state, utils, prune, src, 'optional')
       end
     end
   end
-  return removed
 end
 
 ---Re-run the fold's source choice over the specs an entry has left, as
@@ -784,29 +776,19 @@ local function rederive_src(state, folded_from, entry, src)
   end
 end
 
----lazy.nvim's resolve: remove disabled plugins, then optional-only ones,
----until neither finds anything, along with every spec declared under their
----`dependencies` and `specs`, even where those specs configure a plugin that
----stays, and re-merge what is left. After this runs, every remaining entry
----is guaranteed to reach vim.pack.add, which means the public API can rely
----on entry.plugin being populated by the load callback.
+---Remove disabled and optional-only plugins along with every spec declared
+---under their `dependencies` and `specs`, even where those specs configure a
+---plugin that stays, and re-merge what is left. After this runs, every
+---remaining entry is guaranteed to reach vim.pack.add, which means the
+---public API can rely on entry.plugin being populated by the load callback.
 local function prune_disabled(state, utils, folded_from)
-  local prune = {
-    dead = {}, disabled = {}, nested = {}, stale = {}, trimmed = {},
-    dirty = {}, optional = {}, check_deps = {},
-  }
-  for src in pairs(state.spec_registry) do
-    prune.dirty[src] = true
-    prune.optional[src] = true
-  end
-  for spec in pairs(state.spec_parents) do
-    if not state.top_specs[spec] then
-      prune.nested[state.spec_src[spec]] = true
+  local prune = { dead = {}, disabled = {}, dirty = {}, stale = {}, trimmed = {} }
+  for src, entry in pairs(state.spec_registry) do
+    if entry.enabled_result == false or not has_required_spec(entry) then
+      prune.dirty[src] = true
     end
   end
-  repeat
-    drop_disabled(state, utils, prune)
-  until not drop_optional(state, utils, prune) and not drop_dependents(state, utils, prune)
+  drop_unused(state, utils, prune)
   for src in pairs(prune.trimmed) do
     local entry = state.spec_registry[src]
     if entry then
