@@ -561,6 +561,20 @@ describe("a spec table listed in several places", function()
       assert.is_not_nil(entry)
       assert.is_false(entry.specs[1]._is_dependency)
     end)
+
+    it(("is a dependency when its other listing goes (removed listing %s)"):format(order), function()
+      local t = { 'test/t' }
+      local removed = { 'test/b', enabled = false, specs = { t } }
+      local parent = { 'test/a', event = 'BufRead', dependencies = { t } }
+      require('zpack').setup({
+        spec = order == 'first' and { removed, parent } or { parent, removed },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+      local entry = require('zpack.state').spec_registry['https://github.com/test/t']
+      assert.is_true(entry.specs[1]._is_dependency)
+      assert.is_true(entry.is_lazy_resolved)
+    end)
   end
 end)
 

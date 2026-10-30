@@ -572,6 +572,19 @@ local function is_live(state, dead, spec, seen)
   return false
 end
 
+---A table listed in several places is a dependency only if every listing
+---left is one.
+local function relist(state, dead, spec)
+  local is_dep = true
+  for parent in pairs(state.spec_parents[spec]) do
+    if not dead[parent] and not state.spec_children[parent][spec] then
+      is_dep = false
+      break
+    end
+  end
+  spec._is_dependency = is_dep
+end
+
 ---Re-merge an entry whose specs changed. It keeps the name the fold gave it
 ---(lazy.nvim fixes a plugin's name when a fragment is added), so dropping a
 ---spec that set `name` never renames an install or collides with another
@@ -618,7 +631,7 @@ local function remove_entry(state, prune, src, disabled)
       end
     end
   end
-  local stack, touched = {}, {}
+  local stack, relisted, touched = {}, {}, {}
   for i, spec in ipairs(removed.specs) do
     stack[i] = spec
   end
@@ -627,11 +640,20 @@ local function remove_entry(state, prune, src, disabled)
     if not prune.dead[spec] then
       prune.dead[spec] = true
       for child in pairs(state.spec_children[spec] or EMPTY) do
-        if not prune.dead[child] and not is_live(state, prune.dead, child) then
-          table.insert(stack, child)
+        if not prune.dead[child] then
+          if is_live(state, prune.dead, child) then
+            relisted[#relisted + 1] = child
+          else
+            table.insert(stack, child)
+          end
           touched[state.spec_src[child]] = true
         end
       end
+    end
+  end
+  for _, spec in ipairs(relisted) do
+    if not state.top_specs[spec] then
+      relist(state, prune.dead, spec)
     end
   end
   for child_src in pairs(touched) do
