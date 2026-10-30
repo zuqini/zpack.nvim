@@ -683,6 +683,71 @@ describe("Merge Module Unit Tests", function()
     assert.are.same({ list = { 'a' } }, resolve(specs))
   end)
 
+  it("resolve_opts clears a key set to vim.NIL", function()
+    local specs = {
+      { opts_extend = { 'list' }, opts = { a = { x = 1 }, nested = { b = 1, c = 2 }, list = { 1 }, keep = 1 } },
+      { opts = { a = vim.NIL, nested = { b = vim.NIL }, list = vim.NIL, gone = vim.NIL } },
+    }
+
+    assert.are.same({ nested = { c = 2 }, keep = 1 }, resolve(specs))
+  end)
+
+  it("resolve_opts clears a top-level vim.NIL key when the plugin has one spec", function()
+    assert.are.same({ b = 1 }, resolve({ { opts = { a = vim.NIL, b = 1 } } }))
+  end)
+
+  it("resolve_opts lets a later spec set a key an earlier one cleared with vim.NIL", function()
+    local result = resolve({ { opts = { a = { x = 1 } } }, { opts = { a = vim.NIL } }, { opts = { a = { y = 2 } } } })
+
+    assert.are.same({ y = 2 }, result.a)
+  end)
+
+  it("resolve_opts keeps vim.NIL where lazy.nvim's merge does", function()
+    local specs = {
+      { opts = { new = { x = vim.NIL }, list = { vim.NIL }, replaced = { 1, 2 }, scalar = 's' } },
+      { opts = { replaced = { x = vim.NIL }, scalar = { x = vim.NIL } } },
+      { opts = function(_, opts) opts.fn = { y = vim.NIL } end },
+    }
+    local result = resolve(specs)
+
+    assert.are.equal(vim.NIL, result.new.x)
+    assert.are.equal(vim.NIL, result.list[1])
+    assert.are.equal(vim.NIL, result.replaced.x)
+    assert.are.equal(vim.NIL, result.scalar.x)
+    assert.are.equal(vim.NIL, result.fn.y)
+    assert.are.same({ 'a', vim.NIL, 'b' }, resolve({ { opts = { 'a', vim.NIL, 'b' } } }))
+    assert.are.equal(vim.NIL, resolve({ { opts = function() return { 1 } end }, { opts = { x = vim.NIL } } }).x)
+  end)
+
+  it("resolve_opts clears vim.NIL without editing a spec's opts", function()
+    local first = { a = { x = 1, y = 2 } }
+    local second = { a = { x = vim.NIL } }
+    local specs = { { opts = first }, { opts = second } }
+
+    assert.are.same({ a = { y = 2 } }, resolve(specs))
+    assert.are.same({ a = { y = 2 } }, resolve(specs))
+    assert.are.same({ a = { x = 1, y = 2 } }, first)
+    assert.are.equal(vim.NIL, second.a.x)
+  end)
+
+  it("resolve_opts clears vim.NIL in a dict at an opts_extend key", function()
+    local specs = {
+      { opts_extend = { 'cfg' }, opts = { cfg = { a = 1, b = 2 } } },
+      { opts = { cfg = { a = vim.NIL } } },
+    }
+
+    assert.are.same({ b = 2 }, resolve(specs).cfg)
+  end)
+
+  local has_ffi, ffi = pcall(require, 'ffi')
+  ;(has_ffi and it or pending)("resolve_opts does not call an opts value's __eq when checking for vim.NIL", function()
+    local T = ffi.metatype(ffi.typeof('struct { int v; }'), { __eq = function() error('__eq called') end })
+    local c = T(1)
+    local result = resolve({ { opts = { a = { c = 1 } } }, { opts = { a = { c = c }, d = c } } })
+
+    assert.is_true(rawequal(c, result.a.c) and rawequal(c, result.d))
+  end)
+
   it("merge_spec_array unions opts_extend across specs", function()
     local merge = require('zpack.merge')
 

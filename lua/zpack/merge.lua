@@ -349,16 +349,43 @@ local function concat(tables)
   return list
 end
 
+---vim.tbl_deep_extend's test for a table it merges into rather than replaces.
+local function can_merge(v)
+  return type(v) == "table" and (vim.tbl_isempty(v) or not vim.islist(v))
+end
+
+---Remove the keys `value` sets to vim.NIL wherever vim.tbl_deep_extend
+---merged `value` into `base`, as lazy.nvim's merge does. `result` is that
+---merge, so every table written to is one vim.tbl_deep_extend made, never
+---a spec's own.
+---@param result table
+---@param base any
+---@param value any
+local function clear_nil(result, base, value)
+  if not (can_merge(base) and can_merge(value)) then
+    return
+  end
+  for k, v in pairs(value) do
+    if rawequal(v, vim.NIL) then
+      result[k] = nil
+    else
+      clear_nil(result[k], rawget(base, k), v)
+    end
+  end
+end
+
 ---vim.tbl_deep_extend("force", base, value), then concatenate the lists at
----each `opts_extend` path (lazy.nvim's `opts_extend`). Empty tables count
----as unset, two dicts stay deep-merged, and a path with a scalar or object
----on the incoming side keeps what vim.tbl_deep_extend made of it.
+---each `opts_extend` path (lazy.nvim's `opts_extend`). A key set to
+---vim.NIL is removed where the merge reaches it. Empty tables count as
+---unset, two dicts stay deep-merged, and a path with a scalar or object on
+---the incoming side keeps what vim.tbl_deep_extend made of it.
 ---@param base table
 ---@param value table
 ---@param paths string[][]
 ---@return table
 local function merge_opts(base, value, paths)
   local result = vim.tbl_deep_extend("force", base, value)
+  clear_nil(result, base, value)
   for _, path in ipairs(paths) do
     local v = vim.tbl_get(value, unpack(path))
     if is_plain(v) then
