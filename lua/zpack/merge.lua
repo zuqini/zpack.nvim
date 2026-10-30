@@ -40,6 +40,7 @@ M.field_strategies = {
 local internal_fields = {
   _import_order = true,
   _is_dependency = true,
+  _parent_specs = true,
 }
 
 ---Normalize value to array for LIST_EXTEND fields (event, cmd, ft, keys,
@@ -478,10 +479,61 @@ local function propagate_enabled_disable(state, utils)
   end
 end
 
----Remove every enabled=false entry from the registry, plus any dep-only
----plugins that become orphaned as a side effect. After this runs, every
----remaining entry is guaranteed to reach vim.pack.add, which means the
----public API can rely on entry.plugin being populated by the load callback.
+local function merge_entry(entry)
+  entry.sorted_specs = M.sort_specs(entry.specs)
+  entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
+end
+
+---`opts` is deliberately not stored on merged_spec; this boolean lets
+---plugin_loader / startup answer "does any spec contribute opts?" without
+---re-scanning.
+local function contributes_opts(entry)
+  for _, s in ipairs(entry.sorted_specs) do
+    if s.opts ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+---lazy.nvim spec parity (`optional = true`): a plugin is included only if
+---referenced non-optionally somewhere. A dep declaration
+---(`_is_dependency = true`) defeats `optional` — naming a plugin as a dep IS
+---a non-optional reference. Without that, a table-form dep
+---`{ 'foo/x', optional = true }` would prune `x` and cascade-disable its
+---parent.
+local function has_required_spec(entry)
+  for _, s in ipairs(entry.specs) do
+    if not s.optional or s._is_dependency then
+      return true
+    end
+  end
+  return false
+end
+
+---A dependency spec goes with its parents only once every spec that declared
+---it is gone; one table listed under two plugins' `dependencies` stays while
+---either remains.
+local function declared_only_by(removed, spec)
+  if not spec._parent_specs then
+    return false
+  end
+  for parent in pairs(spec._parent_specs) do
+    if not removed[parent] then
+      return false
+    end
+  end
+  return true
+end
+
+---Remove every enabled=false entry from the registry, plus what lazy.nvim
+---deletes along with a plugin: the specs its specs declared under
+---`dependencies` (recursively), even where they configure a plugin that
+---stays, and any dep-only plugin left orphaned. A plugin left with no specs,
+---or only optional ones, is removed too; one that keeps others is re-merged
+---without them. After this runs, every remaining entry is guaranteed to
+---reach vim.pack.add, which means the public API can rely on entry.plugin
+---being populated by the load callback.
 local function prune_disabled(state)
   local worklist = {}
   for src, entry in pairs(state.spec_registry) do
@@ -490,14 +542,59 @@ local function prune_disabled(state)
     end
   end
 
+  local removed = {}
   while #worklist > 0 do
-    local src = table.remove(worklist)
-    local orphaned = strip_outgoing_edges(state, src)
-    state.spec_registry[src] = nil
-    for _, dep_src in ipairs(orphaned) do
-      local dep_entry = state.spec_registry[dep_src]
-      if dep_entry and entry_is_dep_only(dep_entry) then
-        table.insert(worklist, dep_src)
+    while #worklist > 0 do
+      local src = table.remove(worklist)
+      local entry = state.spec_registry[src]
+      if entry then
+        for _, spec in ipairs(entry.specs) do
+          removed[spec] = true
+        end
+        for parent_src in pairs(state.reverse_dependency_graph[src] or {}) do
+          local deps = state.dependency_graph[parent_src]
+          if deps then
+            deps[src] = nil
+          end
+        end
+        state.reverse_dependency_graph[src] = nil
+        local orphaned = strip_outgoing_edges(state, src)
+        state.spec_registry[src] = nil
+        for _, dep_src in ipairs(orphaned) do
+          local dep_entry = state.spec_registry[dep_src]
+          if dep_entry and entry_is_dep_only(dep_entry) then
+            table.insert(worklist, dep_src)
+          end
+        end
+      end
+    end
+
+    local trimmed = {}
+    local changed = true
+    while changed do
+      changed = false
+      for src, entry in pairs(state.spec_registry) do
+        local kept = {}
+        for _, spec in ipairs(entry.specs) do
+          if removed[spec] or declared_only_by(removed, spec) then
+            removed[spec] = true
+            changed = true
+          else
+            kept[#kept + 1] = spec
+          end
+        end
+        if #kept < #entry.specs then
+          entry.specs = kept
+          trimmed[src] = entry
+        end
+      end
+    end
+    for src, entry in pairs(trimmed) do
+      if #entry.specs == 0 or not has_required_spec(entry) then
+        table.insert(worklist, src)
+      else
+        merge_entry(entry)
+        entry.has_opts = contributes_opts(entry)
       end
     end
   end
@@ -551,11 +648,6 @@ local function rekey_graph_edges(state, old_src, new_src)
     end
     state.reverse_dependency_graph[old_src] = nil
   end
-end
-
-local function merge_entry(entry)
-  entry.sorted_specs = M.sort_specs(entry.specs)
-  entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
 end
 
 ---Rank an entry for the coalesce fold as a (tier, import order) pair; compare
@@ -693,16 +785,7 @@ function M.resolve_all()
   for src, entry in pairs(state.spec_registry) do
     if entry.specs and #entry.specs > 0 then
       entry.enabled_result = utils.check_enabled(entry.merged_spec, src)
-      -- `opts` is deliberately not stored on merged_spec; compute a boolean
-      -- summary once here so existence checks in plugin_loader / startup can
-      -- answer "does any spec contribute opts?" without re-scanning.
-      entry.has_opts = false
-      for _, s in ipairs(entry.sorted_specs) do
-        if s.opts ~= nil then
-          entry.has_opts = true
-          break
-        end
-      end
+      entry.has_opts = contributes_opts(entry)
       -- cond_result is intentionally left nil here. It is written later by
       -- registration.register_all's vim.pack.add load callback (which needs
       -- the live plugin arg for function-form conds). Readers must treat
@@ -711,22 +794,9 @@ function M.resolve_all()
     end
   end
 
-  -- lazy.nvim spec parity (`optional = true`): include the plugin only if
-  -- referenced non-optionally somewhere. A dep declaration
-  -- (`_is_dependency = true`) defeats `optional` — naming a plugin as a
-  -- dep IS a non-optional reference. Without that, a table-form dep
-  -- `{ 'foo/x', optional = true }` would prune `x` and cascade-disable
-  -- its parent.
   for src, entry in pairs(state.spec_registry) do
     if entry.specs and #entry.specs > 0 and entry.enabled_result ~= false then
-      local has_required = false
-      for _, s in ipairs(entry.specs) do
-        if not s.optional or s._is_dependency then
-          has_required = true
-          break
-        end
-      end
-      if not has_required then
+      if not has_required_spec(entry) then
         entry.enabled_result = false
         utils.schedule_notify(
           ("%s skipped: declared `optional = true` and never referenced elsewhere"):format(src),

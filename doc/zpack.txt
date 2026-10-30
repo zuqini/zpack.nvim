@@ -707,7 +707,10 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 Can be a string (a `[1]` value, see |zpack-Spec|), array
                 of strings, inline spec, or array of specs. Dependency
                 specs can have their own configuration (opts, config, etc.)
-                and nested dependencies.
+                and nested dependencies. When the parent is disabled or
+                skipped as `optional`, its dependency specs are dropped with
+                it (lazy.nvim parity), including their configuration of a
+                plugin that other specs keep enabled.
 
                                                          *zpack-Spec.enabled*
 enabled         (boolean|function, optional)

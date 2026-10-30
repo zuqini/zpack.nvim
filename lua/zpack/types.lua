@@ -78,6 +78,7 @@
 ---@field import? string|fun():zpack.Spec[] Module path string or function returning specs (lazy.nvim parity)
 ---@field _import_order? number Internal: Order in which spec was imported
 ---@field _is_dependency? boolean Internal: Whether spec was imported as a dependency
+---@field _parent_specs? table<zpack.Spec, true> Internal: The specs whose `dependencies` declared this one
 
 ---Plugin load lifecycle state.
 ---  `pending` — next trigger will start a load.
