@@ -707,15 +707,22 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 Can be a string (a `[1]` value, see |zpack-Spec|), array
                 of strings, inline spec, or array of specs. Dependency
                 specs can have their own configuration (opts, config, etc.)
-                and nested dependencies. When the parent is disabled or
-                skipped as `optional`, its dependency specs (and its
-                `specs`) are dropped with it, as in lazy.nvim: they no
-                longer configure, enable, disable or add dependencies to a
-                plugin that other specs keep. Such a plugin keeps its name
-                even if a dropped spec set `name`, and installs from the
-                source its remaining specs give. A spec table listed under
-                several plugins stays while any of them does, and counts
-                once. A plugin skipped by `cond` keeps its dependency specs.
+                and nested dependencies. A plugin whose dependency is
+                disabled is disabled too, with a warning (lazy.nvim keeps
+                it). When the parent is disabled or skipped as `optional`,
+                its dependency specs (and its `specs`) are dropped with it,
+                as in lazy.nvim: they no longer configure or add
+                dependencies to a plugin that other specs keep, and those
+                under a disabled parent no longer disable it. Such a plugin
+                keeps its name even if a dropped spec set `name`, and
+                installs from the source its remaining specs give. As in
+                lazy.nvim, `enabled = false` under an `optional` parent
+                still applies, since optional plugins are skipped only once
+                nothing else is disabled. A spec table listed under several
+                plugins stays while any of them does, counts once, and is a
+                dependency only if every remaining listing is one (lazy.nvim
+                records only its first listing). A plugin skipped by `cond`
+                keeps its dependency specs.
 
                                                          *zpack-Spec.enabled*
 enabled         (boolean|function, optional)
