@@ -19,6 +19,23 @@ M.spec_registry = {}
 ---@type number
 M.import_order = 0
 
+---Where each imported spec table was declared: at the top level, or in a
+---parent spec's `dependencies` (true) or `specs` (false). merge.lua drops a
+---declared spec with its last parent, builds dependency_graph from these and
+---then clears them.
+---@type { [zpack.Spec]: true }
+M.top_specs = {}
+
+---@type { [zpack.Spec]: { [zpack.Spec]: true } }
+M.spec_parents = {}
+
+---@type { [zpack.Spec]: { [zpack.Spec]: boolean } }
+M.spec_children = {}
+
+---The src of the registry entry holding each imported spec.
+---@type { [zpack.Spec]: string }
+M.spec_src = {}
+
 ---@type { [string]: { [string]: true } }
 M.dependency_graph = {}
 
