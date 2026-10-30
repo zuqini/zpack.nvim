@@ -300,6 +300,7 @@ local import_one_spec = function(spec, ctx)
   end
   local is_dep = ctx.is_dependency or false
 
+  local seen = state.top_specs[spec] or state.spec_parents[spec] ~= nil
   if ctx.parent then
     state.spec_parents[spec] = state.spec_parents[spec] or {}
     state.spec_parents[spec][ctx.parent] = true
@@ -308,6 +309,14 @@ local import_one_spec = function(spec, ctx)
   else
     state.top_specs[spec] = true
   end
+  -- lazy.nvim parity: a table listed in several places is one fragment, so
+  -- its opts and lists count once. It is a dependency only if every
+  -- listing is one.
+  if seen then
+    spec._is_dependency = spec._is_dependency and is_dep
+    return
+  end
+
   state.spec_src[spec] = src
   spec._import_order = state.import_order
   state.import_order = state.import_order + 1

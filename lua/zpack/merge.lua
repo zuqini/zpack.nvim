@@ -558,16 +558,24 @@ local function is_top(state, entry)
   return true
 end
 
----A spec declared in a parent's `dependencies` or `specs` lives while any
----of its parent specs does; one listed under two plugins stays while either
----remains.
-local function is_live(state, dead, spec)
+---A spec declared in a parent's `dependencies` or `specs` lives while a
+---chain of parent specs still leads to the top level: one listed under two
+---plugins stays while either remains, and tables listing each other go
+---together once nothing above them is left.
+local function is_live(state, dead, spec, seen)
   if state.top_specs[spec] then
     return true
   end
   for parent in pairs(state.spec_parents[spec] or EMPTY) do
-    if not dead[parent] then
-      return true
+    if not dead[parent] and not (seen and seen[parent]) then
+      if state.top_specs[parent] then
+        return true
+      end
+      seen = seen or {}
+      seen[spec] = true
+      if is_live(state, dead, parent, seen) then
+        return true
+      end
     end
   end
   return false

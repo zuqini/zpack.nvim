@@ -453,6 +453,65 @@ describe("specs declared under a removed plugin's dependencies", function()
   end)
 end)
 
+describe("a spec table listed in several places", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  it("counts once toward opts_extend lists", function()
+    local received
+    local mason = { 'test/mason', opts = { ensure_installed = { 'delve' } } }
+    require('zpack').setup({
+      spec = {
+        {
+          'test/mason',
+          opts_extend = { 'ensure_installed' },
+          opts = { ensure_installed = { 'stylua' } },
+          config = function(_, opts) received = opts end,
+        },
+        { 'test/dap', dependencies = { mason } },
+        { 'test/lsp', dependencies = { mason } },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    assert.are.equal(2, #state.spec_registry['https://github.com/test/mason'].specs)
+    assert.are.same({ 'delve', 'stylua' }, received.ensure_installed)
+    assert.is_true(state.dependency_graph['https://github.com/test/dap']['https://github.com/test/mason'])
+    assert.is_true(state.dependency_graph['https://github.com/test/lsp']['https://github.com/test/mason'])
+  end)
+
+  it("goes with its parent when it and another table list each other", function()
+    local a = { 'test/a' }
+    local b = { 'test/b', dependencies = { a } }
+    a.dependencies = { b }
+    require('zpack').setup({
+      spec = { { 'test/p', enabled = false, dependencies = { a } }, { 'test/keep' } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    assert.is_nil(state.spec_registry['https://github.com/test/a'])
+    assert.is_nil(state.spec_registry['https://github.com/test/b'])
+    assert.is_not_nil(state.spec_registry['https://github.com/test/keep'])
+  end)
+
+  for _, order in ipairs({ 'first', 'second' }) do
+    it(("stays when also listed at the top level (top-level listing %s)"):format(order), function()
+      local plenary = { 'test/plenary', opts = { x = 1 } }
+      local disabled = { 'test/p1', enabled = false, dependencies = { plenary } }
+      require('zpack').setup({
+        spec = order == 'first' and { plenary, disabled } or { disabled, plenary },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+      local entry = require('zpack.state').spec_registry['https://github.com/test/plenary']
+      assert.is_not_nil(entry)
+      assert.is_false(entry.specs[1]._is_dependency)
+    end)
+  end
+end)
+
 describe("import = function() (zpack_nvim-fqs)", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)

@@ -714,8 +714,8 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 plugin that other specs keep. Such a plugin keeps its name
                 even if a dropped spec set `name`, and installs from the
                 source its remaining specs give. A spec table listed under
-                several plugins stays while any of them does. A plugin
-                skipped by `cond` keeps its dependency specs.
+                several plugins stays while any of them does, and counts
+                once. A plugin skipped by `cond` keeps its dependency specs.
 
                                                          *zpack-Spec.enabled*
 enabled         (boolean|function, optional)
