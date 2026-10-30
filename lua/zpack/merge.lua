@@ -924,6 +924,7 @@ function M.resolve_all()
 
   local dead = prune_disabled(state, utils, folded_from)
   build_dependency_graph(state, dead)
+  state.top_specs, state.spec_parents, state.spec_children, state.spec_src = {}, {}, {}, {}
 
   -- Pre-compute is_lazy_resolved and name_to_src from merged_spec alone so the
   -- public API can report a stable `lazy` flag and resolve `get_plugin(name)`

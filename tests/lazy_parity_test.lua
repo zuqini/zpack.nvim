@@ -489,6 +489,14 @@ describe("specs declared under a removed plugin's dependencies", function()
     assert.are.equal(1, calls)
   end)
 
+  it("are not kept in state after setup", function()
+    local state = setup_spec({ { 'test/p', enabled = false, dependencies = { 'test/x' } }, { 'test/x' } })
+    assert.is_nil(next(state.top_specs))
+    assert.is_nil(next(state.spec_parents))
+    assert.is_nil(next(state.spec_children))
+    assert.is_nil(next(state.spec_src))
+  end)
+
   it("keep the edge to a table listed in both a parent's dependencies and specs", function()
     local x = { 'test/x', cmd = 'XCmd' }
     local state = setup_spec({ { 'test/p', dependencies = { x }, specs = { x } } })

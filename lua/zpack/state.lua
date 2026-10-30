@@ -21,7 +21,8 @@ M.import_order = 0
 
 ---Where each imported spec table was declared: at the top level, or in a
 ---parent spec's `dependencies` (true) or `specs` (false). merge.lua drops a
----declared spec with its last parent and builds dependency_graph from these.
+---declared spec with its last parent, builds dependency_graph from these and
+---then clears them.
 ---@type { [zpack.Spec]: true }
 M.top_specs = {}
 
