@@ -1,5 +1,10 @@
 local helpers = require('helpers')
 
+local function resolve(specs)
+  local merge = require('zpack.merge')
+  return merge.resolve_opts(specs, {}, merge.merge_spec_array(specs).opts_extend)
+end
+
 describe("Spec Merging", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)
@@ -231,7 +236,7 @@ describe("Merge Module Unit Tests", function()
     -- at load time by resolve_opts so function-form opts compose correctly
     -- with a single authoritative code path. See merge.lua field_strategies
     -- comment. Callers that need the deep-merged value should invoke
-    -- merge.resolve_opts(sorted_specs, plugin).
+    -- merge.resolve_opts(sorted_specs, plugin, merged_spec.opts_extend).
     local base = { opts = { a = 1, nested = { x = 1 } } }
     local incoming = { opts = { b = 2, nested = { y = 2 } } }
     local result = merge.merge_specs(base, incoming)
@@ -341,6 +346,349 @@ describe("Merge Module Unit Tests", function()
     assert.are.equal(1, result.a)
     assert.are.equal(2, result.b)
     assert.are.equal(3, result.c)
+  end)
+
+  it("resolve_opts concatenates opts_extend lists across specs", function()
+    local specs = {
+      { opts_extend = { 'ensure_installed' }, opts = { ensure_installed = { 'bash', 'c', 'diff' } } },
+      { opts = { ensure_installed = { 'rust', 'ron' } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 'bash', 'c', 'diff', 'rust', 'ron' }, result.ensure_installed)
+  end)
+
+  it("resolve_opts applies opts_extend declared on a later spec to earlier lists", function()
+    -- lazy.nvim only extends from the declaring spec onward and would drop
+    -- 'a'; zpack unions every spec's opts_extend so the result does not
+    -- hinge on the order plugin files are imported.
+    local specs = {
+      { opts = { ensure_installed = { 'a' } } },
+      { opts = { ensure_installed = { 'b' } } },
+      { opts_extend = { 'ensure_installed' }, opts = { ensure_installed = { 'c' } } },
+      { opts = { ensure_installed = { 'd' } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 'a', 'b', 'c', 'd' }, result.ensure_installed)
+  end)
+
+  it("resolve_opts applies opts_extend declared on a spec without opts", function()
+    local specs = {
+      { opts = { list = { 'a' } } },
+      { opts_extend = { 'list' } },
+      { opts = { list = { 'b' } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 'a', 'b' }, result.list)
+  end)
+
+  it("resolve_opts never drops a key another spec's opts_extend names", function()
+    local specs = {
+      { opts_extend = { 'first', 'second' }, opts = { first = { 1 }, second = { 1 } } },
+      { opts_extend = { 'first' }, opts = { first = { 2 }, second = { 2 } } },
+      { opts_extend = {}, opts = { first = { 3 }, second = { 3 } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 1, 2, 3 }, result.first)
+    assert.are.same({ 1, 2, 3 }, result.second)
+  end)
+
+  it("resolve_opts deep-merges an opts_extend key that holds a dict", function()
+    local specs = {
+      { opts_extend = { 'servers' }, opts = { servers = { lua_ls = { cmd = 'lua' } } } },
+      { opts = { servers = { pyright = { cmd = 'py' } } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ lua_ls = { cmd = 'lua' }, pyright = { cmd = 'py' } }, result.servers)
+  end)
+
+  it("resolve_opts keeps sibling keys when opts_extend names a dict and a list inside it", function()
+    local specs = {
+      { opts_extend = { 'a', 'a.b' }, opts = { a = { b = { 1 }, keep = true } } },
+      { opts = { a = { b = { 2 } } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ b = { 1, 2 }, keep = true }, result.a)
+  end)
+
+  it("resolve_opts skips non-string opts_extend keys instead of throwing", function()
+    local specs = {
+      { opts_extend = { 1, { 'x' }, 'list' }, opts = { list = { 'a' } } },
+      { opts = { list = { 'b' } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 'a', 'b' }, result.list)
+  end)
+
+  it("resolve_opts follows dotted opts_extend keys into nested lists", function()
+    local specs = {
+      {
+        opts_extend = { 'sources.default' },
+        opts = { sources = { default = { 'lsp', 'path' }, providers = { lsp = { name = 'LSP' } } } },
+      },
+      { opts = { sources = { default = { 'snippets' }, providers = { snippets = { name = 'Snip' } } } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 'lsp', 'path', 'snippets' }, result.sources.default)
+    assert.are.equal('LSP', result.sources.providers.lsp.name)
+    assert.are.equal('Snip', result.sources.providers.snippets.name)
+  end)
+
+  it("resolve_opts still replaces lists not named in opts_extend", function()
+    local specs = {
+      { opts_extend = { 'extended' }, opts = { extended = { 1 }, replaced = { 1 } } },
+      { opts = { extended = { 2 }, replaced = { 2 } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 1, 2 }, result.extended)
+    assert.are.same({ 2 }, result.replaced)
+  end)
+
+  it("resolve_opts without opts_extend merges like vim.tbl_deep_extend", function()
+    local a = { list = { 1, 2 }, dict = { x = 1, nested = { y = 1 } }, empty = {}, mixed = { 1, k = 'a' }, s = 'a' }
+    local b = { list = { 3 }, dict = { nested = { z = 2 } }, empty = { q = 1 }, mixed = { 9 }, s = 'b', new = { 1 } }
+    local result = resolve({ { opts = a }, { opts = b } })
+
+    assert.are.same(vim.tbl_deep_extend('force', a, b), result)
+  end)
+
+  it("resolve_opts extends onto the table a function-form opts returns", function()
+    local specs = {
+      { opts_extend = { 'list' }, opts = { list = { 'a' } } },
+      {
+        opts = function(_, acc)
+          table.insert(acc.list, 'b')
+          return acc
+        end,
+      },
+      { opts = { list = { 'c' } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 'a', 'b', 'c' }, result.list)
+  end)
+
+  it("resolve_opts with opts_extend leaves spec opts untouched across resolves", function()
+    local specs = {
+      { opts_extend = { 'top', 'nested.list' }, opts = { top = { 'a' }, nested = { list = { 'x' } } } },
+      { opts = { top = { 'b' }, nested = { list = { 'y' } } } },
+      { opts = { top = { 'c' }, nested = { list = { 'z' } } } },
+    }
+    local first = resolve(specs)
+    local second = resolve(specs)
+
+    assert.are.same({ 'a', 'b', 'c' }, second.top)
+    assert.are.same({ 'x', 'y', 'z' }, second.nested.list)
+    assert.are.same(first, second)
+    assert.are.same({ top = { 'a' }, nested = { list = { 'x' } } }, specs[1].opts)
+    assert.are.same({ top = { 'b' }, nested = { list = { 'y' } } }, specs[2].opts)
+    assert.are.same({ top = { 'c' }, nested = { list = { 'z' } } }, specs[3].opts)
+  end)
+
+  it("resolve_opts keeps function-form opts from editing a spec's opts_extend lists", function()
+    local specs = {
+      {
+        opts_extend = { 'ensure_installed', 'sources.default' },
+        opts = { ensure_installed = { 'bash' }, sources = { default = { 'lsp' } } },
+      },
+      {
+        opts = function(_, opts)
+          vim.list_extend(opts.ensure_installed, { 'lua' })
+          table.insert(opts.sources.default, 'path')
+        end,
+      },
+      { opts = { ensure_installed = { 'rust' } } },
+    }
+    resolve(specs)
+    local second = resolve(specs)
+
+    assert.are.same({ 'bash', 'lua', 'rust' }, second.ensure_installed)
+    assert.are.same({ 'lsp', 'path' }, second.sources.default)
+    assert.are.same({ ensure_installed = { 'bash' }, sources = { default = { 'lsp' } } }, specs[1].opts)
+  end)
+
+  it("resolve_opts keeps function-form opts from editing a spec's other tables", function()
+    local specs = {
+      { opts = { sections = { lualine_x = { 'encoding' } } } },
+      { opts = function(_, opts) table.insert(opts.sections.lualine_x, 'copilot') end },
+    }
+    resolve(specs)
+    local second = resolve(specs)
+
+    assert.are.same({ 'encoding', 'copilot' }, second.sections.lualine_x)
+    assert.are.same({ sections = { lualine_x = { 'encoding' } } }, specs[1].opts)
+  end)
+
+  it("resolve_opts result can be edited without reaching a lone spec's opts", function()
+    local specs = { { opts = { nested = { list = { 1 } } } } }
+    local result = resolve(specs)
+    table.insert(result.nested.list, 2)
+
+    assert.are.same({ nested = { list = { 1 } } }, specs[1].opts)
+  end)
+
+  it("resolve_opts keeps functions, objects and cycles intact", function()
+    local fn = function() end
+    local object = setmetatable({}, { __index = {} })
+    local cyclic = { name = 'c' }
+    cyclic.self = cyclic
+    local specs = { { opts = { fn = fn, object = object, empty = vim.empty_dict(), cyclic = cyclic } } }
+    local result = resolve(specs)
+
+    assert.are.equal(fn, result.fn)
+    assert.are.equal(object, result.object)
+    assert.are.equal(getmetatable(vim.empty_dict()), getmetatable(result.empty))
+    assert.are_not.equal(cyclic, result.cyclic)
+    assert.are.equal(result.cyclic, result.cyclic.self)
+  end)
+
+  it("resolve_opts keeps a table shared between two opts keys shared", function()
+    local shared = { 'a' }
+    local result = resolve({ { opts = { x = shared, y = { z = shared } } } })
+
+    assert.are_not.equal(shared, result.x)
+    assert.are.equal(result.x, result.y.z)
+  end)
+
+  it("resolve_opts keeps vim.empty_dict() a dict when specs merge it", function()
+    local specs = {
+      { opts = { settings = vim.empty_dict(), init = vim.empty_dict() } },
+      { opts = { settings = vim.empty_dict(), init = { a = 1 } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.equal('{}', vim.json.encode(result.settings))
+    assert.are.equal(getmetatable(vim.empty_dict()), getmetatable(result.init))
+    assert.are.equal(1, result.init.a)
+  end)
+
+  it("resolve_opts merges into an object like vim.tbl_deep_extend", function()
+    local defaults = { d = 1 }
+    local object = setmetatable({ a = 1, b = 2 }, { __index = defaults })
+    local result = resolve({ { opts = { cfg = object } }, { opts = { cfg = { b = 3 } } } })
+
+    assert.are.same({ a = 1, b = 3 }, result.cfg)
+    assert.are.equal(2, object.b)
+  end)
+
+  it("resolve_opts drops nil holes from an opts_extend list only one spec sets", function()
+    local spec_opts = { sources = { default = { 'lsp', nil, 'path' } } }
+    local specs = { { opts_extend = { 'sources.default' }, opts = spec_opts } }
+    local result = resolve(specs)
+
+    assert.are.same({ 'lsp', 'path' }, result.sources.default)
+    assert.are.equal(3, table.maxn(spec_opts.sources.default))
+  end)
+
+  it("resolve_opts keeps a table with named keys one spec sets at an opts_extend key as is", function()
+    local result = resolve({ { opts_extend = { 'spec' }, opts = { spec = { mode = 'n', { '<leader>f' } } } } })
+
+    assert.are.same({ mode = 'n', { '<leader>f' } }, result.spec)
+  end)
+
+  it("resolve_opts takes a single opts_extend key", function()
+    local merge = require('zpack.merge')
+
+    local specs = { { opts = { l = { 'a' } } }, { opts = { l = { 'b' } } } }
+    assert.are.same({ 'a', 'b' }, merge.resolve_opts(specs, {}, 'l').l)
+  end)
+
+  it("resolve_opts accepts a single opts_extend key and ignores other non-tables", function()
+    assert.are.same({ 'a', 'b' }, resolve({ { opts_extend = 'l', opts = { l = { 'a' } } }, { opts = { l = { 'b' } } } }).l)
+    assert.are.same({ 'b' }, resolve({ { opts_extend = true, opts = { l = { 'a' } } }, { opts = { l = { 'b' } } } }).l)
+  end)
+
+  it("resolve_opts drops nil holes from an opts_extend list that replaces a scalar", function()
+    local specs = {
+      { opts_extend = { 'ensure_installed' }, opts = { ensure_installed = 'all' } },
+      { opts = { ensure_installed = { 'a', nil, 'c' } } },
+    }
+
+    assert.are.same({ 'a', 'c' }, resolve(specs).ensure_installed)
+  end)
+
+  it("resolve_opts treats an empty table at an opts_extend key as unset", function()
+    local mixed = { mode = 'n', { 'a' } }
+
+    assert.are.same(mixed, resolve({
+      { opts_extend = { 'spec' }, opts = { spec = {} } },
+      { opts = { spec = mixed } },
+    }).spec)
+    assert.are.same({ 'x', 'y' }, resolve({
+      { opts_extend = { 'l' }, opts = { l = { 'x', 'y' } } },
+      { opts = { l = {} } },
+    }).l)
+  end)
+
+  it("resolve_opts leaves an opts_extend path that runs through an object alone", function()
+    local object = setmetatable({ default = { 'a' } }, { __metatable = 'locked' })
+    local result = resolve({ { opts_extend = { 'sources.default' }, opts = { sources = object } } })
+
+    assert.are.equal(object, result.sources)
+  end)
+
+  it("resolve_opts appends a table with named keys at an opts_extend key as one entry", function()
+    local specs = {
+      { opts_extend = { 'spec' }, opts = { spec = { mode = 'n', { '<leader>f' } } } },
+      { opts = { spec = { { '<leader>g' } } } },
+      { opts = { spec = { mode = { 'n', 'x' }, { '<leader>r' } } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({
+      { mode = 'n', { '<leader>f' } },
+      { '<leader>g' },
+      { mode = { 'n', 'x' }, { '<leader>r' } },
+    }, result.spec)
+  end)
+
+  it("resolve_opts drops nil holes when it concatenates opts_extend lists", function()
+    local specs = {
+      { opts_extend = { 'l' }, opts = { l = { 'a', nil, 'c' } } },
+      { opts = { l = { 'd', nil, 'f' } } },
+    }
+    local result = resolve(specs)
+
+    assert.are.same({ 'a', 'c', 'd', 'f' }, result.l)
+  end)
+
+  it("resolve_opts keeps a table an opts function attaches in place from being edited", function()
+    local servers = { 'lua_ls' }
+    local specs = {
+      { opts = { x = 1 } },
+      { opts = function(_, opts) opts.ensure_installed = servers end },
+    }
+    for _ = 1, 2 do
+      table.insert(resolve(specs).ensure_installed, 'stylua')
+    end
+
+    assert.are.same({ 'lua_ls' }, servers)
+  end)
+
+  it("resolve_opts keeps a table returned by function-form opts from being edited", function()
+    local defaults = { list = { 'a' } }
+    local specs = { { opts = function() return defaults end } }
+    local result = resolve(specs)
+    table.insert(result.list, 'b')
+
+    assert.are.same({ list = { 'a' } }, defaults)
+    assert.are.same({ list = { 'a' } }, resolve(specs))
+  end)
+
+  it("merge_spec_array unions opts_extend across specs", function()
+    local merge = require('zpack.merge')
+
+    local merged = merge.merge_spec_array({ { opts_extend = { 'a', 'b' } }, { opts_extend = { 'b', 'c' } } })
+
+    assert.are.same({ 'a', 'b', 'c' }, merged.opts_extend)
   end)
 
   it("keys with different modes are not deduplicated", function()

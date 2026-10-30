@@ -211,6 +211,99 @@ describe("optional = true (zpack_nvim-sg0)", function()
   end)
 end)
 
+describe("specs declared under a removed plugin's dependencies", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  local function setup_with(parent)
+    local received = nil
+    require('zpack').setup({
+      spec = {
+        {
+          'test/mason',
+          opts_extend = { 'ensure_installed' },
+          opts = { ensure_installed = { 'stylua' } },
+          config = function(_, opts) received = opts end,
+        },
+        parent,
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    return received
+  end
+
+  it("are dropped from a plugin that stays when the parent is skipped as optional", function()
+    local opts = setup_with({
+      'test/dap', optional = true,
+      dependencies = { { 'test/mason', opts = { ensure_installed = { 'delve' } } } },
+    })
+    assert.are.same({ 'stylua' }, opts.ensure_installed)
+  end)
+
+  it("are dropped from a plugin that stays when the parent is disabled", function()
+    local opts = setup_with({
+      'test/dap', enabled = false,
+      dependencies = { { 'test/mason', opts = { ensure_installed = { 'delve' } } } },
+    })
+    local state = require('zpack.state')
+    assert.are.same({ 'stylua' }, opts.ensure_installed)
+    assert.are.equal(1, #state.spec_registry['https://github.com/test/mason'].specs)
+  end)
+
+  it("are dropped through a chain of dependencies", function()
+    local opts = setup_with({
+      'test/dap', optional = true,
+      dependencies = {
+        { 'test/dap-go', dependencies = { { 'test/mason', opts = { ensure_installed = { 'delve' } } } } },
+      },
+    })
+    local state = require('zpack.state')
+    assert.are.same({ 'stylua' }, opts.ensure_installed)
+    assert.is_nil(state.spec_registry['https://github.com/test/dap-go'])
+  end)
+
+  it("drop a plugin left with only optional specs", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/dap', enabled = false, dependencies = { 'test/ui' } },
+        { 'test/ui', optional = true },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    local state = require('zpack.state')
+    assert.is_nil(state.spec_registry['https://github.com/test/ui'])
+  end)
+
+  for _, order in ipairs({ 'before', 'after' }) do
+    it(("stay while another parent declaring the same table stays (disabled parent %s)"):format(order), function()
+      local mason = { 'test/mason', opts = { ensure_installed = { 'delve' } } }
+      local disabled = { 'test/dap', enabled = false, dependencies = { mason } }
+      local kept = { 'test/lsp', dependencies = { mason } }
+      require('zpack').setup({
+        spec = order == 'before' and { disabled, kept } or { kept, disabled },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+      local state = require('zpack.state')
+      local entry = state.spec_registry['https://github.com/test/mason']
+      assert.is_not_nil(entry)
+      assert.is_true(state.dependency_graph['https://github.com/test/lsp']['https://github.com/test/mason'])
+      local opts = require('zpack.merge').resolve_opts(entry.sorted_specs, nil, entry.merged_spec.opts_extend)
+      assert.are.same({ 'delve' }, opts.ensure_installed)
+    end)
+  end
+
+  it("stay when the parent stays", function()
+    local opts = setup_with({
+      'test/dap',
+      dependencies = { { 'test/mason', opts = { ensure_installed = { 'delve' } } } },
+    })
+    assert.are.same({ 'delve', 'stylua' }, opts.ensure_installed)
+  end)
+end)
+
 describe("import = function() (zpack_nvim-fqs)", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)

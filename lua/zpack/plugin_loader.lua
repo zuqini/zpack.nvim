@@ -39,7 +39,11 @@ function M.run_config(src, plugin, spec)
   local registry_entry = state.spec_registry[src]
   -- resolve_opts is the single authoritative path for opts; it walks
   -- sorted_specs fresh so function-form opts compose correctly.
-  local resolved_opts = merge.resolve_opts(registry_entry.sorted_specs or {}, plugin)
+  local resolved_opts = merge.resolve_opts(
+    registry_entry.sorted_specs or {},
+    plugin,
+    registry_entry.merged_spec and registry_entry.merged_spec.opts_extend
+  )
   local main = utils.resolve_main(plugin, spec)
   local label = (plugin and plugin.spec and plugin.spec.name) or src
 

@@ -62,6 +62,7 @@
 ---@field keys? zpack.KeysValue|fun(plugin: zpack.Plugin?):zpack.KeysValue
 ---@field config? fun(plugin: zpack.Plugin?, opts: table)|true
 ---@field opts? table|fun(plugin: zpack.Plugin?, opts: table):table
+---@field opts_extend? string|string[] Opts keys whose lists are appended across specs, not replaced. Dots reach nested keys
 ---@field main? string
 ---@field event? zpack.EventValue|fun(plugin: zpack.Plugin?):zpack.EventValue
 ---@field pattern? string|string[] Global fallback pattern applied to all events (unless zpack.EventSpec specifies its own)
@@ -77,6 +78,7 @@
 ---@field import? string|fun():zpack.Spec[] Module path string or function returning specs (lazy.nvim parity)
 ---@field _import_order? number Internal: Order in which spec was imported
 ---@field _is_dependency? boolean Internal: Whether spec was imported as a dependency
+---@field _parent_specs? table<zpack.Spec, true> Internal: The specs whose `dependencies` declared this one
 
 ---Plugin load lifecycle state.
 ---  `pending` — next trigger will start a load.

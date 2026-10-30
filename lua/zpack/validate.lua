@@ -101,6 +101,7 @@ local SPEC_FIELD_TYPES = {
   build = { 'string', 'function', 'table', 'boolean' },
   config = { 'function', 'boolean' },
   opts = { 'table', 'function' },
+  opts_extend = { 'string', 'table' },
   event = { 'string', 'table', 'function' },
   cmd = { 'string', 'table', 'function' },
   ft = { 'string', 'table', 'function' },
@@ -143,6 +144,19 @@ function M.validate_spec(spec)
   end
   for _, field in ipairs(SORTED_SPEC_FIELDS) do
     check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
+  end
+  if type(spec.opts_extend) == 'string' and vim.list_contains(vim.split(spec.opts_extend, '.', { plain = true }), '') then
+    errors[#errors + 1] = ('opts_extend "%s" has an empty segment'):format(spec.opts_extend)
+  elseif type(spec.opts_extend) == 'table' then
+    if not vim.islist(spec.opts_extend) then
+      errors[#errors + 1] = 'opts_extend: expected a list of opts keys'
+    end
+    for i, key in ipairs(spec.opts_extend) do
+      check(errors, ('opts_extend[%d]'):format(i), key, 'string')
+      if type(key) == 'string' and vim.list_contains(vim.split(key, '.', { plain = true }), '') then
+        errors[#errors + 1] = ('opts_extend[%d] "%s" has an empty segment'):format(i, key)
+      end
+    end
   end
 
   -- Every field above is optional, so a spec with no source at all passes

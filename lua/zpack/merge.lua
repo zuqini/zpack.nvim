@@ -31,6 +31,7 @@ M.field_strategies = {
   cmd = M.LIST_EXTEND,
   ft = M.LIST_EXTEND,
   keys = M.LIST_EXTEND,
+  opts_extend = M.LIST_EXTEND,
 
   cond = M.AND_LOGIC_COND,
   enabled = M.AND_LOGIC_ENABLED,
@@ -39,9 +40,11 @@ M.field_strategies = {
 local internal_fields = {
   _import_order = true,
   _is_dependency = true,
+  _parent_specs = true,
 }
 
----Normalize value to array for LIST_EXTEND fields (event, cmd, ft, keys).
+---Normalize value to array for LIST_EXTEND fields (event, cmd, ft, keys,
+---opts_extend).
 ---Handles three cases:
 ---  1. nil -> empty array
 ---  2. Non-table (string) -> wrap in array: "BufRead" -> {"BufRead"}
@@ -262,32 +265,157 @@ function M.merge_spec_array(specs)
   for i = 1, #specs do
     result = M.merge_specs(result, specs[i])
   end
+  if result.opts_extend ~= nil then
+    result.opts_extend = to_array(result.opts_extend)
+  end
+  return result
+end
+
+local EMPTY_DICT_MT = getmetatable(vim.empty_dict())
+
+local function is_plain(v)
+  if type(v) ~= "table" then
+    return false
+  end
+  local mt = getmetatable(v)
+  return mt == nil or mt == EMPTY_DICT_MT
+end
+
+---Copy the plain tables in `v`, keeping vim.empty_dict() marked as a dict;
+---objects are kept by reference. `seen` maps each source table to its copy,
+---so shared and cyclic references stay shared in the copy.
+---@param v any
+---@param seen table<table, table>
+---@return any
+local function copy_plain(v, seen)
+  if not is_plain(v) then
+    return v
+  end
+  if not seen[v] then
+    local copy = setmetatable({}, getmetatable(v))
+    seen[v] = copy
+    for k, x in pairs(v) do
+      copy[k] = copy_plain(x, seen)
+    end
+  end
+  return seen[v]
+end
+
+local function has_index_keys(t)
+  for k in pairs(t) do
+    if type(k) == "number" then
+      return true
+    end
+  end
+  return false
+end
+
+---Set `t[path]`, shallow-copying the tables on the way so a table that
+---vim.tbl_deep_extend took by reference from a spec is never written to.
+---Stops without setting when an object sits on the way; the copies made
+---up to there equal the originals.
+local function key_set(t, path, value)
+  for i = 1, #path - 1 do
+    local child = t[path[i]]
+    if not is_plain(child) then
+      return
+    end
+    local copy = setmetatable({}, getmetatable(child))
+    for k, x in pairs(child) do
+      copy[k] = x
+    end
+    t[path[i]] = copy
+    t = copy
+  end
+  t[path[#path]] = value
+end
+
+---A list contributes its entries, nil holes dropped. Any other table is
+---appended as one entry, so the named keys of a which-key style
+---`{ mode = 'x', { ... } }` only apply to its own entries.
+---@param tables table[]
+---@return any[]
+local function concat(tables)
+  local list = {}
+  for _, t in ipairs(tables) do
+    if vim.isarray(t) then
+      for i = 1, table.maxn(t) do
+        list[#list + 1] = t[i]
+      end
+    else
+      list[#list + 1] = t
+    end
+  end
+  return list
+end
+
+---vim.tbl_deep_extend("force", base, value), then concatenate the lists at
+---each `opts_extend` path (lazy.nvim's `opts_extend`). Empty tables count
+---as unset, two dicts stay deep-merged, and a path with a scalar or object
+---on the incoming side keeps what vim.tbl_deep_extend made of it.
+---@param base table
+---@param value table
+---@param paths string[][]
+---@return table
+local function merge_opts(base, value, paths)
+  local result = vim.tbl_deep_extend("force", base, value)
+  for _, path in ipairs(paths) do
+    local v = vim.tbl_get(value, unpack(path))
+    if is_plain(v) then
+      local b = vim.tbl_get(base, unpack(path))
+      local parts = {}
+      if is_plain(b) and next(b) ~= nil then
+        parts[#parts + 1] = b
+      end
+      if next(v) ~= nil then
+        parts[#parts + 1] = v
+      end
+      if #parts == 1 and vim.isarray(parts[1])
+          or #parts == 2 and (has_index_keys(parts[1]) or has_index_keys(parts[2])) then
+        key_set(result, path, concat(parts))
+      end
+    end
+  end
   return result
 end
 
 ---Resolve opts through all specs, supporting function-form opts. Throws
 ---if any function-form opts throws — callers must pcall.
+---
+---Each opts function and the caller get their own copy of the plain tables,
+---so editing opts in place (or setup() doing so) cannot reach a spec's or an
+---earlier function's tables and pile up across `:ZPack reload`.
+---
+---`opts_extend` is the merged spec's: the union over every spec, applied to
+---every merge. lazy.nvim reads only the nearest `opts_extend` at or before
+---each spec, so lists merged before the first declaring spec replace each
+---other; the union is a deliberate divergence so the result does not depend
+---on import order.
 ---@param specs zpack.Spec[]
 ---@param plugin zpack.Plugin
+---@param opts_extend? string|string[]
 ---@return table
-function M.resolve_opts(specs, plugin)
+function M.resolve_opts(specs, plugin, opts_extend)
   local accumulated = {}
-
-  for _, spec in ipairs(specs) do
-    local opts = spec.opts
-    if opts ~= nil then
-      if type(opts) == "function" then
-        local result = opts(plugin, accumulated)
-        if type(result) == "table" then
-          accumulated = result
-        end
-      elseif type(opts) == "table" then
-        accumulated = vim.tbl_deep_extend("force", accumulated, opts)
-      end
+  local paths = {}
+  for _, key in ipairs(opts_extend and to_array(opts_extend) or {}) do
+    if type(key) == "string" then
+      paths[#paths + 1] = vim.split(key, ".", { plain = true })
     end
   end
 
-  return accumulated
+  for _, spec in ipairs(specs) do
+    local opts = spec.opts
+    if type(opts) == "function" then
+      local copy = copy_plain(accumulated, {})
+      local result = opts(plugin, copy)
+      accumulated = type(result) == "table" and result or copy
+    elseif type(opts) == "table" then
+      accumulated = merge_opts(accumulated, opts, paths)
+    end
+  end
+
+  return copy_plain(accumulated, {})
 end
 
 local function entry_is_dep_only(entry)
@@ -351,10 +479,61 @@ local function propagate_enabled_disable(state, utils)
   end
 end
 
----Remove every enabled=false entry from the registry, plus any dep-only
----plugins that become orphaned as a side effect. After this runs, every
----remaining entry is guaranteed to reach vim.pack.add, which means the
----public API can rely on entry.plugin being populated by the load callback.
+local function merge_entry(entry)
+  entry.sorted_specs = M.sort_specs(entry.specs)
+  entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
+end
+
+---`opts` is deliberately not stored on merged_spec; this boolean lets
+---plugin_loader / startup answer "does any spec contribute opts?" without
+---re-scanning.
+local function contributes_opts(entry)
+  for _, s in ipairs(entry.sorted_specs) do
+    if s.opts ~= nil then
+      return true
+    end
+  end
+  return false
+end
+
+---lazy.nvim spec parity (`optional = true`): a plugin is included only if
+---referenced non-optionally somewhere. A dep declaration
+---(`_is_dependency = true`) defeats `optional` — naming a plugin as a dep IS
+---a non-optional reference. Without that, a table-form dep
+---`{ 'foo/x', optional = true }` would prune `x` and cascade-disable its
+---parent.
+local function has_required_spec(entry)
+  for _, s in ipairs(entry.specs) do
+    if not s.optional or s._is_dependency then
+      return true
+    end
+  end
+  return false
+end
+
+---A dependency spec goes with its parents only once every spec that declared
+---it is gone; one table listed under two plugins' `dependencies` stays while
+---either remains.
+local function declared_only_by(removed, spec)
+  if not spec._parent_specs then
+    return false
+  end
+  for parent in pairs(spec._parent_specs) do
+    if not removed[parent] then
+      return false
+    end
+  end
+  return true
+end
+
+---Remove every enabled=false entry from the registry, plus what lazy.nvim
+---deletes along with a plugin: the specs its specs declared under
+---`dependencies` (recursively), even where they configure a plugin that
+---stays, and any dep-only plugin left orphaned. A plugin left with no specs,
+---or only optional ones, is removed too; one that keeps others is re-merged
+---without them. After this runs, every remaining entry is guaranteed to
+---reach vim.pack.add, which means the public API can rely on entry.plugin
+---being populated by the load callback.
 local function prune_disabled(state)
   local worklist = {}
   for src, entry in pairs(state.spec_registry) do
@@ -363,14 +542,59 @@ local function prune_disabled(state)
     end
   end
 
+  local removed = {}
   while #worklist > 0 do
-    local src = table.remove(worklist)
-    local orphaned = strip_outgoing_edges(state, src)
-    state.spec_registry[src] = nil
-    for _, dep_src in ipairs(orphaned) do
-      local dep_entry = state.spec_registry[dep_src]
-      if dep_entry and entry_is_dep_only(dep_entry) then
-        table.insert(worklist, dep_src)
+    while #worklist > 0 do
+      local src = table.remove(worklist)
+      local entry = state.spec_registry[src]
+      if entry then
+        for _, spec in ipairs(entry.specs) do
+          removed[spec] = true
+        end
+        for parent_src in pairs(state.reverse_dependency_graph[src] or {}) do
+          local deps = state.dependency_graph[parent_src]
+          if deps then
+            deps[src] = nil
+          end
+        end
+        state.reverse_dependency_graph[src] = nil
+        local orphaned = strip_outgoing_edges(state, src)
+        state.spec_registry[src] = nil
+        for _, dep_src in ipairs(orphaned) do
+          local dep_entry = state.spec_registry[dep_src]
+          if dep_entry and entry_is_dep_only(dep_entry) then
+            table.insert(worklist, dep_src)
+          end
+        end
+      end
+    end
+
+    local trimmed = {}
+    local changed = true
+    while changed do
+      changed = false
+      for src, entry in pairs(state.spec_registry) do
+        local kept = {}
+        for _, spec in ipairs(entry.specs) do
+          if removed[spec] or declared_only_by(removed, spec) then
+            removed[spec] = true
+            changed = true
+          else
+            kept[#kept + 1] = spec
+          end
+        end
+        if #kept < #entry.specs then
+          entry.specs = kept
+          trimmed[src] = entry
+        end
+      end
+    end
+    for src, entry in pairs(trimmed) do
+      if #entry.specs == 0 or not has_required_spec(entry) then
+        table.insert(worklist, src)
+      else
+        merge_entry(entry)
+        entry.has_opts = contributes_opts(entry)
       end
     end
   end
@@ -424,11 +648,6 @@ local function rekey_graph_edges(state, old_src, new_src)
     end
     state.reverse_dependency_graph[old_src] = nil
   end
-end
-
-local function merge_entry(entry)
-  entry.sorted_specs = M.sort_specs(entry.specs)
-  entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
 end
 
 ---Rank an entry for the coalesce fold as a (tier, import order) pair; compare
@@ -566,16 +785,7 @@ function M.resolve_all()
   for src, entry in pairs(state.spec_registry) do
     if entry.specs and #entry.specs > 0 then
       entry.enabled_result = utils.check_enabled(entry.merged_spec, src)
-      -- `opts` is deliberately not stored on merged_spec; compute a boolean
-      -- summary once here so existence checks in plugin_loader / startup can
-      -- answer "does any spec contribute opts?" without re-scanning.
-      entry.has_opts = false
-      for _, s in ipairs(entry.sorted_specs) do
-        if s.opts ~= nil then
-          entry.has_opts = true
-          break
-        end
-      end
+      entry.has_opts = contributes_opts(entry)
       -- cond_result is intentionally left nil here. It is written later by
       -- registration.register_all's vim.pack.add load callback (which needs
       -- the live plugin arg for function-form conds). Readers must treat
@@ -584,22 +794,9 @@ function M.resolve_all()
     end
   end
 
-  -- lazy.nvim spec parity (`optional = true`): include the plugin only if
-  -- referenced non-optionally somewhere. A dep declaration
-  -- (`_is_dependency = true`) defeats `optional` — naming a plugin as a
-  -- dep IS a non-optional reference. Without that, a table-form dep
-  -- `{ 'foo/x', optional = true }` would prune `x` and cascade-disable
-  -- its parent.
   for src, entry in pairs(state.spec_registry) do
     if entry.specs and #entry.specs > 0 and entry.enabled_result ~= false then
-      local has_required = false
-      for _, s in ipairs(entry.specs) do
-        if not s.optional or s._is_dependency then
-          has_required = true
-          break
-        end
-      end
-      if not has_required then
+      if not has_required_spec(entry) then
         entry.enabled_result = false
         utils.schedule_notify(
           ("%s skipped: declared `optional = true` and never referenced elsewhere"):format(src),

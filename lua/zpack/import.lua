@@ -239,6 +239,8 @@ local register_dependencies = function(spec, src, ctx)
         state.reverse_dependency_graph[dep_src] = state.reverse_dependency_graph[dep_src] or {}
         state.reverse_dependency_graph[dep_src][src] = true
       end
+      dep_spec._parent_specs = dep_spec._parent_specs or {}
+      dep_spec._parent_specs[spec] = true
       M.import_specs(dep_spec, dep_ctx)
     end
   end
