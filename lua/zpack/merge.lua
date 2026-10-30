@@ -31,6 +31,7 @@ M.field_strategies = {
   cmd = M.LIST_EXTEND,
   ft = M.LIST_EXTEND,
   keys = M.LIST_EXTEND,
+  opts_extend = M.LIST_EXTEND,
 
   cond = M.AND_LOGIC_COND,
   enabled = M.AND_LOGIC_ENABLED,
@@ -41,7 +42,8 @@ local internal_fields = {
   _is_dependency = true,
 }
 
----Normalize value to array for LIST_EXTEND fields (event, cmd, ft, keys).
+---Normalize value to array for LIST_EXTEND fields (event, cmd, ft, keys,
+---opts_extend).
 ---Handles three cases:
 ---  1. nil -> empty array
 ---  2. Non-table (string) -> wrap in array: "BufRead" -> {"BufRead"}
@@ -262,28 +264,130 @@ function M.merge_spec_array(specs)
   for i = 1, #specs do
     result = M.merge_specs(result, specs[i])
   end
+  if result.opts_extend ~= nil then
+    result.opts_extend = to_array(result.opts_extend)
+  end
+  return result
+end
+
+local EMPTY_DICT_MT = getmetatable(vim.empty_dict())
+
+local function is_plain(v)
+  if type(v) ~= "table" then
+    return false
+  end
+  local mt = getmetatable(v)
+  return mt == nil or mt == EMPTY_DICT_MT
+end
+
+local function has_index_keys(t)
+  for k in pairs(t) do
+    if type(k) == "number" then
+      return true
+    end
+  end
+  return false
+end
+
+---Set `t[path]`, shallow-copying the tables on the way so a table that
+---vim.tbl_deep_extend took by reference from a spec is never written to.
+---Stops without setting when an object sits on the way; the copies made
+---up to there equal the originals.
+local function key_set(t, path, value)
+  for i = 1, #path - 1 do
+    local child = t[path[i]]
+    if not is_plain(child) then
+      return
+    end
+    local copy = setmetatable({}, getmetatable(child))
+    for k, x in pairs(child) do
+      copy[k] = x
+    end
+    t[path[i]] = copy
+    t = copy
+  end
+  t[path[#path]] = value
+end
+
+---A list contributes its entries, nil holes dropped. Any other table is
+---appended as one entry, so the named keys of a which-key style
+---`{ mode = 'x', { ... } }` only apply to its own entries.
+---@param tables table[]
+---@return any[]
+local function concat(tables)
+  local list = {}
+  for _, t in ipairs(tables) do
+    if vim.isarray(t) then
+      for i = 1, table.maxn(t) do
+        list[#list + 1] = t[i]
+      end
+    else
+      list[#list + 1] = t
+    end
+  end
+  return list
+end
+
+---vim.tbl_deep_extend("force", base, value), then concatenate the lists at
+---each `opts_extend` path (lazy.nvim's `opts_extend`). Empty tables count
+---as unset, two dicts stay deep-merged, and a path with a scalar or object
+---on the incoming side keeps what vim.tbl_deep_extend made of it.
+---@param base table
+---@param value table
+---@param paths string[][]
+---@return table
+local function merge_opts(base, value, paths)
+  local result = vim.tbl_deep_extend("force", base, value)
+  for _, path in ipairs(paths) do
+    local v = vim.tbl_get(value, unpack(path))
+    if is_plain(v) then
+      local b = vim.tbl_get(base, unpack(path))
+      local parts = {}
+      if is_plain(b) and next(b) ~= nil then
+        parts[#parts + 1] = b
+      end
+      if next(v) ~= nil then
+        parts[#parts + 1] = v
+      end
+      if #parts == 1 and vim.isarray(parts[1])
+          or #parts == 2 and (has_index_keys(parts[1]) or has_index_keys(parts[2])) then
+        key_set(result, path, concat(parts))
+      end
+    end
+  end
   return result
 end
 
 ---Resolve opts through all specs, supporting function-form opts. Throws
 ---if any function-form opts throws — callers must pcall.
+---
+---`opts_extend` is the merged spec's: the union over every spec, applied to
+---every merge. lazy.nvim reads only the nearest `opts_extend` at or before
+---each spec, so lists merged before the first declaring spec replace each
+---other; the union is a deliberate divergence so the result does not depend
+---on import order.
 ---@param specs zpack.Spec[]
 ---@param plugin zpack.Plugin
+---@param opts_extend? string|string[]
 ---@return table
-function M.resolve_opts(specs, plugin)
+function M.resolve_opts(specs, plugin, opts_extend)
   local accumulated = {}
+  local paths = {}
+  for _, key in ipairs(opts_extend and to_array(opts_extend) or {}) do
+    if type(key) == "string" then
+      paths[#paths + 1] = vim.split(key, ".", { plain = true })
+    end
+  end
 
   for _, spec in ipairs(specs) do
     local opts = spec.opts
-    if opts ~= nil then
-      if type(opts) == "function" then
-        local result = opts(plugin, accumulated)
-        if type(result) == "table" then
-          accumulated = result
-        end
-      elseif type(opts) == "table" then
-        accumulated = vim.tbl_deep_extend("force", accumulated, opts)
+    if type(opts) == "function" then
+      local result = opts(plugin, accumulated)
+      if type(result) == "table" then
+        accumulated = result
       end
+    elseif type(opts) == "table" then
+      accumulated = merge_opts(accumulated, opts, paths)
     end
   end
 

@@ -108,6 +108,53 @@ describe("Plugin opts and auto-setup", function()
     assert.are.equal(42, received_opts.num)
   end)
 
+  it("opts_extend concatenates list opts from separate specs of one plugin", function()
+    local received_opts = nil
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          opts_extend = { 'ensure_installed' },
+          opts = { ensure_installed = { 'bash', 'c', 'diff' } },
+          config = function(_, opts)
+            received_opts = opts
+          end,
+        },
+        { 'test/plugin', opts = { ensure_installed = { 'rust', 'ron' } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.is_not_nil(received_opts, "config should receive opts")
+    assert.are.same({ 'bash', 'c', 'diff', 'rust', 'ron' }, received_opts.ensure_installed)
+  end)
+
+  it("opts_extend appends lists from dependencies specs before top-level ones", function()
+    local received_opts = nil
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          opts_extend = { 'ensure_installed' },
+          opts = { ensure_installed = { 'top1' } },
+          config = function(_, opts)
+            received_opts = opts
+          end,
+        },
+        { 'test/other', dependencies = { { 'test/plugin', opts = { ensure_installed = { 'dep' } } } } },
+        { 'test/plugin', opts = { ensure_installed = { 'top2' } } },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.is_not_nil(received_opts, "config should receive opts")
+    assert.are.same({ 'dep', 'top1', 'top2' }, received_opts.ensure_installed)
+  end)
+
   it("config function receives resolved opts from function", function()
     local received_opts = nil
 

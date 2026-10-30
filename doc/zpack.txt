@@ -612,6 +612,7 @@ parent's lazy trigger fires.
       -- Plugin configuration
       opts = {},                            -- Options passed to setup()
       -- opts = function(plugin, opts) return {} end,
+      opts_extend = { "ensure_installed" }, -- Concatenate these opts lists
 
       -- Lifecycle hooks
       init = function(plugin) end,          -- Runs before load
@@ -747,6 +748,47 @@ opts            (table|function(plugin, opts), optional)
                 When a custom `config` function is provided, the resolved
                 `opts` is passed as the second argument, but you are
                 responsible for calling `setup()` yourself.
+
+                                                     *zpack-Spec.opts_extend*
+opts_extend     (string|string[], optional)
+                Keys in `opts` whose lists get appended to instead of
+                replaced when several specs for the same plugin set `opts`.
+                Use dots for nested keys, e.g. `"sources.default"`.
+                Duplicates are kept, and nil holes in a list are dropped
+                when specs merge. A table with named keys at that path,
+                such as which-key's `{ mode = 'v', { ... } }`, is appended
+                as one entry, so its keys only apply to its own entries.
+                Two dicts at that path deep-merge as usual.
+
+                `opts_extend` from all specs of the plugin is combined, so
+                it only needs to be set on one of them, and no spec can
+                turn it off. To replace an extended list, use function-form
+                opts, e.g. `function(_, o) o.ensure_installed = { 'x' } end`.
+                Lists are appended in merge order: specs pulled in as
+                `dependencies` first, then top-level specs in import order.
+                Specs listed under the `dependencies` of a plugin that is
+                disabled or skipped as `optional` are left out, as in
+                lazy.nvim. lazy.nvim differs:
+                - Each spec uses the nearest `opts_extend` at or before it.
+                  A spec with none in effect replaces the lists before it,
+                  so of the lists set before the first `opts_extend`, only
+                  the last is kept, and a later `opts_extend` that leaves a
+                  key out stops that key from appending.
+                - It keeps only the list entries of a table at that path,
+                  so named keys are dropped and a dict there becomes an
+                  empty list.
+                - It appends in import order, without putting
+                  `dependencies` specs first.
+>lua
+                -- plugins/treesitter.lua
+                { 'nvim-treesitter/nvim-treesitter',
+                  opts_extend = { 'ensure_installed' },
+                  opts = { ensure_installed = { 'bash', 'c' } } }
+                -- plugins/rust.lua
+                { 'nvim-treesitter/nvim-treesitter',
+                  opts = { ensure_installed = { 'rust' } } }
+                -- ensure_installed ends up with bash, c and rust
+<
 
                                                             *zpack-Spec.init*
 init            (function(plugin), optional)

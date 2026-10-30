@@ -120,9 +120,51 @@ describe("Spec Validation", function()
       cmd = { 'Foo', 'Bar' },
       config = true,
       opts = {},
+      opts_extend = { 'ensure_installed' },
       enabled = function() return true end,
     })
     assert.are.equal(0, #errors)
+  end)
+
+  it("validate_spec accepts a single opts_extend key", function()
+    local validate = require('zpack.validate')
+    assert.are.equal(0, #validate.validate_spec({ 'user/plugin', opts_extend = 'ensure_installed' }))
+  end)
+
+  it("validate_spec flags an empty segment in a single opts_extend key", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', opts_extend = 'ensure_installed.' })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('empty segment', 1, true) ~= nil, "error should name the empty segment")
+  end)
+
+  it("validate_spec flags an opts_extend that is neither a key nor a list", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', opts_extend = true })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('opts_extend', 1, true) ~= nil, "error should name opts_extend")
+  end)
+
+  it("validate_spec flags a non-string opts_extend key", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', opts_extend = { 'ok', 1 } })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('opts_extend[2]', 1, true) ~= nil, "error should name opts_extend[2]")
+  end)
+
+  it("validate_spec flags an opts_extend that is not a list", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', opts_extend = { ensure_installed = true } })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('opts_extend', 1, true) ~= nil, "error should name opts_extend")
+  end)
+
+  it("validate_spec flags opts_extend keys with an empty segment", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', opts_extend = { 'a.', 'a..b', 'a.b' } })
+    assert.are.equal(2, #errors)
+    assert.is_truthy(errors[1]:find('opts_extend[1]', 1, true) ~= nil, "error should name opts_extend[1]")
+    assert.is_truthy(errors[2]:find('opts_extend[2]', 1, true) ~= nil, "error should name opts_extend[2]")
   end)
 
   it("validate_spec flags a non-boolean lazy", function()
