@@ -781,10 +781,10 @@ local function drop_unused(state, utils, prune)
   end
 end
 
----Re-run the fold's source choice over the specs an entry has left, as
----lazy.nvim re-derives a plugin's url from its remaining fragments: a fork
----`url` declared only under a removed plugin no longer decides where the
----plugin installs from.
+---Keep the source the fold picked while a spec giving it remains; otherwise
+---re-run the fold's choice over the specs left, as lazy.nvim re-derives a
+---plugin's url from its remaining fragments, so a fork `url` declared only
+---under a removed plugin no longer decides where the plugin installs from.
 ---`folded_from` maps each spec the fold moved to the src it came from; the
 ---new src is free in the registry, since the fold moved every spec with that
 ---source into this entry.
@@ -792,6 +792,9 @@ local function rederive_src(state, folded_from, entry, src)
   local groups = {}
   for _, spec in ipairs(entry.specs) do
     local spec_src = folded_from[spec] or src
+    if spec_src == src then
+      return
+    end
     groups[spec_src] = groups[spec_src] or { specs = {} }
     table.insert(groups[spec_src].specs, spec)
   end

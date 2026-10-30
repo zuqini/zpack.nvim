@@ -508,6 +508,16 @@ describe("specs declared under a removed plugin's dependencies", function()
     assert.are.same({}, warnings())
   end)
 
+  it("leave a plugin the source the fold gave it while a spec with that source remains", function()
+    setup_spec({
+      { 'test/a', dependencies = { 'mason-org/mason.nvim' } },
+      { 'test/b', dependencies = 'mason.nvim' },
+      { 'test/opt', optional = true, dependencies = { { 'mason-org/mason.nvim', opts = {} } } },
+    })
+    assert.are.same({ 'a <- ' .. GH .. 'test/a', 'b <- ' .. GH .. 'test/b', 'mason.nvim <- ' .. GH .. 'mason-org/mason.nvim' },
+      pack_add_names())
+  end)
+
   it("drop a plugin settled by a top-level spec before one resting on its specs", function()
     local state = setup_spec({
       { 'test/x', dependencies = { 'test/d', { 'test/y', enabled = false } } },

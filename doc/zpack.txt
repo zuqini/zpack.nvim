@@ -714,8 +714,9 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 as in lazy.nvim: they no longer configure or add
                 dependencies to a plugin that other specs keep, and those
                 under a disabled parent no longer disable it. Such a plugin
-                keeps its name even if a dropped spec set `name`, and
-                installs from the source its remaining specs give. As in
+                keeps its name even if a dropped spec set `name`, and keeps
+                its source while a spec giving it remains (otherwise its
+                remaining specs pick one). As in
                 lazy.nvim, `enabled = false` under an `optional` parent
                 still applies, since optional plugins are skipped only once
                 nothing else is disabled. A spec table listed under several
