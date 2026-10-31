@@ -15,7 +15,7 @@ end
 ---@param spec zpack.Spec
 ---@param event zpack.EventValue
 ---@return zpack.NormalizedEvent[]
-local normalize_and_apply_fallback_pattern = function(spec, event)
+local function normalize_and_apply_fallback_pattern(spec, event)
   local result = {}
   local fallback_pattern = spec.pattern or '*'
 
@@ -40,13 +40,69 @@ local normalize_and_apply_fallback_pattern = function(spec, event)
       end
     elseif is_event_spec(ev) then
       table.insert(result, {
-        events = util.normalize_string_list(ev.event),
+        events = type(ev.event) == "table" and ev.event or { ev.event },
         pattern = ev.pattern or fallback_pattern
       })
+    elseif type(ev) == "table" then
+      vim.list_extend(result, normalize_and_apply_fallback_pattern(spec, ev))
     end
   end
 
   return result
+end
+
+---@param pattern any
+---@return boolean
+local function is_usable_pattern(pattern)
+  if type(pattern) == "table" then
+    return #pattern > 0 and vim.iter(pattern):all(function(p) return type(p) == "string" end)
+  end
+  return type(pattern) == "string"
+end
+
+---@param name string
+---@return boolean
+local function is_event_name(name)
+  -- exists() also answers 1 for a comma list, which an autocmd rejects.
+  return name:find("^%w+$") ~= nil and vim.fn.exists("##" .. name) == 1
+end
+
+---Split the names in `event` into those an autocmd can use and the rest.
+---@param event any
+---@param spec? zpack.Spec Gives the fallback pattern
+---@return string[] known, string[] unknown
+local function classify_names(event, spec)
+  local known, unknown = {}, {}
+  if type(event) ~= "string" and type(event) ~= "table" then
+    return known, unknown
+  end
+  for _, normalized in ipairs(normalize_and_apply_fallback_pattern(spec or {}, event)) do
+    for _, name in ipairs(normalized.events) do
+      if type(name) == "string" and name ~= "" then
+        if name == "VeryLazy" or (is_event_name(name) and is_usable_pattern(normalized.pattern)) then
+          known[#known + 1] = name
+        else
+          unknown[#unknown + 1] = name
+        end
+      end
+    end
+  end
+  return known, unknown
+end
+
+---@param event any
+---@param spec? zpack.Spec
+---@return boolean
+M.has_events = function(event, spec)
+  return #classify_names(event, spec) > 0
+end
+
+---@param event any
+---@param spec? zpack.Spec
+---@return string[]
+M.unknown_events = function(event, spec)
+  local _, unknown = classify_names(event, spec)
+  return unknown
 end
 
 ---@param events string[]
@@ -70,7 +126,7 @@ end
 ---@return boolean
 local includes_filetype = function(events)
   for _, event in ipairs(events) do
-    if event:lower() == "filetype" then
+    if type(event) == "string" and event:lower() == "filetype" then
       return true
     end
   end
@@ -111,6 +167,7 @@ end
 ---@param event zpack.EventValue
 M.setup = function(pack_spec, spec, event)
   local normalized_events = normalize_and_apply_fallback_pattern(spec, event)
+  local label = pack_spec.name or pack_spec.src
 
   for _, normalized_event in ipairs(normalized_events) do
     local has_very_lazy, other_events = split_very_lazy(normalized_event.events)
@@ -134,7 +191,7 @@ M.setup = function(pack_spec, spec, event)
       -- nested fire in the same tick bails before refire.exec can double-fire
       -- user autocmds. The load_status gate handles other races (sibling
       -- event/ft already loaded, plugin/ files re-entering synchronously).
-      util.autocmd(other_events, util.latch_first_call(function(ev)
+      local callback = util.latch_first_call(function(ev)
         local entry = state.spec_registry[pack_spec.src]
         if entry and entry.load_status ~= "pending" then
           return
@@ -144,7 +201,13 @@ M.setup = function(pack_spec, spec, event)
           return
         end
         refire.exec(ev, snap)
-      end), { group = state.lazy_group, once = true, pattern = normalized_event.pattern })
+      end)
+      -- One autocmd per name, so an invalid name loses only itself.
+      for _, name in ipairs(other_events) do
+        util.try_trigger_setup(label, 'event', function()
+          util.autocmd(name, callback, { group = state.lazy_group, once = true, pattern = normalized_event.pattern })
+        end)
+      end
     end
   end
 end

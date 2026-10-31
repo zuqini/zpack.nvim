@@ -677,7 +677,10 @@ parent's lazy trigger fires.
                 when no explicit src, url, or dir is given; a full git URL
                 (any `scheme://` URL or scp-style `user@host:`) is used
                 as-is (lazy.nvim parity). Use |zpack-Spec.dir| for local
-                paths.
+                paths. A name without an owner (e.g. "mason.nvim") refers to
+                the plugin of that name that another spec defines and never
+                gives a source; with no such spec it is skipped with a
+                warning, or quietly if `optional` (lazy.nvim parity).
                 Provide at least one of: [1], src, dir, or url.
                 Priority: src > url > dir > [1].
                 The plugin NAME still derives from [1] even when an
@@ -711,9 +714,15 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 Can be a string (a `[1]` value, see |zpack-Spec|), array
                 of strings, inline spec, or array of specs. Dependency
                 specs can have their own configuration (opts, config, etc.)
-                and nested dependencies. A plugin whose dependency is
-                disabled is disabled too, with a warning (lazy.nvim keeps
-                it). When the parent is disabled or skipped as `optional`,
+                and nested dependencies. A dependency whose
+                specs are all `optional` is skipped like any other plugin
+                (lazy.nvim parity). A disabled dependency doesn't disable the
+                plugin listing it (lazy.nvim parity); zpack only leaves a
+                DEBUG note that the plugin may not work, unless the dependency
+                was turned off by that plugin's own spec or by one with
+                `optional = true`. DEBUG notes appear when 'verbose' is set
+                before `setup()`. When the parent is disabled or skipped as
+                `optional`,
                 its dependency specs (and its `specs`) are dropped with it,
                 as in lazy.nvim: they no longer configure or add
                 dependencies to a plugin that other specs keep, and those
@@ -732,12 +741,18 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                                                          *zpack-Spec.enabled*
 enabled         (boolean|function, optional)
                 Enable or disable the plugin. Can be a function that returns
-                a boolean.
+                a boolean. Across specs, the last one to set it wins (lazy.nvim
+                parity), so `enabled = true` undoes an earlier `enabled = false`,
+                and only that spec's function runs. Specs under `dependencies`
+                merge first, so a top-level spec has the last word.
 
                                                             *zpack-Spec.cond*
 cond            (boolean|function(plugin), optional)
                 Condition to load the plugin. Can be a function that receives
-                |zpack.Plugin| and returns a boolean.
+                |zpack.Plugin| and returns a boolean. `false` still installs
+                the plugin. Across specs, the last one to set it wins, as for
+                |zpack-Spec.enabled|. On a spec with `import`, see
+                |zpack-Spec.import|.
 
                                                             *zpack-Spec.lazy*
 lazy            (boolean, optional)
@@ -848,15 +863,18 @@ build           (string|function(plugin), optional)
                 |zpack.Plugin|.
 
                                                            *zpack-Spec.event*
-event           (string|string[]|EventSpec|(string|EventSpec)[]|fn(plugin),
+event           (string|string[]|EventSpec|(string|EventSpec)[]|fn(plugin, list)|false,
                 optional)
                 Autocommand event(s) that trigger lazy loading. Supports
                 'VeryLazy'. Can be a simple string, array of strings,
                 zpack.EventSpec (for specifying patterns), mixed array, or
-                a function receiving |zpack.Plugin| that returns any of
-                these types. Patterns can be specified inline:
+                a function receiving |zpack.Plugin| and the list so far that
+                returns any of these types or edits the list. Patterns can
+                be specified inline:
                 "BufReadPre *.lua". See |zpack.EventSpec|. Auto-sets
-                `lazy=true`.
+                `lazy=true`. `false` clears the events of earlier specs; specs
+                under `dependencies` count as earlier than top-level ones,
+                here and for `cmd`, `keys` and `ft`.
 
                 Note: zpack emits `User VeryLazy` once on UIEnter (or
                 immediately after setup when vim has already entered), so
@@ -872,23 +890,41 @@ pattern         (string|string[], optional)
                 not specified.
 
                                                              *zpack-Spec.cmd*
-cmd             (string|string[]|function(plugin), optional)
+cmd             (string|string[]|function(plugin, list)|false, optional)
                 Command(s) to create that trigger lazy loading. Can be a
-                function receiving |zpack.Plugin| that returns the value.
-                Auto-sets `lazy=true`. Tab-completion on the command also
+                function receiving |zpack.Plugin| and the list so far, which
+                returns the value or edits the list.
+                Auto-sets `lazy=true`. `false` clears the commands of earlier
+                specs. Tab-completion on the command also
                 triggers the load so the real command's completer can
                 answer on the first press.
 
                                                             *zpack-Spec.keys*
-keys            (zpack.KeySpec|zpack.KeySpec[]|function(plugin), optional)
+keys            (string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, keys)|false,
+                optional)
                 Keymap(s) to create that trigger lazy loading. Can be a
-                function receiving |zpack.Plugin| that returns the value.
-                Auto-sets `lazy=true`. See |zpack.KeySpec|.
+                function receiving |zpack.Plugin| and the keys so far (as
+                KeySpec tables with duplicates removed), which
+                returns the value or edits the list. A table of only strings
+                is a list of keys, unless the second can only be an rhs
+                (empty, `<Nop>`, starting with `<cmd>`, `<Plug>` or `:`, or
+                with text before a final `<CR>`); add a field to make any other
+                `{ lhs, "rhs" }` such as `{ "<leader>d", "dd" }` one key, or
+                nest it. Auto-sets
+                `lazy=true`. `false` clears the keys of earlier specs.
+                See |zpack.KeySpec|.
+                Across specs, a later key replaces an earlier one with the
+                same lhs, mode, ft and buffer, and a `false` or |vim.NIL| rhs
+                disables it (lazy.nvim parity). The plugin stays lazy if
+                every key is disabled. Specs under `dependencies` merge first
+                whatever the import order, so one can't replace or disable a
+                key that a top-level spec sets; lazy.nvim goes by import order.
 
                                                               *zpack-Spec.ft*
-ft              (string|string[]|function(plugin), optional)
+ft              (string|string[]|function(plugin, ft)|false, optional)
                 FileType(s) to lazy load on. Can be a function receiving
-                |zpack.Plugin| that returns the value. Automatically
+                |zpack.Plugin| and the list so far, which returns the value
+                or edits the list. Automatically
                 re-triggers BufReadPre, BufReadPost, and FileType events
                 after loading to ensure LSP clients and Treesitter attach
                 properly. Plugins sharing a filetype load together in
@@ -901,12 +937,26 @@ ft              (string|string[]|function(plugin), optional)
                 splits the group if its pattern can match that filetype. A
                 value with no filetypes warns and the plugin never loads
                 from it, and an invalid pattern warns and is skipped.
-                Auto-sets `lazy=true`.
+                Auto-sets `lazy=true`. `false` clears the
+                filetypes of earlier specs.
 
                                                          *zpack-Spec.version*
 version         (string|vim.VersionRange, optional)
                 Git branch, tag, or commit (string), or semver range via
                 |vim.version.range()|. This is vim.pack.add's version field.
+                A string that can't be a git ref, because it contains `*` or
+                starts with `^`, `~`, `<`, `>` or `=`, is read as a semver
+                range (lazy.nvim parity). Use `sem_version` for a range like
+                `1.x`, which could also be a branch. If no tag fits a range
+                written as a string here, in `sem_version` or in
+                `defaults.version`, the plugin follows its default branch, as
+                in lazy.nvim. A |vim.version.range()| object keeps vim.pack's
+                behaviour, which is an error. `false` opts out of
+                `defaults.version` and `sem_version`.
+                When a plugin's specs set several of these, the order is
+                lazy.nvim's: `commit`, `tag`, `version`, `sem_version`,
+                `branch`, then `defaults.version` (which applies only with
+                none of the others).
 
                                                      *zpack-Spec.sem_version*
 sem_version     (string, optional)
@@ -941,8 +991,9 @@ name            (string, optional)
                 top-level spec over a dependency, latest-imported within a
                 tier; zpack warns unless the specs name a repo in common (a
                 shared [1], or a `src`/`url` equal to the other's [1]).
-                Fields merge as usual, so `enabled = false` on either
-                fragment disables the plugin. Set `name` to keep them apart.
+                Fields merge as usual, so `enabled = false` on one fragment
+                disables the plugin unless a later one sets `enabled`. Set
+                `name` to keep them apart.
 
                                                             *zpack-Spec.main*
 main            (string, optional)
@@ -972,7 +1023,9 @@ import          (string|function, optional)
                 'plugins.lsp'). If lua/{path}.lua exists it is loaded as a
                 single spec module; otherwise zpack imports all .lua files
                 from lua/{path}/ and all subdirectories with init.lua
-                (lua/{path}/*/init.lua). A lua/{path}.lua file takes
+                (lua/{path}/*/init.lua), in order of module name (lazy.nvim
+                parity), where lua/{path}/init.lua is the module {path}.
+                A lua/{path}.lua file takes
                 precedence over a lua/{path}/ directory (mirroring Lua's own
                 `require`, where foo.lua shadows foo/init.lua); the directory
                 walk is skipped. Each file should return a spec or list of
@@ -981,6 +1034,31 @@ import          (string|function, optional)
                 lazy.nvim parity: `import` also accepts a function. The
                 function is called inside pcall, and a table return value
                 is treated as a spec list to recurse into.
+
+                A string `import` is looked up under your config's `lua/`
+                directory, then on 'runtimepath'. If it's on a plugin spec
+                such as `{ "user/dist", import = "dist.plugins" }` and neither
+                has it, zpack looks in that plugin, installing it if needed,
+                as do `{ import = "dist.plugins.extra" }` specs. A plugin
+                that's disabled or removed isn't installed. It installs from
+                what your config's specs say about it; a `version` or `url`
+                set only inside its own modules applies from the next session
+                and the next `:ZPack update`, as in lazy.nvim. It warns if it finds no specs.
+                Unlike lazy.nvim, a plugin listed without an `import` of its
+                own isn't searched.
+
+                `enabled` and `cond` on the spec decide whether to follow the
+                `import`, as in lazy.nvim. Here `cond` works like `enabled`:
+                if false, the module isn't read and its plugins aren't
+                registered, so they aren't installed and `:ZPack clean` treats
+                installed ones as unused. To keep them installed but unloaded,
+                set `cond` on the plugins themselves or `defaults.cond`, which
+                doesn't apply to the `import` itself. A function-form `cond`
+                gets no plugin here, because an import isn't one. On a spec
+                with both a source and an `import`, the plugin keeps the usual
+                meaning of each field; its `cond` also runs for the `import`,
+                before anything is installed, with `name`, `spec`, and the
+                `path` and `dir` it installs to, which may not exist yet.
 
                                                             *zpack-Spec.pin*
 pin             (boolean, optional)

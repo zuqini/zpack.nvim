@@ -110,13 +110,16 @@ local get_installed_or_notify = function(plugin_name)
   return result[1]
 end
 
+local own_root = debug.getinfo(1, 'S').source:sub(2):match('^(.*)/lua/zpack/commands%.lua$')
+
 M.clean_unused = function()
   local to_delete = {}
   local installed = vim.pack.get(nil, { info = false }) or {}
 
   for _, pack in ipairs(installed) do
     local src = pack.spec.src
-    if not state.spec_registry[src] and not string.find(src, 'zpack') then
+    if not state.spec_registry[src] and pack.path ~= own_root
+        and util.derive_name_from_src(src) ~= 'zpack.nvim' then
       table.insert(to_delete, pack.spec.name)
     end
   end

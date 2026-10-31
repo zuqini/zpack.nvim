@@ -401,10 +401,11 @@ describe("Spec Import", function()
 
   it("spec with a non-string source is skipped, not crashed on", function()
     local state = require('zpack.state')
-    -- An over-nested spec — `[1]` is a table, not a "user/plugin" string.
-    -- normalize_source must not crash expanding it; the spec is
-    -- skipped and setup() completes rather than aborting partway through.
-    require('zpack').setup({ spec = { { { 'user/plugin' } } } })
+    -- `[1]` is a number, not a "user/plugin" string. normalize_source must
+    -- not crash expanding it; the spec is skipped and setup() completes
+    -- rather than aborting partway through. An option keeps it a spec rather
+    -- than a list.
+    require('zpack').setup({ spec = { { 42, opts = {} } } })
     helpers.flush_pending()
 
     assert.is_truthy(state.is_setup,

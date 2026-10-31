@@ -39,6 +39,13 @@ function M.setup_test_env()
 
   vim.g.mapleader = ' '
 
+  -- `nvim -l` runs after init, and setup() normally runs during it.
+  _G.test_state.original_vim_v = vim.v
+  vim.v = setmetatable({ vim_did_init = 0 }, {
+    __index = _G.test_state.original_vim_v,
+    __newindex = _G.test_state.original_vim_v,
+  })
+
   _G.test_state.original_notify = vim.notify
   vim.notify = function(msg, level)
     table.insert(_G.test_state.notifications, { msg = msg, level = level })
@@ -130,6 +137,9 @@ function M.setup_test_env()
 end
 
 function M.cleanup_test_env()
+  -- A test firing a key proxy's callback directly leaves its re-fed keys queued,
+  -- which would otherwise eat the first key a later test feeds.
+  vim.api.nvim_feedkeys('', 'x', false)
   -- Clear autocmds before reloading modules
   if package.loaded['zpack.state'] then
     local state = package.loaded['zpack.state']
@@ -160,6 +170,9 @@ function M.cleanup_test_env()
     end
     if _G.test_state.original_vim_pack_update then
       vim.pack.update = _G.test_state.original_vim_pack_update
+    end
+    if _G.test_state.original_vim_v then
+      vim.v = _G.test_state.original_vim_v
     end
     if _G.test_state.original_vim_cmd_packadd then
       vim.cmd.packadd = _G.test_state.original_vim_cmd_packadd
@@ -199,6 +212,7 @@ function M.cleanup_test_env()
   package.loaded['zpack.merge'] = nil
   package.loaded['zpack.module_loader'] = nil
   package.loaded['zpack.api'] = nil
+  package.loaded['zpack.pack'] = nil
 
   -- Remove our module loader from package.loaders if present
   for i = #package.loaders, 1, -1 do

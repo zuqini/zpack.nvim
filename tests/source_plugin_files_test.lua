@@ -1,7 +1,10 @@
 local helpers = require('helpers')
 
 describe("source_after_plugin_files", function()
-  before_each(helpers.setup_test_env)
+  before_each(function()
+    helpers.setup_test_env()
+    vim.v = setmetatable({ vim_did_init = 1 }, { __index = _G.test_state.original_vim_v })
+  end)
   after_each(helpers.cleanup_test_env)
 
   it("sources lua files from after/plugin/ directory", function()

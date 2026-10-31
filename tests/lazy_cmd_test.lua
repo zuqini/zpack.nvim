@@ -418,4 +418,46 @@ describe("Lazy Loading - Commands", function()
 
     pcall(vim.api.nvim_del_user_command, 'TestTearDownOnComplete')
   end)
+
+  describe("a proxy two plugins claim", function()
+    local function setup_shared()
+      require('zpack').setup({
+        spec = {
+          { 'test/ext', cmd = 'TestShared' },
+          { 'test/owner', cmd = 'TestShared' },
+        },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+    end
+
+    local function load(name)
+      local state = require('zpack.state')
+      require('zpack.plugin_loader').process_spec(state.src_to_pack_spec[state.name_to_src[name]])
+    end
+
+    after_each(function()
+      pcall(vim.api.nvim_del_user_command, 'TestShared')
+    end)
+
+    it("stays until the last of them loads", function()
+      setup_shared()
+
+      load('ext')
+      assert.is_not_nil(vim.api.nvim_get_commands({}).TestShared)
+
+      load('owner')
+      assert.is_nil(vim.api.nvim_get_commands({}).TestShared)
+    end)
+
+    it("leaves the real command that replaced it", function()
+      setup_shared()
+
+      load('owner')
+      vim.api.nvim_create_user_command('TestShared', function() end, { force = true })
+      load('ext')
+
+      assert.is_not_nil(vim.api.nvim_get_commands({}).TestShared)
+    end)
+  end)
 end)

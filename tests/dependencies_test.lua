@@ -649,7 +649,7 @@ describe("Dependencies Field", function()
 
   local function has_warning_matching(fragments)
     for _, notif in ipairs(_G.test_state.notifications) do
-      if notif.level == vim.log.levels.WARN then
+      if notif.level == vim.log.levels.WARN or notif.level == vim.log.levels.DEBUG then
         local all_match = true
         for _, frag in ipairs(fragments) do
           if not notif.msg:find(frag, 1, true) then
@@ -706,7 +706,7 @@ describe("Dependencies Field", function()
     _G.test_state.dep_config_ran = nil
   end)
 
-  it("enabled=false on a dep does not run user config and propagates to disable parent", function()
+  it("enabled=false on a dep does not run user config and keeps the parent with a warning", function()
     local state = require('zpack.state')
     _G.test_state.dep_config_ran = nil
 
@@ -734,9 +734,9 @@ describe("Dependencies Field", function()
       state.spec_registry['https://github.com/test/dep'],
       "disabled dep should be pruned from spec_registry"
     )
-    assert.is_nil(
+    assert.is_not_nil(
       state.spec_registry['https://github.com/test/parent'],
-      "parent should be pruned after propagation (required dep is disabled)"
+      "parent should stay, as in lazy.nvim"
     )
 
     assert.is_nil(_G.test_state.dep_config_ran, "config should NOT have run")
@@ -744,14 +744,15 @@ describe("Dependencies Field", function()
       _G.test_state.registered_pack_specs['dep'],
       "disabled dep should not be passed to vim.pack.add"
     )
-    assert.is_nil(
+    assert.is_not_nil(
       _G.test_state.registered_pack_specs['parent'],
-      "propagation-disabled parent should not reach vim.pack.add"
+      "parent should reach vim.pack.add"
     )
+    assert.is_nil(state.dependency_graph['https://github.com/test/parent'], "a disabled dep leaves no edge")
 
     assert.is_truthy(
       has_warning_matching({ 'test/parent', 'test/dep', 'enabled=false' }),
-      "expected a propagation warning naming the parent, dep, and enabled=false"
+      "expected a warning naming the parent, dep, and enabled=false"
     )
 
     _G.test_state.dep_config_ran = nil
@@ -785,7 +786,7 @@ describe("Dependencies Field", function()
     _G.test_state.dep_config_ran = nil
   end)
 
-  it("enabled AND_LOGIC: one spec false disables the merged plugin", function()
+  it("enabled = false stays when no later spec sets enabled", function()
     local state = require('zpack.state')
 
     require('zpack').setup({
@@ -806,7 +807,7 @@ describe("Dependencies Field", function()
 
     assert.is_nil(
       state.spec_registry['https://github.com/test/shared'],
-      "plugin with any fragment disabling it should be pruned"
+      "a later spec that doesn't set enabled leaves it disabled"
     )
     assert.is_falsy(
       vim.tbl_contains(state.registered_plugin_names, 'shared'),
@@ -818,7 +819,7 @@ describe("Dependencies Field", function()
     )
   end)
 
-  it("enabled AND_LOGIC with two functions: one false disables plugin", function()
+  it("the last function-form enabled decides", function()
     local state = require('zpack.state')
 
     require('zpack').setup({
@@ -840,7 +841,7 @@ describe("Dependencies Field", function()
 
     assert.is_nil(
       state.spec_registry['https://github.com/test/shared'],
-      "merged function AND_LOGIC yielding false should prune the plugin"
+      "the last function returning false should prune the plugin"
     )
     assert.is_nil(
       _G.test_state.registered_pack_specs['shared'],
@@ -1227,13 +1228,13 @@ describe("Dependencies Field", function()
       _G.test_state.registered_pack_specs['en-dep'],
       "enabled=false dep should not reach vim.pack.add"
     )
-    assert.is_nil(
+    assert.is_not_nil(
       _G.test_state.registered_pack_specs['en-parent'],
-      "parent should be propagation-disabled when its required dep is enabled=false"
+      "parent should stay when its dep is enabled=false"
     )
     assert.is_truthy(
       has_warning_matching({ 'test/en-parent', 'test/en-dep', 'enabled=false' }),
-      "expected propagation warning naming parent, dep, and enabled=false"
+      "expected a warning naming parent, dep, and enabled=false"
     )
 
     utils.lsdir = original_lsdir
@@ -1277,7 +1278,7 @@ describe("Dependencies Field", function()
     )
   end)
 
-  it("enabled=false on a dep transitively disables a grandparent chain", function()
+  it("enabled=false on a dep keeps the chain above it and warns only for its direct parent", function()
     local state = require('zpack.state')
 
     require('zpack').setup({
@@ -1304,33 +1305,21 @@ describe("Dependencies Field", function()
       state.spec_registry['https://github.com/test/prop-leaf'],
       "leaf should be pruned"
     )
-    assert.is_nil(
-      state.spec_registry['https://github.com/test/prop-mid'],
-      "mid should be pruned (propagation-disabled, depends on leaf)"
-    )
-    assert.is_nil(
-      state.spec_registry['https://github.com/test/prop-grand'],
-      "grand should be pruned (propagation-disabled, depends transitively on leaf)"
-    )
-
-    for _, name in ipairs({ 'prop-grand', 'prop-mid', 'prop-leaf' }) do
-      assert.is_nil(
-        _G.test_state.registered_pack_specs[name],
-        name .. " should not reach vim.pack.add"
-      )
-    end
+    assert.is_not_nil(state.spec_registry['https://github.com/test/prop-mid'], "mid should stay")
+    assert.is_not_nil(state.spec_registry['https://github.com/test/prop-grand'], "grand should stay")
+    assert.is_nil(_G.test_state.registered_pack_specs['prop-leaf'], "leaf should not reach vim.pack.add")
 
     assert.is_truthy(
       has_warning_matching({ 'test/prop-mid', 'test/prop-leaf', 'enabled=false' }),
-      "expected propagation warning: mid disabled because leaf has enabled=false"
+      "expected a warning: mid may not work because leaf has enabled=false"
     )
-    assert.is_truthy(
-      has_warning_matching({ 'test/prop-grand', 'test/prop-mid', 'enabled=false' }),
-      "expected propagation warning: grand disabled because mid has enabled=false"
+    assert.is_falsy(
+      has_warning_matching({ 'test/prop-grand', 'may not work' }),
+      "grand's own dependency is still there"
     )
   end)
 
-  it("enabled=false on a shared dep disables all dependents", function()
+  it("enabled=false on a shared dep keeps all dependents", function()
     local state = require('zpack.state')
 
     require('zpack').setup({
@@ -1353,25 +1342,14 @@ describe("Dependencies Field", function()
 
     helpers.flush_pending()
 
-    assert.is_nil(
-      state.spec_registry['https://github.com/test/shared-dep-a'],
-      "dep-a should be pruned (propagation-disabled)"
-    )
-    assert.is_nil(
-      state.spec_registry['https://github.com/test/shared-dep-b'],
-      "dep-b should be pruned (propagation-disabled)"
-    )
-    assert.is_nil(
-      _G.test_state.registered_pack_specs['shared-dep-a'],
-      "dep-a should not reach vim.pack.add"
-    )
-    assert.is_nil(
-      _G.test_state.registered_pack_specs['shared-dep-b'],
-      "dep-b should not reach vim.pack.add"
-    )
+    assert.is_not_nil(_G.test_state.registered_pack_specs['shared-dep-a'], "dep-a should stay")
+    assert.is_not_nil(_G.test_state.registered_pack_specs['shared-dep-b'], "dep-b should stay")
+    assert.is_nil(state.spec_registry['https://github.com/test/shared-disabled'], "the dep itself goes")
+    assert.is_truthy(has_warning_matching({ 'test/shared-dep-a', 'may not work' }))
+    assert.is_truthy(has_warning_matching({ 'test/shared-dep-b', 'may not work' }))
   end)
 
-  it("enabled=false propagates even when the parent has other healthy deps", function()
+  it("enabled=false on one dep leaves the parent and its other deps", function()
     local state = require('zpack.state')
 
     require('zpack').setup({
@@ -1390,21 +1368,12 @@ describe("Dependencies Field", function()
 
     helpers.flush_pending()
 
-    assert.is_nil(
-      state.spec_registry['https://github.com/test/multi-dep-parent'],
-      "parent with one disabled required dep should be pruned"
-    )
-    assert.is_nil(
-      _G.test_state.registered_pack_specs['multi-dep-parent'],
-      "parent should not reach vim.pack.add"
-    )
-    assert.is_nil(
-      _G.test_state.registered_pack_specs['healthy-dep'],
-      "healthy dep is now exclusive to a disabled parent, should be pruned"
-    )
+    assert.is_not_nil(state.spec_registry['https://github.com/test/multi-dep-parent'], "parent should stay")
+    assert.is_not_nil(_G.test_state.registered_pack_specs['healthy-dep'], "healthy dep should stay")
+    assert.is_nil(_G.test_state.registered_pack_specs['sick-dep'], "disabled dep should go")
   end)
 
-  it("enabled=function(false) on a dep propagates to parent", function()
+  it("enabled=function(false) on a dep keeps the parent", function()
     local state = require('zpack.state')
 
     require('zpack').setup({
@@ -1423,14 +1392,8 @@ describe("Dependencies Field", function()
 
     helpers.flush_pending()
 
-    assert.is_nil(
-      state.spec_registry['https://github.com/test/fn-prop-parent'],
-      "parent should be pruned when dep's enabled function returns false"
-    )
-    assert.is_nil(
-      _G.test_state.registered_pack_specs['fn-prop-parent'],
-      "parent should not reach vim.pack.add"
-    )
+    assert.is_not_nil(state.spec_registry['https://github.com/test/fn-prop-parent'], "parent should stay")
+    assert.is_nil(state.spec_registry['https://github.com/test/fn-prop-dep'], "dep should go")
   end)
 
   it("cond=false on a dep does NOT propagate to parent (soft gate preserved)", function()

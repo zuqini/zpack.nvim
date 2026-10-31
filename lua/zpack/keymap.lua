@@ -62,7 +62,7 @@ end
 ---@param keys zpack.KeySpec|zpack.KeySpec[]|string
 ---@param src string Plugin identifier for the failure notify
 M.apply_keys = function(keys, src)
-  local key_list = util.normalize_keys(keys) --[[@as zpack.KeySpec[] ]]
+  local key_list = util.resolve_keys(keys)
 
   for _, key in ipairs(key_list) do
     if key[2] ~= nil then

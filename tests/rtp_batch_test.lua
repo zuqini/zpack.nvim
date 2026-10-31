@@ -361,7 +361,7 @@ describe('eager plugins at startup', function()
   it('reach rtp as :packadd! would, without calling it', function()
     mkplugin(opt_dir, 'a', true); mkplugin(opt_dir, 'b'); mkplugin(opt_dir, 'c', true)
     local native_packadd = _G.test_state.original_vim_cmd_packadd
-    for _, name in ipairs({ 'a', 'b', 'c' }) do
+    for _, name in ipairs({ 'c', 'b', 'a' }) do
       native_packadd({ name, bang = true })
     end
     local expected = vim.go.rtp
@@ -389,7 +389,7 @@ describe('eager plugins at startup', function()
     vim.cmd.packadd = native_packadd
     vim.go.rtp = table.concat({ root, root .. '/after' }, ',')
     local start = vim.go.rtp
-    for _, name in ipairs({ 'vim-afterglow', 'zeta' }) do
+    for _, name in ipairs({ 'zeta', 'vim-afterglow' }) do
       native_packadd({ name, bang = true })
     end
     local expected = vim.go.rtp
@@ -428,7 +428,7 @@ describe('eager plugins at startup', function()
     vim.fn.mkdir(root .. '/pack/vendored/opt/x/lua', 'p')
     local native_packadd = _G.test_state.original_vim_cmd_packadd
     vim.cmd.packadd = native_packadd
-    for _, name in ipairs({ 'x', 'y', 'z' }) do
+    for _, name in ipairs({ 'z', 'y', 'x' }) do
       native_packadd({ name, bang = true })
     end
     local expected = vim.go.rtp

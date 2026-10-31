@@ -21,7 +21,7 @@
 
   -- Loading control
   enabled = true|false|function,        -- Enable/disable plugin
-  cond = true|false|function(plugin),   -- Condition to load plugin
+  cond = true|false|function(plugin),   -- Condition to load plugin (on an `import`: whether to follow it; receives no plugin, or only its `name`, `spec`, `path` and `dir` if the spec has a source)
   lazy = true|false,                    -- Force eager loading when false (auto-detected)
   priority = 50,                        -- Load priority (higher = earlier, default: 50). Doesn't order different `ft` patterns.
 
@@ -43,19 +43,21 @@
   deactivate = function(plugin) end,    -- Teardown hook for :ZPack reload (lazy.nvim parity)
 
   -- Lazy loading triggers (auto-sets lazy=true unless overridden)
-  -- All triggers can also be functions that receive zpack.Plugin and return the respective type
-  event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]|function(plugin), -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua". zpack auto-emits `User VeryLazy` once on UIEnter so user-config `autocmd User VeryLazy` hooks fire.
+  -- All triggers can also be functions that receive zpack.Plugin and return the respective type,
+  -- or `false`, which clears what earlier specs of the plugin set
+  event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]|function(plugin, list), -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua". zpack auto-emits `User VeryLazy` once on UIEnter so user-config `autocmd User VeryLazy` hooks fire.
   pattern = string|string[],            -- Global fallback pattern(s) for all events
-  cmd = string|string[]|function(plugin), -- Command(s) to create; tab-completion on the command also triggers the load
-  keys = zpack.KeySpec|zpack.KeySpec[]|function(plugin), -- Keymap(s) to create
-  ft = string|string[]|function(plugin), -- FileType(s) to lazy load on. Plugins sharing a filetype load together and re-trigger FileType once, after the last of them.
+  cmd = string|string[]|function(plugin, list), -- Command(s) to create; tab-completion on the command also triggers the load
+  keys = string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, list), -- Keymap(s) to create
+  ft = string|string[]|function(plugin, list), -- FileType(s) to lazy load on. Plugins sharing a filetype load together and re-trigger FileType once, after the last of them.
 
   -- Source control (version for `vim.pack.add`, string|vim.VersionRange)
-  version = "main",                     -- Git branch, tag, or commit
+  version = "main",                     -- Git branch, tag, or commit; a string that can't be a ref (`*`, `^1.0`, `>=1`) is a semver range
   -- version = vim.version.range("1.*"), -- Or semver range via vim.version.range()
-  -- version = false,                    -- Opt out of versioning (lazy.nvim escape hatch)
+  -- version = false,                    -- Opt out of versioning (lazy.nvim escape hatch); commit, tag and branch still apply
 
-  -- Source control (lazy.nvim compat, mapped to version)
+  -- Source control (lazy.nvim compat, mapped to version). If several are set, the order is
+  -- lazy.nvim's: commit, tag, version, sem_version, branch, defaults.version.
   sem_version = "^1.0.0",               -- Semver string (corresponds to lazy.nvim spec's version), auto-wrapped to vim.version.range()
   branch = "main",                      -- Git branch
   tag = "v1.0.0",                       -- Git tag

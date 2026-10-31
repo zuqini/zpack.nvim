@@ -5,45 +5,6 @@ local loader = require('zpack.plugin_loader')
 
 local M = {}
 
----@param ft any
----@return string
-local ft_key_part = function(ft)
-  local ft_list = util.normalize_ft_scope(ft)
-  if not ft_list then
-    return ''
-  end
-  local sorted = vim.list_slice(ft_list)
-  table.sort(sorted)
-  return '-ft:' .. table.concat(sorted, ',')
-end
-
----@param buffer any
----@return string
-local buffer_key_part = function(buffer)
-  if buffer == nil then
-    return ''
-  end
-  -- lazy.nvim parity: `buffer = true` and `buffer = 0` both mean "current
-  -- buffer" — coerce so they share an entry.
-  local b = buffer == true and 0 or buffer
-  return '-buf:' .. tostring(b)
-end
-
----@param lhs string
----@param mode string
----@param ft string|string[]|nil
----@param buffer integer|boolean|nil
----@return string
-local create_key_id = function(lhs, mode, ft, buffer)
-  return lhs .. '-' .. mode .. ft_key_part(ft) .. buffer_key_part(buffer)
-end
-
----@param rhs any
----@return boolean
-local is_nop_rhs = function(rhs)
-  return type(rhs) == 'string' and (rhs == '' or rhs:lower() == '<nop>')
-end
-
 ---Check whether a mapping for `lhs` is currently installed in `mode`.
 ---Abbreviation modes (ia/ca/!a) are queried via maparg's {abbr}=true on the
 ---base mode, since maparg's {mode} arg does not accept the 'a' suffix.
@@ -153,6 +114,49 @@ local function install_nop(key, src, buf)
   keymap.try_map(key[1], '<Nop>', nop_opts, src)
 end
 
+---Install a `<Nop>` key, or add the key to the proxies to create.
+---@param key zpack.KeySpec
+---@param pack_spec vim.pack.Spec
+---@param src string
+---@param key_to_info table
+local function register_key(key, pack_spec, src, key_to_info)
+  local lhs = key[1]
+  local mode = key.mode or 'n'
+  local modes = util.normalize_string_list(mode) --[[@as string[] ]]
+
+  -- Empty ft → no scope, so the autocmd doesn't register an
+  -- unmatchable empty pattern list and silently drop the key.
+  local ft_patterns = util.normalize_ft_scope(key.ft)
+
+  -- <Nop> rhs never needs the proxy: install as a real no-op so the
+  -- key acts as a true no-op without loading the plugin. ft-scoped
+  -- <Nop> installs buffer-locally on matching FileType so the
+  -- suppression is scoped, matching lazy.nvim's ft-on-Nop behavior.
+  if util.is_nop_rhs(key[2]) then
+    if ft_patterns then
+      util.install_on_ft(ft_patterns, function(buf)
+        install_nop(key, src, buf)
+      end, { group = state.lazy_group })
+    else
+      install_nop(key, src, nil)
+    end
+  else
+    for _, m in ipairs(modes) do
+      local key_id = util.key_id(lhs, m, ft_patterns, key.buffer)
+      if not key_to_info[key_id] then
+        key_to_info[key_id] = {
+          split_mode = m,
+          pack_specs = {},
+          key_spec = key,
+          src = src,
+          ft = ft_patterns,
+        }
+      end
+      table.insert(key_to_info[key_id].pack_specs, pack_spec)
+    end
+  end
+end
+
 ---@param registered_pack_specs vim.pack.Spec[]
 M.setup = function(registered_pack_specs)
   local key_to_info = {}
@@ -161,75 +165,42 @@ M.setup = function(registered_pack_specs)
     local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
     local plugin = registry_entry.plugin
 
-    local keys_value = util.try_resolve_field(spec.keys, plugin, pack_spec.name or pack_spec.src, 'keys')
-    if keys_value then
-      local keys = util.normalize_keys(keys_value) --[[@as zpack.KeySpec[] ]]
-      for _, key in ipairs(keys) do
-        local lhs = key[1]
-        local mode = key.mode or 'n'
-        local modes = util.normalize_string_list(mode) --[[@as string[] ]]
-
-        -- Empty ft → no scope, so the autocmd doesn't register an
-        -- unmatchable empty pattern list and silently drop the key.
-        local ft_patterns = util.normalize_ft_scope(key.ft)
-        local src = pack_spec.name or pack_spec.src
-
-        -- <Nop> rhs never needs the proxy: install as a real no-op so the
-        -- key acts as a true no-op without loading the plugin. ft-scoped
-        -- <Nop> installs buffer-locally on matching FileType so the
-        -- suppression is scoped, matching lazy.nvim's ft-on-Nop behavior.
-        if is_nop_rhs(key[2]) then
-          if ft_patterns then
-            util.install_on_ft(ft_patterns, function(buf)
-              install_nop(key, src, buf)
-            end, { group = state.lazy_group })
-          else
-            install_nop(key, src, nil)
-          end
-        else
-          for _, m in ipairs(modes) do
-            local key_id = create_key_id(lhs, m, ft_patterns, key.buffer)
-            if not key_to_info[key_id] then
-              key_to_info[key_id] = {
-                split_mode = m,
-                pack_specs = {},
-                key_spec = key,
-                src = src,
-                ft = ft_patterns,
-              }
-            end
-            table.insert(key_to_info[key_id].pack_specs, pack_spec)
-          end
-        end
-      end
+    local src = pack_spec.name or pack_spec.src
+    local keys_value = util.try_resolve_field(spec.keys, plugin, src, 'keys')
+    for _, key in ipairs(keys_value and util.resolve_keys(keys_value) or {}) do
+      util.try_trigger_setup(src, 'keys', function()
+        register_key(key, pack_spec, src, key_to_info)
+      end)
     end
   end
 
   -- Create keymaps
   for _, key_info in pairs(key_to_info) do
-    if key_info.ft then
-      -- Proxy self-deletes once every claiming plugin has loaded —
-      -- apply_keys's own FileType autocmd takes over for future buffers.
-      -- During the sweep all packs are still `pending`, so the self-delete
-      -- branch never fires before `autocmd_id` is assigned.
-      local autocmd_id
-      autocmd_id = util.install_on_ft(
-        key_info.ft,
-        function(buf)
-          if not any_pack_pending(key_info) then
-            if autocmd_id then
-              pcall(vim.api.nvim_del_autocmd, autocmd_id)
-              autocmd_id = nil
+    util.try_trigger_setup(key_info.src, 'keys', function()
+      if key_info.ft then
+        -- Proxy self-deletes once every claiming plugin has loaded —
+        -- apply_keys's own FileType autocmd takes over for future buffers.
+        -- During the sweep all packs are still `pending`, so the self-delete
+        -- branch never fires before `autocmd_id` is assigned.
+        local autocmd_id
+        autocmd_id = util.install_on_ft(
+          key_info.ft,
+          function(buf)
+            if not any_pack_pending(key_info) then
+              if autocmd_id then
+                pcall(vim.api.nvim_del_autocmd, autocmd_id)
+                autocmd_id = nil
+              end
+              return
             end
-            return
-          end
-          install_proxy(key_info, key_info.src, buf)
-        end,
-        { group = state.lazy_group }
-      )
-    else
-      install_proxy(key_info, key_info.src, nil)
-    end
+            install_proxy(key_info, key_info.src, buf)
+          end,
+          { group = state.lazy_group }
+        )
+      else
+        install_proxy(key_info, key_info.src, nil)
+      end
+    end)
   end
 end
 

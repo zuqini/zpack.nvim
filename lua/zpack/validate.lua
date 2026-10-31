@@ -109,12 +109,15 @@ local SPEC_FIELD_TYPES = {
   pattern = { 'string', 'table' },
   version = { 'string', 'table', 'boolean' },
   dependencies = { 'string', 'table' },
-  specs = 'table',
+  specs = { 'string', 'table' },
   pin = 'boolean',
   optional = 'boolean',
   dev = 'boolean',
   deactivate = 'function',
 }
+
+---Fields where `false` is also valid: it clears the trigger. `true` is not.
+local ACCEPTS_FALSE = { event = true, cmd = true, ft = true, keys = true, init = true }
 
 ---`SPEC_FIELD_TYPES` keys in a stable sort order, so a spec with several bad
 ---fields reports them deterministically. The sort is invariant — done once.
@@ -142,8 +145,20 @@ function M.validate_spec(spec)
     errors[#errors + 1] = ('[1] "%s" looks like a local path — use dir for local checkouts')
         :format(spec[1])
   end
+  -- A spec with fields is read as one spec, so list entries after `[1]` would
+  -- otherwise vanish silently; lazy.nvim reads the table as a list instead.
+  if spec[2] ~= nil then
+    errors[#errors + 1] = 'entries after [1] are ignored in a spec with fields — split them into their own specs'
+  end
   for _, field in ipairs(SORTED_SPEC_FIELDS) do
-    check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
+    if not (ACCEPTS_FALSE[field] and spec[field] == false) then
+      check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
+    end
+  end
+  if type(spec.keys) == 'table' and type(spec.keys[1]) ~= 'string' then
+    for i, key in ipairs(spec.keys) do
+      check(errors, ('keys[%d]'):format(i), key, { 'string', 'table' })
+    end
   end
   if type(spec.opts_extend) == 'string' and vim.list_contains(vim.split(spec.opts_extend, '.', { plain = true }), '') then
     errors[#errors + 1] = ('opts_extend "%s" has an empty segment'):format(spec.opts_extend)
@@ -164,7 +179,8 @@ function M.validate_spec(spec)
   -- otherwise fail and the spec would silently never import. An `import`
   -- spec recurses into a directory and legitimately carries no source.
   if spec.import == nil and spec[1] == nil and spec.src == nil
-      and spec.url == nil and spec.dir == nil then
+      and spec.url == nil and spec.dir == nil
+      and not (spec.dev == true and type(spec.name) == 'string') then
     errors[#errors + 1] = 'spec has no plugin source — set one of [1], src, url, dir, or import'
   end
 
@@ -175,7 +191,12 @@ end
 ---@param spec table
 ---@return string
 function M.spec_label(spec)
-  return spec[1] or spec.src or spec.url or spec.dir or spec.name or spec.import or '<unknown>'
+  for _, field in ipairs({ 1, 'src', 'url', 'dir', 'name', 'import' }) do
+    if type(spec[field]) == 'string' then
+      return spec[field]
+    end
+  end
+  return vim.inspect(spec, { newline = ' ', indent = '' })
 end
 
 return M

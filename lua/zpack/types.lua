@@ -59,18 +59,18 @@
 ---@field branch? string Git branch (lazy.nvim compat). Mapped to version
 ---@field tag? string Git tag (lazy.nvim compat). Mapped to version
 ---@field commit? string Git commit (lazy.nvim compat). Mapped to version
----@field keys? zpack.KeysValue|fun(plugin: zpack.Plugin?):zpack.KeysValue
+---@field keys? false|zpack.KeysValue|fun(plugin: zpack.Plugin?, list: table):zpack.KeysValue?
 ---@field config? fun(plugin: zpack.Plugin?, opts: table)|true
 ---@field opts? table|fun(plugin: zpack.Plugin?, opts: table):table
 ---@field opts_extend? string|string[] Opts keys whose lists are appended across specs, not replaced. Dots reach nested keys
 ---@field main? string
----@field event? zpack.EventValue|fun(plugin: zpack.Plugin?):zpack.EventValue
+---@field event? false|zpack.EventValue|fun(plugin: zpack.Plugin?, list: table):zpack.EventValue?
 ---@field pattern? string|string[] Global fallback pattern applied to all events (unless zpack.EventSpec specifies its own)
----@field cmd? zpack.CmdValue|fun(plugin: zpack.Plugin?):zpack.CmdValue
----@field ft? zpack.FtValue|fun(plugin: zpack.Plugin?):zpack.FtValue
+---@field cmd? false|zpack.CmdValue|fun(plugin: zpack.Plugin?, list: table):zpack.CmdValue?
+---@field ft? false|zpack.FtValue|fun(plugin: zpack.Plugin?, list: table):zpack.FtValue?
 ---@field module? boolean Auto-load when require()'d (default: true for lazy plugins)
 ---@field dependencies? string|string[]|zpack.Spec|zpack.Spec[] Plugin dependencies
----@field specs? zpack.Spec|zpack.Spec[] Companion plugin specs grouped with this one (lazy.nvim parity)
+---@field specs? string|string[]|zpack.Spec|zpack.Spec[] Companion plugin specs grouped with this one (lazy.nvim parity)
 ---@field pin? boolean Exclude from :ZPack update bulk runs (lazy.nvim parity)
 ---@field optional? boolean Only install if also referenced non-optionally (lazy.nvim parity)
 ---@field dev? boolean Use local checkout under `dev.path` (lazy.nvim parity)

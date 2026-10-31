@@ -224,7 +224,7 @@ describe("Public API (zpack.get_plugins / get_plugin)", function()
     assert.are.equal(true, info.lazy)
   end)
 
-  it("disable propagates and prunes parent + child", function()
+  it("a disabled dependency goes and its parent stays", function()
     require('zpack').setup({
       spec = {
         { 'test/parent', dependencies = { 'test/child' } },
@@ -234,7 +234,7 @@ describe("Public API (zpack.get_plugins / get_plugin)", function()
     })
     helpers.flush_pending()
 
-    assert.is_nil(require('zpack').get_plugin('parent'), "parent should be pruned after dep-propagated disable")
+    assert.is_not_nil(require('zpack').get_plugin('parent'), "parent should stay, as in lazy.nvim")
     assert.is_nil(require('zpack').get_plugin('child'), "child should be pruned after explicit disable")
   end)
 
