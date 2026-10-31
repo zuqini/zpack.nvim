@@ -137,6 +137,9 @@ function M.setup_test_env()
 end
 
 function M.cleanup_test_env()
+  -- A test firing a key proxy's callback directly leaves its re-fed keys queued,
+  -- which would otherwise eat the first key a later test feeds.
+  vim.api.nvim_feedkeys('', 'x', false)
   -- Clear autocmds before reloading modules
   if package.loaded['zpack.state'] then
     local state = package.loaded['zpack.state']
@@ -243,6 +246,23 @@ function M.flush_pending()
   -- keeping tests fast. The condition returns false to ensure we always wait
   -- the full duration, allowing all queued callbacks to execute.
   vim.wait(50, function() return false end)
+end
+
+---Find a notification whose message contains every needle, at an optional level.
+function M.find_notification(needles, level)
+  for _, notif in ipairs(_G.test_state.notifications) do
+    local matched = true
+    for _, needle in ipairs(needles) do
+      if not notif.msg:find(needle, 1, true) then
+        matched = false
+        break
+      end
+    end
+    if matched and (level == nil or notif.level == level) then
+      return notif
+    end
+  end
+  return nil
 end
 
 function M.find_autocmd(autocmds, event, pattern)

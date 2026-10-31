@@ -23,7 +23,7 @@
   enabled = true|false|function,        -- Enable/disable plugin
   cond = true|false|function(plugin),   -- Condition to load plugin (on an `import`: whether to follow it; receives no plugin, or only its `name`, `spec`, `path` and `dir` if the spec has a source)
   lazy = true|false,                    -- Force eager loading when false (auto-detected)
-  priority = 50,                        -- Load priority (higher = earlier, default: 50)
+  priority = 50,                        -- Load priority (higher = earlier, default: 50). Doesn't order different `ft` patterns.
 
   -- Plugin configuration
   opts = {},                            -- Options passed to setup(), triggers auto-setup
@@ -49,7 +49,7 @@
   pattern = string|string[],            -- Global fallback pattern(s) for all events
   cmd = string|string[]|function(plugin, list), -- Command(s) to create; tab-completion on the command also triggers the load
   keys = string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, list), -- Keymap(s) to create
-  ft = string|string[]|function(plugin, list), -- FileType(s) to lazy load on
+  ft = string|string[]|function(plugin, list), -- FileType(s) to lazy load on. Plugins sharing a filetype load together and re-trigger FileType once, after the last of them.
 
   -- Source control (version for `vim.pack.add`, string|vim.VersionRange)
   version = "main",                     -- Git branch, tag, or commit; a string that can't be a ref (`*`, `^1.0`, `>=1`) is a semver range

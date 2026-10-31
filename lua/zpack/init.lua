@@ -9,7 +9,6 @@ local M = {}
 ---@field src_with_init string[]
 ---@field registered_startup_packs vim.pack.Spec[]
 ---@field registered_lazy_packs vim.pack.Spec[]
----@field load boolean?
 ---@field confirm boolean?
 ---@field defaults zpack.Config.Defaults
 ---@field is_dependency? boolean Internal: Whether currently importing as dependency
