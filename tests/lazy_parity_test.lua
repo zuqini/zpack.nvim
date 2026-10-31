@@ -3214,6 +3214,110 @@ describe("the fourth xhigh review of the parity follow-up", function()
     end
   end)
 
+  describe("a semver string no tag fits", function()
+    local add
+
+    before_each(function()
+      add = vim.pack.add
+      vim.pack.add = function(packs, opts)
+        local failed = {}
+        local fitting = vim.tbl_filter(function(p)
+          if type(p.version) == 'table' and p.name:find('^untagged') then
+            failed[#failed + 1] = ('`%s`:\nNo versions fit constraint.'):format(p.name)
+            return false
+          end
+          if p.name == 'bad' then
+            failed[#failed + 1] = '`bad`:\nclone failed'
+            return false
+          end
+          return true
+        end, packs)
+        add(fitting, opts)
+        if #failed > 0 then
+          error('vim.pack:\n\n' .. table.concat(failed, '\n\n'))
+        end
+      end
+    end)
+
+    after_each(function()
+      vim.pack.add = add
+    end)
+
+    for field, value in pairs({ version = '*', sem_version = '^1.0' }) do
+      it("follows the default branch, from " .. field, function()
+        local state = setup({ { 'u/untagged', [field] = value } })
+        local entry = state.spec_registry[GH .. 'u/untagged']
+        assert.is_not_nil(entry.plugin)
+        assert.is_nil(entry.plugin.spec.version)
+        assert.are.same({}, warnings())
+      end)
+    end
+
+    it("follows the default branch, from defaults.version", function()
+      require('zpack').setup({ spec = { { 'u/untagged' } }, defaults = { confirm = false, version = '*' } })
+      helpers.flush_pending()
+      assert.is_not_nil(require('zpack.state').spec_registry[GH .. 'u/untagged'].plugin)
+      assert.are.same({}, warnings())
+    end)
+
+    it("leaves a vim.version.range object to vim.pack", function()
+      local state = setup({ { 'u/untagged', version = vim.version.range('*') } })
+      assert.is_nil(state.spec_registry[GH .. 'u/untagged'])
+      assert.is_truthy(table.concat(warnings(), '\n'):find('No versions fit', 1, true))
+    end)
+
+    it("still reports what failed for another reason, and only that", function()
+      local state = setup({ { 'u/untagged', version = '*' }, { 'u/bad' }, { 'u/fine' } })
+      assert.is_not_nil(state.spec_registry[GH .. 'u/untagged'].plugin)
+      assert.is_not_nil(state.spec_registry[GH .. 'u/fine'].plugin)
+      assert.is_nil(state.spec_registry[GH .. 'u/bad'])
+      local all = table.concat(warnings(), '\n')
+      assert.is_truthy(all:find('clone failed', 1, true))
+      assert.is_nil(all:find('No versions fit', 1, true))
+    end)
+
+    describe("on an installed plugin", function()
+      local dir
+
+      local function install(tag, packed)
+        dir = vim.fn.stdpath('data') .. '/site/pack/core/opt/ztags'
+        vim.fn.mkdir(dir .. '/.git/refs/tags', 'p')
+        if tag then
+          io.open(dir .. '/.git/refs/tags/' .. tag, 'w'):close()
+        end
+        if packed then
+          local f = assert(io.open(dir .. '/.git/packed-refs', 'w'))
+          f:write('# pack-refs with: peeled\n1234abc refs/heads/main\n1234abc refs/tags/' .. packed .. '\n^5678def\n')
+          f:close()
+        end
+      end
+
+      after_each(function()
+        vim.fn.delete(dir, 'rf')
+      end)
+
+      local function version_after_setup(version)
+        setup({ { 'u/ztags', version = version } })
+        return added('ztags')[1].version
+      end
+
+      it("keeps the range if a loose tag fits", function()
+        install('v1.2.0')
+        assert.are.equal('table', type(version_after_setup('1.*')))
+      end)
+
+      it("keeps the range if a packed tag fits", function()
+        install(nil, 'v1.2.0')
+        assert.are.equal('table', type(version_after_setup('1.*')))
+      end)
+
+      it("drops it if none does", function()
+        install('v2.0.0', 'nightly')
+        assert.is_nil(version_after_setup('1.*'))
+      end)
+    end)
+  end)
+
   it("reads defaults.version the same way", function()
     setup({ { 'u/a' } })
     require('zpack.state').config.defaults.version = '*'

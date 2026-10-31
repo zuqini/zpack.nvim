@@ -209,6 +209,7 @@ function M.cleanup_test_env()
   package.loaded['zpack.merge'] = nil
   package.loaded['zpack.module_loader'] = nil
   package.loaded['zpack.api'] = nil
+  package.loaded['zpack.pack'] = nil
 
   -- Remove our module loader from package.loaders if present
   for i = #package.loaders, 1, -1 do

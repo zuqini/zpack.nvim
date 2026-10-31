@@ -931,7 +931,11 @@ version         (string|vim.VersionRange, optional)
                 A string that can't be a git ref, because it contains `*` or
                 starts with `^`, `~`, `<`, `>` or `=`, is read as a semver
                 range (lazy.nvim parity). Use `sem_version` for a range like
-                `1.x`, which could also be a branch.
+                `1.x`, which could also be a branch. If no tag fits a range
+                written as a string here, in `sem_version` or in
+                `defaults.version`, the plugin follows its default branch, as
+                in lazy.nvim. A |vim.version.range()| object keeps vim.pack's
+                behaviour, which is an error.
 
                                                      *zpack-Spec.sem_version*
 sem_version     (string, optional)
@@ -1018,7 +1022,7 @@ import          (string|function, optional)
                 that's disabled or removed isn't installed. It installs from
                 what your config's specs say about it; a `version` or `url`
                 set only inside its own modules applies from the next session
-                and the next `:ZPack update`. It warns if it finds no specs.
+                and the next `:ZPack update`, as in lazy.nvim. It warns if it finds no specs.
                 Unlike lazy.nvim, a plugin listed without an `import` of its
                 own isn't searched.
 

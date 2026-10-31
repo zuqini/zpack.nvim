@@ -50,6 +50,11 @@ M.validated_specs = {}
 ---@type { [zpack.Spec]: 'dev'|'explicit'|'repo'|'reference' }
 M.source_kinds = {}
 
+---Plugins whose version is a semver range written as a string, as in lazy.nvim,
+---rather than a vim.VersionRange: with no tag to fit, they use the default branch.
+---@type { [string]: true }
+M.soft_versions = {}
+
 ---@type { [string]: { [string]: true } }
 M.dependency_graph = {}
 
@@ -93,6 +98,7 @@ M.reset_specs = function()
   M.top_specs, M.spec_parents, M.spec_children, M.spec_src, M.source_kinds = {}, {}, {}, {}, {}
   M.dependency_graph, M.dependency_order, M.reverse_dependency_graph = {}, {}, {}
   M.src_to_pack_spec, M.name_to_src, M.lazy_parent_cache = {}, {}, {}
+  M.soft_versions = {}
 end
 
 M.remove_plugin = function(plugin_name, src)

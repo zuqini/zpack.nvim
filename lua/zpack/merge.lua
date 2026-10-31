@@ -1000,9 +1000,11 @@ function M.resolve_all()
   local vim_packs = {}
   for src, entry in pairs(state.spec_registry) do
     assert(entry.enabled_result ~= false, ("internal: registry entry for %s survived prune_disabled with enabled_result=false"):format(src))
+    local version, is_soft = utils.normalize_version(entry.merged_spec)
+    state.soft_versions[src] = is_soft or nil
     local pack_spec = {
       src = src,
-      version = utils.normalize_version(entry.merged_spec),
+      version = version,
       name = utils.resolve_plugin_name(entry.merged_spec, src),
     }
     table.insert(vim_packs, pack_spec)

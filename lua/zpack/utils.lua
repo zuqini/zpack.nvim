@@ -545,11 +545,12 @@ end
 ---so a distro's `version = '*'` works; anything that could be a ref stays one.
 ---@param version any
 ---@return any
+---@return boolean? is_range
 local function range_if_not_a_ref(version)
   if type(version) == 'string' and (version:find('*', 1, true) or version:match('^[>=<^~]')) then
     local ok, range = pcall(vim.version.range, version)
     if ok and range then
-      return range
+      return range, true
     end
   end
   return version
@@ -561,15 +562,17 @@ end
 ---otherwise pin a version.
 ---@param spec zpack.Spec
 ---@return string|vim.VersionRange|nil version
+---@return boolean? is_soft A semver string, which falls back to the default branch; see zpack.pack
 M.normalize_version = function(spec)
   if spec.version == false then
     return nil
   end
   if spec.version ~= nil then
     -- LLS doesn't narrow past the `== false` check above; cast.
-    return range_if_not_a_ref(spec.version) --[[@as string|vim.VersionRange]]
+    return range_if_not_a_ref(spec.version)
   elseif type(spec.sem_version) == 'string' then
-    return vim.version.range(spec.sem_version)
+    local range = vim.version.range(spec.sem_version)
+    return range, range ~= nil
   elseif spec.branch then
     return spec.branch
   elseif spec.tag then

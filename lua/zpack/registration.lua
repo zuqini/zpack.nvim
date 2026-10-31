@@ -81,7 +81,8 @@ M.register_all = function(ctx)
     table.insert(added, plugin)
   end
 
-  local ok, err = pcall(vim.pack.add, ctx.vim_packs, { confirm = ctx.confirm, load = on_load })
+  local err = require('zpack.pack').add(ctx.vim_packs, { confirm = ctx.confirm, load = on_load })
+  local ok = err == nil
 
   if not ok then
     local semver_like_specs = {}
@@ -101,7 +102,7 @@ M.register_all = function(ctx)
         )
       end
     end
-    utils.notify(tostring(err), vim.log.levels.ERROR)
+    utils.notify(err, vim.log.levels.ERROR)
   end
 
   for _, pack_spec in ipairs(ctx.vim_packs) do

@@ -498,15 +498,15 @@ local settle_missing_owners = function(ctx)
   if #to_add == 0 then
     return
   end
-  local ok, err = pcall(vim.pack.add, to_add, {
+  local err = require('zpack.pack').add(to_add, {
     confirm = ctx.confirm,
     load = function(plugin)
       ctx.early_plugins[plugin.spec.name] = plugin
       add_import_path(plugin.path, ctx)
     end,
   })
-  if not ok then
-    utils.schedule_notify(('zpack: could not install a plugin for its import: %s'):format(tostring(err)), vim.log.levels.ERROR)
+  if err then
+    utils.schedule_notify(('zpack: could not install a plugin for its import: %s'):format(err), vim.log.levels.ERROR)
   end
 end
 
