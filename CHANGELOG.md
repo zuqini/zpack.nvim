@@ -1,5 +1,55 @@
 # Changelog
 
+## [3.0.0](https://github.com/zuqini/zpack.nvim/compare/v2.0.4...v3.0.0) (2026-10-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **keys:** two strings in `keys` are two keys unless the second can only be an rhs, so `{ '<leader>d', 'dd' }` needs a field or nesting to stay one key
+* **keys:** a later spec's key replaces an earlier one
+* **import:** a bare name nothing defines is skipped rather than installed
+* **merge:** a disabled dependency no longer disables the plugin listing it
+* **merge:** the last spec to set `enabled` or `cond` wins, instead of any `false`
+* **lazy:** an `event` with no real event in it, such as `LazyFile`, leaves the plugin eager with a warning
+* **utils:** a `version` string git can't take as a ref, such as `*`, is a semver range
+* **import:** spec modules import in module name order
+* **version:** version fields follow lazy.nvim's priority: commit, tag, version, sem_version, branch, default
+
+### Features
+
+* close lazy.nvim parity gaps in spec lists, keys, triggers and bare names ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **import:** import specs from a plugin's own modules ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **merge:** support opts_extend ([#46](https://github.com/zuqini/zpack.nvim/issues/46)) ([b23ed1f](https://github.com/zuqini/zpack.nvim/commit/b23ed1fa137c78de06f2b7a528be4de4a51ca348)), closes [#45](https://github.com/zuqini/zpack.nvim/issues/45)
+
+
+### Bug Fixes
+
+* **import:** a bare name nothing defines is skipped rather than installed ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **import:** spec modules import in module name order ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **import:** warn when an import finds no specs ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **keys:** a later spec's key replaces an earlier one ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **keys:** two strings in `keys` are two keys unless the second can only be an rhs, so `{ '<leader>d', 'dd' }` needs a field or nesting to stay one key ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **lazy:** an `event` with no real event in it, such as `LazyFile`, leaves the plugin eager with a warning ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **lazy:** set up triggers in a session that installs a plugin ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **loader:** a require or build after startup sources plugin/, and a failing dependency doesn't stop its parent ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **loader:** source a plugin's dependencies before its plugin/, in the order they're listed ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **merge:** a disabled dependency no longer disables the plugin listing it ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **merge:** a table listed at the top level and under a lazy parent's `dependencies` loads eagerly ([#49](https://github.com/zuqini/zpack.nvim/issues/49)) ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **merge:** clear opts keys set to vim.NIL ([#47](https://github.com/zuqini/zpack.nvim/issues/47)) ([3bd8cdf](https://github.com/zuqini/zpack.nvim/commit/3bd8cdf22f7582d2a336f774d00f0ceaf0e3f7c0))
+* **merge:** drop a removed plugin's specs before deriving what stays ([#49](https://github.com/zuqini/zpack.nvim/issues/49)) ([871104e](https://github.com/zuqini/zpack.nvim/commit/871104e76ba75706b2e6ceadb4950f6b4481dc71))
+* **merge:** plugins under an optional or disabled parent's `specs` are dropped ([#49](https://github.com/zuqini/zpack.nvim/issues/49)) ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **merge:** the last spec to set `enabled` or `cond` wins, instead of any `false` ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **setup:** a plugin vim.pack can't add no longer aborts setup() ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **setup:** source plugin/ when setup() runs after startup ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **utils:** a `version` string git can't take as a ref, such as `*`, is a semver range ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **version:** a semver string no tag fits follows the default branch ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+* **version:** version fields follow lazy.nvim's priority: commit, tag, version, sem_version, branch, default ([85ba638](https://github.com/zuqini/zpack.nvim/commit/85ba638530c25f53d0746e953f98340d98a0e71f))
+
+
+### Performance Improvements
+
+* speed up startup with many plugins ([#50](https://github.com/zuqini/zpack.nvim/issues/50)) ([2966b92](https://github.com/zuqini/zpack.nvim/commit/2966b92de2f18ac4a0df00f3df1047132a9bad7d))
+
 ## [2.0.4](https://github.com/zuqini/zpack.nvim/compare/v2.0.3...v2.0.4) (2026-09-25)
 
 
