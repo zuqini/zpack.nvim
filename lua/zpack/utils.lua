@@ -646,7 +646,7 @@ end
 ---which is what dominates startup with many eager plugins. Mirrors
 ---add_pack_dir_to_rtp() in runtime.c, including the reversed order its repeated
 ---inserts produce. Layouts it does not cover are left to `:packadd!`.
----@param paths string[] plugin dirs under one pack root, in load order
+---@param paths string[] plugin dirs under one pack root, in `:packadd!` call order
 ---@return boolean added
 M.add_packs_to_rtp = function(paths)
   local rtp = vim.go.rtp
@@ -741,8 +741,8 @@ local sourced_plugin_paths = {}
 ---by the time lazy-loaded plugins are activated, so we do it manually.
 ---@param plugin_path string
 M.source_after_plugin_files = function(plugin_path)
-  -- Native startup still sources it, for anything on 'runtimepath' before VimEnter.
-  if sourced_plugin_paths[plugin_path] or vim.v.vim_did_enter == 0 then
+  -- Native startup still sources it, for anything on 'runtimepath' before v:vim_did_init.
+  if sourced_plugin_paths[plugin_path] or vim.v.vim_did_init == 0 then
     return
   end
 

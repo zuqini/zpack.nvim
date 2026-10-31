@@ -3458,13 +3458,13 @@ describe("the fifth xhigh review of the parity follow-up", function()
       _G._zpack_after_runs = nil
     end)
 
-    it("is left to native startup before VimEnter", function()
+    it("is left to native startup only before v:vim_did_init", function()
       local real_v = _G.test_state.original_vim_v
-      vim.v = setmetatable({ vim_did_enter = 0 }, { __index = real_v })
+      vim.v = setmetatable({ vim_did_init = 0, vim_did_enter = 0 }, { __index = real_v })
       require('zpack.utils').source_after_plugin_files(dir)
       assert.is_nil(_G._zpack_after_runs)
 
-      vim.v = real_v
+      vim.v = setmetatable({ vim_did_init = 1, vim_did_enter = 0 }, { __index = real_v })
       require('zpack.utils').source_after_plugin_files(dir)
       assert.are.equal(1, _G._zpack_after_runs)
     end)

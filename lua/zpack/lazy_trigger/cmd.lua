@@ -130,6 +130,7 @@ M.setup = function(registered_pack_specs)
           util.schedule_notify(("Failed to re-fire :%s: %s"):format(cmd, tostring(err)), vim.log.levels.ERROR)
         end
       end, {
+        desc = state.CMD_PROXY_DESC,
         nargs = '*',
         bang = true,
         count = -1,
@@ -143,8 +144,9 @@ M.setup = function(registered_pack_specs)
           return vim.fn.getcompletion(line, 'cmdline')
         end,
       })
-      state.live_cmd_proxies[cmd] = true
+      state.live_cmd_proxies[cmd] = {}
       for _, pack_spec in ipairs(pack_specs) do
+        state.live_cmd_proxies[cmd][pack_spec.src] = true
         local proxies = state.cmd_proxies[pack_spec.src] or {}
         state.cmd_proxies[pack_spec.src] = proxies
         proxies[#proxies + 1] = cmd

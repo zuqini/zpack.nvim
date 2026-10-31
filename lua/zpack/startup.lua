@@ -126,6 +126,10 @@ M.process_all = function(ctx)
         end
       end
       vim.cmd.packadd({ pack_spec.name, bang = not ctx.load })
+      local entry = state.spec_registry[pack_spec.src]
+      if ctx.load and entry.plugin then
+        util.source_after_plugin_files(entry.plugin.path)
+      end
     end)
     if not ok then
       failed_packs[pack_spec.src] = true

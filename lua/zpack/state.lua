@@ -90,13 +90,13 @@ M.plugin_names_with_build = {}
 ---@type { [string]: boolean }
 M.unloaded_plugin_names = {}
 
----Forget a trial resolve, to import the specs again. `validated_specs` and
----`enabled_results` stay, since a spec's warnings and `enabled` come once.
 ---The proxy commands of each lazy plugin, by source.
 ---@type { [string]: string[] }
 M.cmd_proxies = {}
----@type { [string]: true }
+---The sources still waiting on each live proxy command.
+---@type { [string]: { [string]: true } }
 M.live_cmd_proxies = {}
+M.CMD_PROXY_DESC = 'zpack: load the plugin that provides this command'
 
 ---@param cmd string
 M.drop_cmd_proxy = function(cmd)
@@ -106,13 +106,29 @@ M.drop_cmd_proxy = function(cmd)
   end
 end
 
+---Drop the proxies only `src` still waits on. Another pending plugin keeps its
+---trigger, and a real command that replaced the proxy stays.
 ---@param src string
 M.drop_cmd_proxies = function(src)
   for _, cmd in ipairs(M.cmd_proxies[src] or {}) do
-    M.drop_cmd_proxy(cmd)
+    local claimants = M.live_cmd_proxies[cmd]
+    if claimants then
+      claimants[src] = nil
+      if next(claimants) == nil then
+        local info = vim.api.nvim_get_commands({})[cmd]
+        -- v0.12.0 reports a desc as `definition`.
+        if info and (info.desc or info.definition) == M.CMD_PROXY_DESC then
+          M.drop_cmd_proxy(cmd)
+        else
+          M.live_cmd_proxies[cmd] = nil
+        end
+      end
+    end
   end
 end
 
+---Forget a trial resolve, to import the specs again. `validated_specs` and
+---`enabled_results` stay, since a spec's warnings and `enabled` come once.
 M.reset_specs = function()
   M.spec_registry = {}
   M.import_order = 0
