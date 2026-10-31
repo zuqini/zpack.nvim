@@ -146,12 +146,12 @@ M.autocmd = function(event, callback, opts)
   }, opts))
 end
 
----Wrap a callback so the second (and subsequent) calls no-op. Used to guard
----an autocmd against nvim#25526 (https://github.com/neovim/neovim/issues/25526)
----— a `once = true` autocmd that nested-fires in the same tick is dispatched
----twice before the autocmd-deletion takes effect. The latch is permanent (no
----per-tick reset); call sites combine this with `once = true` so the wrapping
----autocmd self-deletes after the first dispatch.
+---Wrap a callback so the second (and subsequent) calls no-op. The latch is
+---permanent (no per-tick reset). Autocmd call sites use it to guard against
+---nvim#25526 (https://github.com/neovim/neovim/issues/25526) — a `once = true`
+---autocmd that nested-fires in the same tick is dispatched twice before the
+---autocmd-deletion takes effect. ft.lua uses it per plugin, so a plugin that
+---failed to load on one filetype doesn't retry and re-source plugin/ on the next.
 ---@param callback function
 ---@return function
 M.latch_first_call = function(callback)
@@ -160,9 +160,8 @@ M.latch_first_call = function(callback)
     if done then
       return
     end
-    local result = callback(...)
     done = true
-    return result
+    return callback(...)
   end
 end
 
@@ -430,6 +429,95 @@ M.resolve_main = function(plugin, spec)
 
   state.resolve_main_not_found[cache_key] = true
   return nil
+end
+
+---Batch form of `:packadd!`: one 'runtimepath' write instead of one per plugin,
+---which is what dominates startup with many eager plugins. Mirrors
+---add_pack_dir_to_rtp() in runtime.c, including the reversed order its repeated
+---inserts produce. Layouts it does not cover are left to `:packadd!`.
+---@param paths string[] plugin dirs under one pack root, in load order
+---@return boolean added
+M.add_packs_to_rtp = function(paths)
+  local rtp = vim.go.rtp
+  -- A trailing comma's empty entry sits differently in runtime.c
+  if #paths == 0 or rtp:find('\\', 1, true) or rtp:sub(-1) == ',' then
+    return false
+  end
+
+  local fold_case = vim.go.fileignorecase and string.lower or function(path) return path end
+  local function resolve(path)
+    return fold_case(vim.uv.fs_realpath(path) or path)
+  end
+
+  local parent = vim.fs.dirname(paths[1])
+  local root = paths[1]
+  for _ = 1, 4 do
+    root = vim.fs.dirname(root)
+  end
+  root = resolve(root)
+
+  local entries = vim.split(rtp, ',', { plain = true })
+  local active = {}
+  local insert_at, first_after
+  for i, entry in ipairs(entries) do
+    active[fold_case(entry)] = true
+    if not first_after then
+      -- runtime.c only tests the first "after" in an entry
+      local s = entry:find('after', 1, true)
+      if s and entry:sub(s - 1, s - 1) == '/' and (s + 5 > #entry or entry:sub(s + 5, s + 5) == '/') then
+        first_after = i
+      elseif not insert_at then
+        -- runtime.c prefixes the cwd to relative and empty entries before resolving them
+        if entry:sub(1, 1) ~= '/' then
+          return false
+        end
+        -- runtime.c prefix-matches resolved paths, so a sibling like <root>2 may or may not match
+        local resolved = resolve(entry)
+        if resolved:sub(1, #root) == root then
+          if (resolved .. '/'):sub(#root + 1, #root + 1) ~= '/' then
+            return false
+          end
+          insert_at = i
+        end
+      end
+    end
+  end
+  if not insert_at then
+    return false
+  end
+
+  local dirs, after_dirs = {}, {}
+  for i = #paths, 1, -1 do
+    local path = paths[i]
+    -- Whether runtime.c sees `<path>/` as active differs across Neovim versions.
+    -- An "after" in the path changes which inserted entries mark the first after dir.
+    -- A plugin name with a slash gives that plugin a different pack root.
+    if path:find(',', 1, true) or path:find('after', 1, true) or active[fold_case(path) .. '/']
+        or vim.fs.dirname(path) ~= parent then
+      return false
+    end
+    if not active[fold_case(path)] then
+      dirs[#dirs + 1] = path
+      local after = path .. '/after'
+      local stat = vim.uv.fs_stat(after)
+      if stat and stat.type == 'directory' then
+        after_dirs[#after_dirs + 1] = after
+      end
+    end
+  end
+
+  if #dirs == 0 then
+    return true
+  end
+
+  local res = {}
+  vim.list_extend(res, entries, 1, insert_at)
+  vim.list_extend(res, dirs)
+  vim.list_extend(res, entries, insert_at + 1, first_after and first_after - 1 or #entries)
+  vim.list_extend(res, after_dirs)
+  vim.list_extend(res, entries, first_after or #entries + 1, #entries)
+  vim.api.nvim_set_option_value('runtimepath', table.concat(res, ','), {})
+  return true
 end
 
 ---Track which plugin paths have had their after/plugin/ files sourced

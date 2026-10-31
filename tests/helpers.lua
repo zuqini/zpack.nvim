@@ -234,6 +234,23 @@ function M.flush_pending()
   vim.wait(50, function() return false end)
 end
 
+---Find a notification whose message contains every needle, at an optional level.
+function M.find_notification(needles, level)
+  for _, notif in ipairs(_G.test_state.notifications) do
+    local matched = true
+    for _, needle in ipairs(needles) do
+      if not notif.msg:find(needle, 1, true) then
+        matched = false
+        break
+      end
+    end
+    if matched and (level == nil or notif.level == level) then
+      return notif
+    end
+  end
+  return nil
+end
+
 function M.find_autocmd(autocmds, event, pattern)
   for _, cmd in ipairs(autocmds) do
     if cmd.event == event then

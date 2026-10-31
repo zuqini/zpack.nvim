@@ -185,7 +185,7 @@ M.setup_lazy_build_tracking = function()
   end, { group = state.lazy_build_group })
 end
 
-M.run_pending_builds_on_startup = function(ctx)
+M.run_pending_builds_on_startup = function()
   if next(state.src_with_pending_build) == nil then
     return
   end
@@ -197,7 +197,7 @@ M.run_pending_builds_on_startup = function(ctx)
     local spec = entry and entry.merged_spec
     if spec and spec.build then
       local pack_spec = state.src_to_pack_spec[src]
-      local load_ok = pack_spec == nil or loader.try_process_spec(pack_spec, { bang = not ctx.load })
+      local load_ok = pack_spec == nil or loader.try_process_spec(pack_spec, { bang = true })
       if load_ok then
         M.execute_build(spec.build, entry.plugin, src)
       end

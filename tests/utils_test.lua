@@ -191,6 +191,33 @@ describe('latch_first_call', function()
     assert.is_nil(latched(99, 1),
       "Subsequent calls must not invoke the inner — return nil")
   end)
+
+  it("absorbs a nested call made during the first", function()
+    local utils = require('zpack.utils')
+    local count = 0
+    local latched
+    latched = utils.latch_first_call(function()
+      count = count + 1
+      latched()
+    end)
+
+    latched()
+
+    assert.are.equal(1, count)
+  end)
+
+  it("stays latched when the first call throws", function()
+    local utils = require('zpack.utils')
+    local count = 0
+    local latched = utils.latch_first_call(function()
+      count = count + 1
+      error('simulated failure', 0)
+    end)
+
+    assert.is_false((pcall(latched)))
+    assert.is_nil(latched())
+    assert.are.equal(1, count)
+  end)
 end)
 
 describe("expand_src", function()

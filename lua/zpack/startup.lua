@@ -69,6 +69,25 @@ local function toposort_startup_packs(packs)
   return result, lazy_deps_map
 end
 
+---Add every pack to 'runtimepath' in one write. A pack the batch can't verify
+---leaves the whole list to `:packadd!`, whose order in 'runtimepath' follows the
+---load order, and which reports the plugin an init hook removed.
+---@param packs vim.pack.Spec[]
+---@return vim.pack.Spec[] remaining packs that still need `:packadd`
+local function add_installed_to_rtp(packs)
+  local paths = {}
+  for i, pack_spec in ipairs(packs) do
+    local entry = state.spec_registry[pack_spec.src]
+    local path = entry and entry.plugin and entry.plugin.path
+    local stat = path and vim.uv.fs_stat(path)
+    if not stat or stat.type ~= 'directory' then
+      return packs
+    end
+    paths[i] = path
+  end
+  return util.add_packs_to_rtp(paths) and {} or packs
+end
+
 ---@param ctx zpack.ProcessContext
 M.process_all = function(ctx)
   table.sort(ctx.src_with_init, util.compare_priority)
@@ -79,21 +98,17 @@ M.process_all = function(ctx)
 
   local sorted_packs, lazy_deps_map = toposort_startup_packs(ctx.registered_startup_packs)
 
-  -- pcall packadd per plugin so one broken plugin doesn't strand every
-  -- later one. Track failures so later loops (run_config, apply_keys,
-  -- finalization) skip them — otherwise the failed plugin would be marked
-  -- loaded and hidden from :ZPack load / :checkhealth.
+  -- Batched plugins are already on 'runtimepath'. pcall packadd for the rest
+  -- so one broken plugin doesn't strand every later one. Track failures so
+  -- later loops (run_config, apply_keys, finalization) skip them — otherwise
+  -- the failed plugin would be marked loaded and hidden from :ZPack load /
+  -- :checkhealth.
   local failed_packs = {}
-  for _, pack_spec in ipairs(sorted_packs) do
-    local ok, err = pcall(vim.cmd.packadd, { pack_spec.name, bang = not ctx.load })
+  for _, pack_spec in ipairs(add_installed_to_rtp(sorted_packs)) do
+    local ok, err = pcall(vim.cmd.packadd, { pack_spec.name, bang = true })
     if not ok then
       failed_packs[pack_spec.src] = true
       util.schedule_notify(("Failed to packadd %s: %s"):format(pack_spec.name or pack_spec.src, tostring(err)), vim.log.levels.ERROR)
-    elseif ctx.load then
-      local entry = state.spec_registry[pack_spec.src]
-      if entry and entry.plugin and entry.plugin.path then
-        util.source_after_plugin_files(entry.plugin.path)
-      end
     end
   end
 
@@ -104,7 +119,7 @@ M.process_all = function(ctx)
         for _, dep_src in ipairs(lazy_deps) do
           local dep_pack = state.src_to_pack_spec[dep_src]
           if dep_pack then
-            loader.try_process_spec(dep_pack, { bang = not ctx.load })
+            loader.try_process_spec(dep_pack, { bang = true })
           end
         end
       end
