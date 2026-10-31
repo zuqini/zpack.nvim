@@ -608,6 +608,7 @@ parent's lazy trigger fires.
       cond = true|false|function(plugin),   -- Condition to load
       lazy = true|false,                    -- Force eager (auto-detect)
       priority = 50,                        -- Load order (default: 50)
+                                            --   doesn't order different ft patterns
 
       -- Plugin configuration
       opts = {},                            -- Options passed to setup()
@@ -634,6 +635,9 @@ parent's lazy trigger fires.
       cmd = string|string[]|fn(plugin),     -- Command(s) to create
       keys = KeySpec|KeySpec[]|fn(plugin),  -- Keymap(s) to create
       ft = string|string[]|function(plugin), -- FileType(s) to lazy load on
+                                            --   plugins sharing a filetype load
+                                            --   together and re-trigger FileType
+                                            --   once, after the last of them
 
       -- Source control (version for `vim.pack.add`, string|vim.VersionRange)
       version = "main",                     -- Branch/tag/commit
