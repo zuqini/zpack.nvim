@@ -9,6 +9,7 @@ local M = {}
 ---@field src_with_init string[]
 ---@field registered_startup_packs vim.pack.Spec[]
 ---@field registered_lazy_packs vim.pack.Spec[]
+---@field load boolean Internal: past init, so plugins source their own scripts
 ---@field confirm boolean?
 ---@field defaults zpack.Config.Defaults
 ---@field is_dependency? boolean Internal: Whether currently importing as dependency
@@ -18,6 +19,7 @@ local M = {}
 ---@field import_paths string[] Internal: where those plugins are, for later imports
 ---@field missing_owners table<zpack.Spec, true> Internal: specs importing from a plugin that isn't installed, this pass
 ---@field settled_owners table<zpack.Spec, 'added'|'removed'> Internal: what became of them
+---@field missed_import? boolean Internal: an import found no module, this pass
 ---@field import_notes { msg: string, level: integer }[] Internal: what the last pass has to report
 
 ---@return zpack.ProcessContext
@@ -103,7 +105,7 @@ local process_all = function(ctx)
 
   require('zpack.startup').process_all(ctx)
   -- Before the triggers: a proxy for what a build just loaded would outlive the load.
-  hooks.run_pending_builds_on_startup(ctx)
+  hooks.run_pending_builds_on_startup()
   require('zpack.lazy').process_all(ctx)
   vim.api.nvim_clear_autocmds({ group = state.startup_group })
   hooks.setup_lazy_build_tracking()

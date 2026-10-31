@@ -53,8 +53,11 @@ end
 
 local silenced = false
 
-M.schedule_notify = function(msg, level)
-  if silenced then
+---@param msg string
+---@param level integer
+---@param unsilenced? boolean Report it even during `silently`
+M.schedule_notify = function(msg, level, unsilenced)
+  if silenced and not unsilenced then
     return
   end
   vim.schedule(function()
@@ -411,9 +414,11 @@ M.check_enabled = function(spec, src)
   if type(en) == "function" then
     local ok, result = pcall(en)
     if not ok then
+      -- Unsilenced: the result is kept, so a trial resolve is the only time it's run.
       M.schedule_notify(
         ("Failed to evaluate enabled for %s: %s"):format(src or 'plugin', tostring(result)),
-        vim.log.levels.ERROR
+        vim.log.levels.ERROR,
+        true
       )
       return false
     end
@@ -555,29 +560,27 @@ local function range_if_not_a_ref(version)
   return version
 end
 
----Normalize plugin version using priority: version > sem_version > branch > tag > commit > defaults.version.
+---Normalize plugin version using lazy.nvim's priority: commit > tag > version >
+---sem_version > branch > defaults.version.
 ---`version = false` is a lazy.nvim escape hatch meaning "no version constraint" —
----returns nil so vim.pack tracks the default branch even when a global default would
----otherwise pin a version.
+---a commit, tag or branch still applies, but sem_version and a global default don't.
 ---@param spec zpack.Spec
 ---@return string|vim.VersionRange|nil version
 ---@return boolean? is_soft A semver string, which falls back to the default branch; see zpack.pack
 M.normalize_version = function(spec)
-  if spec.version == false then
-    return nil
-  end
-  if spec.version ~= nil then
-    -- LLS doesn't narrow past the `== false` check above; cast.
+  if spec.commit then
+    return spec.commit
+  elseif spec.tag then
+    return spec.tag
+  elseif spec.version then
     return range_if_not_a_ref(spec.version)
-  elseif type(spec.sem_version) == 'string' then
+  elseif spec.version == nil and type(spec.sem_version) == 'string' then
     local range = vim.version.range(spec.sem_version)
     return range, range ~= nil
   elseif spec.branch then
     return spec.branch
-  elseif spec.tag then
-    return spec.tag
-  elseif spec.commit then
-    return spec.commit
+  elseif spec.version == false then
+    return nil
   end
   local default_version = state.config and state.config.defaults and state.config.defaults.version
   if type(default_version) == 'string' or type(default_version) == 'table' then
@@ -738,7 +741,8 @@ local sourced_plugin_paths = {}
 ---by the time lazy-loaded plugins are activated, so we do it manually.
 ---@param plugin_path string
 M.source_after_plugin_files = function(plugin_path)
-  if sourced_plugin_paths[plugin_path] then
+  -- Native startup still sources it, for anything on 'runtimepath' before VimEnter.
+  if sourced_plugin_paths[plugin_path] or vim.v.vim_did_enter == 0 then
     return
   end
 

@@ -54,9 +54,10 @@
   -- Source control (version for `vim.pack.add`, string|vim.VersionRange)
   version = "main",                     -- Git branch, tag, or commit; a string that can't be a ref (`*`, `^1.0`, `>=1`) is a semver range
   -- version = vim.version.range("1.*"), -- Or semver range via vim.version.range()
-  -- version = false,                    -- Opt out of versioning (lazy.nvim escape hatch)
+  -- version = false,                    -- Opt out of versioning (lazy.nvim escape hatch); commit, tag and branch still apply
 
-  -- Source control (lazy.nvim compat, mapped to version)
+  -- Source control (lazy.nvim compat, mapped to version). If several are set, the order is
+  -- lazy.nvim's: commit, tag, version, sem_version, branch, defaults.version.
   sem_version = "^1.0.0",               -- Semver string (corresponds to lazy.nvim spec's version), auto-wrapped to vim.version.range()
   branch = "main",                      -- Git branch
   tag = "v1.0.0",                       -- Git tag

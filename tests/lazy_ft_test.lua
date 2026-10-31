@@ -668,7 +668,8 @@ describe("Lazy Loading - FileType", function()
     if accepts_empty_pattern then
       vim.api.nvim_del_autocmd(empty_pattern_au)
       it("keep priority order around an event plugin on an empty pattern list", function()
-        local order = priority_specs({ event = { event = 'FileType', pattern = {} } })
+        -- With a real event too: on its own the empty list is no trigger, so the plugin is eager.
+        local order = priority_specs({ event = { 'User ZpackNever', { event = 'FileType', pattern = {} } } })
 
         open_as('rust')
 

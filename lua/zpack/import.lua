@@ -228,12 +228,14 @@ local import_from_module = function(module_path, ctx, owner)
   local parents = imported_modules[module_path] or {}
   imported_modules[module_path] = parents
   local first_walk = next(parents) == nil
-  if parents[ctx.parent or TOP_LEVEL] then
+  local parent = ctx.parent or TOP_LEVEL
+  -- A walk that found nothing doesn't stop a later spec's plugin being looked in.
+  if parents[parent] == 'walked' or (parents[parent] and not owner) then
     return
   end
-  parents[ctx.parent or TOP_LEVEL] = true
 
   local root = find_module_root(module_path, ctx)
+  local owner_dir
   if not root and owner then
     local settled = ctx.settled_owners[owner.spec]
     if settled == 'removed' then
@@ -243,12 +245,16 @@ local import_from_module = function(module_path, ctx, owner)
     if vim.uv.fs_stat(dir) then
       add_import_path(dir, ctx)
       root = find_module_root(module_path, ctx)
+      owner_dir = dir
     elseif not settled then
       ctx.missing_owners[owner.spec] = true
       return
     end
   end
-  local lua_path = root or (vim.fn.stdpath('config') .. '/lua/' .. module_path:gsub('%.', '/'))
+  parents[parent] = root and 'walked' or 'missed'
+  ctx.missed_import = ctx.missed_import or not root
+  local relative = '/lua/' .. module_path:gsub('%.', '/')
+  local lua_path = root or (vim.fn.stdpath('config') .. relative)
 
   -- A `lua/<path>.lua` file takes precedence over a `lua/<path>/` directory:
   -- the file is the single, explicitly-named spec module and the directory walk
@@ -277,7 +283,7 @@ local import_from_module = function(module_path, ctx, owner)
     load_spec_module(module, ctx)
   end
   if #modules == 0 and first_walk then
-    defer_notify(ctx, ('zpack: no specs found for import "%s" (looked in %s)'):format(module_path, lua_path), vim.log.levels.WARN)
+    defer_notify(ctx, ('zpack: no specs found for import "%s" (looked in %s)'):format(module_path, owner_dir and owner_dir .. relative or lua_path), vim.log.levels.WARN)
   end
 end
 
@@ -469,29 +475,58 @@ end
 ---stays quiet and the caller starts the import over.
 ---@param ctx zpack.ProcessContext
 local settle_missing_owners = function(ctx)
-  local validated, enabled = state.validated_specs, state.enabled_results
-  utils.silently(require('zpack.merge').resolve_all)
-  state.validated_specs, state.enabled_results = validated, enabled
-
-  local to_add = {}
+  local any_added = false
+  -- Installed under a name another of its specs gives: no resolve needed to find it.
   for spec in pairs(ctx.missing_owners) do
-    ctx.settled_owners[spec] = 'removed'
-  end
-  for src, entry in pairs(state.spec_registry) do
-    local stays = false
-    for _, spec in ipairs(entry.specs) do
-      if ctx.missing_owners[spec] then
+    local src = state.spec_src[spec]
+    for _, fragment in ipairs(state.spec_registry[src].specs) do
+      local dir = fragment.name and utils.plugin_dir(utils.resolve_plugin_name(fragment, src))
+      if dir and vim.uv.fs_stat(dir) then
+        add_import_path(dir, ctx)
         ctx.settled_owners[spec] = 'added'
-        stays = true
+        ctx.missing_owners[spec] = nil
+        any_added = true
+        break
       end
     end
-    if stays then
-      local pack_spec = state.src_to_pack_spec[src]
-      local dir = utils.plugin_dir(pack_spec.name)
-      if vim.uv.fs_stat(dir) then
-        add_import_path(dir, ctx)
-      else
-        to_add[#to_add + 1] = { src = src, name = pack_spec.name, version = pack_spec.version }
+  end
+
+  local to_add = {}
+  if next(ctx.missing_owners) then
+    local validated, enabled = state.validated_specs, state.enabled_results
+    utils.silently(require('zpack.merge').resolve_all)
+    state.validated_specs, state.enabled_results = validated, enabled
+
+    for spec in pairs(ctx.missing_owners) do
+      ctx.settled_owners[spec] = 'removed'
+    end
+    for src, entry in pairs(state.spec_registry) do
+      local stays = false
+      for _, spec in ipairs(entry.specs) do
+        if ctx.missing_owners[spec] then
+          ctx.settled_owners[spec] = 'added'
+          stays = true
+          any_added = true
+        end
+      end
+      if stays then
+        local pack_spec = state.src_to_pack_spec[src]
+        local dir = utils.plugin_dir(pack_spec.name)
+        if vim.uv.fs_stat(dir) then
+          add_import_path(dir, ctx)
+        else
+          to_add[#to_add + 1] = { src = src, name = pack_spec.name, version = pack_spec.version }
+        end
+      end
+    end
+  end
+
+  -- The specs of what's added can keep a plugin that was removed, so look again.
+  -- An owner is added once, so this ends.
+  if any_added then
+    for spec, settled in pairs(ctx.settled_owners) do
+      if settled == 'removed' then
+        ctx.settled_owners[spec] = nil
       end
     end
   end
@@ -520,17 +555,23 @@ end
 
 ---Import every spec, installing any plugin an import needs modules from.
 ---lazy.nvim parity: it too installs what's missing and reads the specs again.
----Each pass settles at least one spec, so this ends.
+---An import that comes before the spec of the plugin that has its module finds it
+---on a second pass, as it would on a first install. Each pass settles at least one
+---spec or adds a path, so this ends.
 ---@param spec_item_or_list string|zpack.Spec|zpack.Spec[]
 ---@param ctx zpack.ProcessContext
 M.import_all = function(spec_item_or_list, ctx)
   while true do
-    ctx.import_notes, ctx.missing_owners = {}, {}
+    local known_paths = #ctx.import_paths
+    ctx.import_notes, ctx.missing_owners, ctx.missed_import = {}, {}, false
     M.import_specs(spec_item_or_list, ctx)
-    if next(ctx.missing_owners) == nil then
+    local found_more = ctx.missed_import and #ctx.import_paths > known_paths
+    if next(ctx.missing_owners) == nil and not found_more then
       break
     end
-    settle_missing_owners(ctx)
+    if next(ctx.missing_owners) then
+      settle_missing_owners(ctx)
+    end
     state.reset_specs()
     M.reset_imported_modules()
     for _, imported in pairs(ctx._imported_functions) do

@@ -16,8 +16,8 @@ describe("version = false (zpack_nvim-9tm)", function()
 
   it("version = false skips emitting a version on the vim.pack spec", function()
     require('zpack').setup({
-      spec = { { 'test/v', version = false, branch = 'main' } },
-      defaults = { confirm = false },
+      spec = { { 'test/v', version = false } },
+      defaults = { confirm = false, version = '*' },
     })
     helpers.flush_pending()
 
@@ -31,7 +31,15 @@ describe("version = false (zpack_nvim-9tm)", function()
     end
     assert.is_not_nil(found, "plugin must register with vim.pack")
     assert.is_nil(found.version,
-      "version = false must drop the version even when branch is set")
+      "version = false must drop the global default")
+  end)
+
+  it("version = false keeps a branch, tag or commit, as in lazy.nvim", function()
+    local normalize = require('zpack.utils').normalize_version
+    assert.are.equal('main', normalize({ version = false, branch = 'main' }))
+    assert.are.equal('v1.0.0', normalize({ version = false, tag = 'v1.0.0' }))
+    assert.are.equal('abc123', normalize({ version = false, commit = 'abc123' }))
+    assert.is_nil(normalize({ version = false, sem_version = '^1.0.0' }))
   end)
 
   it("validate_spec accepts version = false", function()
@@ -3323,5 +3331,310 @@ describe("the fourth xhigh review of the parity follow-up", function()
     require('zpack.state').config.defaults.version = '*'
     assert.are.equal('table', type(require('zpack.utils').normalize_version({})))
     require('zpack.state').config.defaults.version = nil
+  end)
+end)
+
+describe("the fifth xhigh review of the parity follow-up", function()
+  local GH = 'https://github.com/'
+  local log
+
+  before_each(function()
+    helpers.setup_test_env()
+    log = {}
+    vim.cmd.packadd = function(args)
+      log[#log + 1] = { name = args[1], bang = args.bang or false }
+    end
+  end)
+
+  after_each(helpers.cleanup_test_env)
+
+  local function after_init()
+    vim.v = setmetatable({ vim_did_init = 1 }, { __index = _G.test_state.original_vim_v })
+  end
+
+  local function setup(spec)
+    require('zpack').setup({ spec = spec, defaults = { confirm = false } })
+    return require('zpack.state')
+  end
+
+  local function warnings()
+    helpers.flush_pending()
+    local msgs = {}
+    for _, notification in ipairs(_G.test_state.notifications) do
+      msgs[#msgs + 1] = notification.msg
+    end
+    return table.concat(msgs, '\n')
+  end
+
+  describe("a load asked to leave sourcing to native startup", function()
+    it("does that while init is running", function()
+      local state = setup({ { 'u/a', cmd = 'ZpackLateA' } })
+      log = {}
+      require('zpack.plugin_loader').process_spec(state.src_to_pack_spec[GH .. 'u/a'], { bang = true })
+      assert.are.same({ { name = 'a', bang = true } }, log)
+    end)
+
+    it("sources plugin/ itself once native startup is past it", function()
+      local state = setup({ { 'u/a', cmd = 'ZpackLateA' } })
+      log = {}
+      after_init()
+      require('zpack.plugin_loader').process_spec(state.src_to_pack_spec[GH .. 'u/a'], { bang = true })
+      assert.are.same({ { name = 'a', bang = false } }, log)
+    end)
+
+    it("is how a require after startup loads a plugin", function()
+      local state = setup({ { 'u/zpack_late_mod', cmd = 'ZpackLateB' } })
+      log = {}
+      after_init()
+      pcall(require, 'zpack_late_mod')
+      assert.are.same({ { name = 'zpack_late_mod', bang = false } }, log)
+      assert.are.equal('loaded', state.spec_registry[GH .. 'u/zpack_late_mod'].load_status)
+    end)
+  end)
+
+  describe("a plugin's command proxies", function()
+    it("are gone before its plugin/ runs, whatever loads it", function()
+      local state = setup({ { 'u/a', cmd = { 'ZpackProxyA', 'ZpackProxyB' } } })
+      assert.is_not_nil(vim.api.nvim_get_commands({}).ZpackProxyA)
+      local seen
+      vim.cmd.packadd = function()
+        seen = vim.api.nvim_get_commands({})
+      end
+      after_init()
+      require('zpack.plugin_loader').process_spec(state.src_to_pack_spec[GH .. 'u/a'], { bang = true })
+      assert.is_nil(seen.ZpackProxyA)
+      assert.is_nil(seen.ZpackProxyB)
+    end)
+
+    it("don't take the real command another plugin defined under the name", function()
+      local state = setup({ { 'u/a', cmd = 'ZpackShared' }, { 'u/b', cmd = 'ZpackShared' } })
+      local loader = require('zpack.plugin_loader')
+      vim.cmd.packadd = function(args)
+        if args[1] == 'a' then
+          vim.api.nvim_create_user_command('ZpackShared', function() end, {})
+        end
+      end
+      loader.process_spec(state.src_to_pack_spec[GH .. 'u/a'], {})
+      loader.process_spec(state.src_to_pack_spec[GH .. 'u/b'], {})
+      assert.is_not_nil(vim.api.nvim_get_commands({}).ZpackShared)
+      pcall(vim.api.nvim_del_user_command, 'ZpackShared')
+    end)
+  end)
+
+  it("a dependency that throws doesn't stop its parent", function()
+    local configured = false
+    local state = setup({
+      {
+        'u/parent',
+        cmd = 'ZpackParentCmd',
+        config = function() configured = true end,
+        dependencies = {
+          { 'u/dep', opts = function() error('boom') end, main = 'x' },
+        },
+      },
+    })
+    log = {}
+    assert.is_true(require('zpack.plugin_loader').try_process_spec(state.src_to_pack_spec[GH .. 'u/parent']))
+    assert.is_true(configured)
+    assert.are.equal('loaded', state.spec_registry[GH .. 'u/parent'].load_status)
+    assert.is_truthy(log[#log].name == 'parent' and not log[#log].bang)
+    assert.is_truthy(warnings():find('Failed to load dep', 1, true))
+  end)
+
+  describe("after/plugin", function()
+    local dir
+
+    before_each(function()
+      dir = vim.fn.tempname()
+      vim.fn.mkdir(dir .. '/after/plugin', 'p')
+      local f = assert(io.open(dir .. '/after/plugin/x.lua', 'w'))
+      f:write('_G._zpack_after_runs = (_G._zpack_after_runs or 0) + 1\n')
+      f:close()
+      _G._zpack_after_runs = nil
+    end)
+
+    after_each(function()
+      vim.fn.delete(dir, 'rf')
+      _G._zpack_after_runs = nil
+    end)
+
+    it("is left to native startup before VimEnter", function()
+      local real_v = _G.test_state.original_vim_v
+      vim.v = setmetatable({ vim_did_enter = 0 }, { __index = real_v })
+      require('zpack.utils').source_after_plugin_files(dir)
+      assert.is_nil(_G._zpack_after_runs)
+
+      vim.v = real_v
+      require('zpack.utils').source_after_plugin_files(dir)
+      assert.are.equal(1, _G._zpack_after_runs)
+    end)
+  end)
+
+  it("sources a lazy dependency before its eager parent when setup() runs after startup", function()
+    after_init()
+    setup({ { 'u/parent', lazy = false, dependencies = { { 'u/dep', lazy = true } } } })
+    local sourced = {}
+    for _, entry in ipairs(log) do
+      if not entry.bang then
+        sourced[#sourced + 1] = entry.name
+      end
+    end
+    assert.are.same({ 'dep', 'parent' }, sourced)
+    assert.are.same({ name = 'parent', bang = true }, log[1])
+  end)
+
+  it("reports a throwing enabled found by a silent trial resolve, once", function()
+    local utils = require('zpack.utils')
+    local runs = 0
+    local spec = { 'u/p', enabled = function() runs = runs + 1; error('boom') end }
+    utils.silently(function() utils.spec_enabled(spec, 'u/p') end)
+    assert.is_false(utils.spec_enabled(spec, 'u/p'))
+    assert.are.equal(1, runs)
+    assert.is_truthy(warnings():find('Failed to evaluate enabled', 1, true))
+  end)
+
+  describe("an import of a plugin's modules", function()
+    local roots, saved_path
+
+    local function write(path, content)
+      vim.fn.mkdir(vim.fs.dirname(path), 'p')
+      local f = assert(io.open(path, 'w'))
+      f:write(content)
+      f:close()
+    end
+
+    local function install(name, files)
+      local root = require('zpack.utils').plugin_dir(name)
+      roots[#roots + 1] = root
+      for file, content in pairs(files) do
+        write(root .. '/' .. file, content)
+      end
+    end
+
+    before_each(function()
+      roots, saved_path = {}, package.path
+    end)
+
+    after_each(function()
+      for _, root in ipairs(roots) do
+        vim.fn.delete(root, 'rf')
+      end
+      package.path = saved_path
+      for name in pairs(package.loaded) do
+        if name:find('^zpackowner') then
+          package.loaded[name] = nil
+        end
+      end
+    end)
+
+    it("before its plugin's spec finds the module, in the plugin's list position", function()
+      install('zpackowner', {
+        ['lua/zpackowner/extra.lua'] = "return { { 'dist/extra' } }",
+        ['lua/zpackowner/plugins.lua'] = "return { { 'dist/core' } }",
+      })
+      local state = setup({
+        { import = 'zpackowner.extra' },
+        { 'u/zpackowner', import = 'zpackowner.plugins' },
+      })
+      assert.is_not_nil(state.spec_registry[GH .. 'dist/extra'])
+      assert.is_not_nil(state.spec_registry[GH .. 'dist/core'])
+      assert.is_true(state.spec_registry[GH .. 'dist/extra'].specs[1]._import_order
+        < state.spec_registry[GH .. 'dist/core'].specs[1]._import_order)
+      assert.is_nil(warnings():find('no specs found', 1, true))
+    end)
+
+    it("of the same module with and without the plugin looks in the plugin", function()
+      install('zpackowner', { ['lua/zpackowner/same.lua'] = "return { { 'dist/same' } }" })
+      local state = setup({
+        { import = 'zpackowner.same' },
+        { 'u/zpackowner', import = 'zpackowner.same' },
+      })
+      assert.is_not_nil(state.spec_registry[GH .. 'dist/same'])
+      assert.is_nil(warnings():find('no specs found', 1, true))
+    end)
+
+    it("finds a plugin installed under a name another of its specs gives, without a trial resolve", function()
+      install('zpackowner-renamed', { ['lua/zpackowner/plugins.lua'] = "return { { 'dist/core' } }" })
+      local merge = require('zpack.merge')
+      local resolve_all, resolves = merge.resolve_all, 0
+      merge.resolve_all = function()
+        resolves = resolves + 1
+        return resolve_all()
+      end
+      local state = setup({
+        { 'u/zpackowner', import = 'zpackowner.plugins' },
+        { 'u/zpackowner', name = 'zpackowner-renamed' },
+      })
+      merge.resolve_all = resolve_all
+      assert.is_not_nil(state.spec_registry[GH .. 'dist/core'])
+      assert.are.equal(1, resolves)
+    end)
+
+    it("names the plugin's directory when that's where it looked", function()
+      install('zpackowner', { ['README'] = '' })
+      setup({ { 'u/zpackowner', import = 'zpackowner.nope' } })
+      local dir = require('zpack.utils').plugin_dir('zpackowner')
+      assert.is_truthy(warnings():find(dir .. '/lua/zpackowner/nope', 1, true))
+    end)
+
+    it("is followed if a later pass's specs keep a plugin the first one removed", function()
+      local add = vim.pack.add
+      vim.pack.add = function(packs, opts)
+        for _, pack_spec in ipairs(packs) do
+          if pack_spec.name == 'zpackownera' then
+            install('zpackownera', { ['lua/zpackownera/plugins.lua'] = "return { { 'u/zpackownerb' } }" })
+          elseif pack_spec.name == 'zpackownerb' then
+            install('zpackownerb', { ['lua/zpackownerb/plugins.lua'] = "return { { 'dist/fromb' } }" })
+          end
+        end
+        return add(packs, opts)
+      end
+      local state = setup({
+        { 'u/zpackownera', import = 'zpackownera.plugins' },
+        { 'u/zpackownerb', optional = true, import = 'zpackownerb.plugins' },
+      })
+      vim.pack.add = add
+      assert.is_not_nil(state.spec_registry[GH .. 'dist/fromb'])
+    end)
+  end)
+
+  describe("a semver string on an installed plugin", function()
+    local dir
+
+    before_each(function()
+      dir = require('zpack.utils').plugin_dir('zpacktags')
+      vim.fn.mkdir(dir .. '/.git/refs/tags', 'p')
+    end)
+
+    after_each(function()
+      vim.fn.delete(dir, 'rf')
+    end)
+
+    local function version_with_tag(tag)
+      local f = assert(io.open(dir .. '/.git/refs/tags/' .. tag, 'w'))
+      f:write('abc\n')
+      f:close()
+      setup({ { 'u/zpacktags', version = '*' } })
+      for _, call in ipairs(_G.test_state.vim_pack_calls) do
+        for _, pack_spec in ipairs(call) do
+          if pack_spec.name == 'zpacktags' then
+            return pack_spec.version
+          end
+        end
+      end
+    end
+
+    it("reads a tag as this Neovim's vim.pack does", function()
+      local version = version_with_tag('v1.2')
+      if vim.fn.has('nvim-0.13') == 1 then
+        assert.is_nil(version)
+      else
+        assert.are.equal('table', type(version))
+      end
+    end)
+
+    it("stays a range if a tag fits", function()
+      assert.are.equal('table', type(version_with_tag('v1.2.3')))
+    end)
   end)
 end)

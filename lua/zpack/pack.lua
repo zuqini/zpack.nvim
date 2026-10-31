@@ -3,12 +3,15 @@ local utils = require('zpack.utils')
 
 local M = {}
 
+---How vim.pack reads tags: since 0.13, `v1.2` is no version to it.
+local STRICT_TAGS = vim.fn.has('nvim-0.13') == 1
+
 ---@param tag string?
 ---@param range vim.VersionRange
 ---@return boolean
 local function fits(tag, range)
-  local version = tag and tag:match('^v?%d') and vim.version.parse(tag)
-  return version ~= nil and version ~= false and range:has(version)
+  local version = tag and tag:match('^v?%d') and vim.version.parse(tag, { strict = STRICT_TAGS })
+  return version ~= nil and range:has(version)
 end
 
 ---@param dir string A plugin's directory

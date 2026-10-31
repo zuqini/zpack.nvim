@@ -109,8 +109,13 @@ M.process_spec = function(pack_spec, opts)
 
   -- vim.pack.add's load callback has populated spec.name by this point.
   local name = plugin.spec.name --[[@as string]]
+  -- `bang` asks to leave sourcing to native startup, which only does it for what
+  -- reaches 'runtimepath' before v:vim_did_init.
+  local bang = opts.bang and vim.v.vim_did_init == 0
 
   registry_entry.load_status = "loading"
+  -- lazy.nvim parity: a plugin's own `:command Foo` fails while a proxy holds the name.
+  state.drop_cmd_proxies(pack_spec.src)
 
   -- On throw, reset load_status to "pending" so a retry doesn't hit the
   -- "Circular dependency" branch above; re-raise to preserve the existing
@@ -122,7 +127,7 @@ M.process_spec = function(pack_spec, opts)
 
     -- lazy.nvim parity: on 'runtimepath' first, since a dependency's scripts can
     -- require its parent, but sourced after its dependencies.
-    if opts.bang or #deps > 0 then
+    if bang or #deps > 0 then
       vim.cmd.packadd({ name, bang = true })
     end
 
@@ -137,7 +142,8 @@ M.process_spec = function(pack_spec, opts)
         end
         local dep_pack_spec = find_pack_spec_by_src(dep_src)
         if dep_pack_spec then
-          M.process_spec(dep_pack_spec, opts)
+          -- lazy.nvim parity: a dependency that fails doesn't stop its parent.
+          M.try_process_spec(dep_pack_spec, opts)
         else
           utils.schedule_notify(
             ("Dependency %s not found for %s"):format(dep_src, pack_spec.src),
@@ -147,7 +153,7 @@ M.process_spec = function(pack_spec, opts)
       end
     end
 
-    if not opts.bang then
+    if not bang then
       vim.cmd.packadd({ name })
       -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
       if plugin.path then

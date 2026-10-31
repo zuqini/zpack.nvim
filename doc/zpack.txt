@@ -951,7 +951,12 @@ version         (string|vim.VersionRange, optional)
                 written as a string here, in `sem_version` or in
                 `defaults.version`, the plugin follows its default branch, as
                 in lazy.nvim. A |vim.version.range()| object keeps vim.pack's
-                behaviour, which is an error.
+                behaviour, which is an error. `false` opts out of
+                `defaults.version` and `sem_version`.
+                When a plugin's specs set several of these, the order is
+                lazy.nvim's: `commit`, `tag`, `version`, `sem_version`,
+                `branch`, then `defaults.version` (which applies only with
+                none of the others).
 
                                                      *zpack-Spec.sem_version*
 sem_version     (string, optional)

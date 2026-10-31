@@ -77,7 +77,7 @@ M.setup = function(registered_pack_specs)
     -- callback and the tab-completion callback so first-tab completions
     -- come from the real command, not an empty proxy.
     local function load_plugins()
-      pcall(vim.api.nvim_del_user_command, cmd)
+      state.drop_cmd_proxy(cmd)
       local any_ok = false
       for _, pack_spec in ipairs(pack_specs) do
         if loader.try_process_spec(pack_spec) then
@@ -143,6 +143,12 @@ M.setup = function(registered_pack_specs)
           return vim.fn.getcompletion(line, 'cmdline')
         end,
       })
+      state.live_cmd_proxies[cmd] = true
+      for _, pack_spec in ipairs(pack_specs) do
+        local proxies = state.cmd_proxies[pack_spec.src] or {}
+        state.cmd_proxies[pack_spec.src] = proxies
+        proxies[#proxies + 1] = cmd
+      end
     end)
   end
 end

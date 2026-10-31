@@ -113,7 +113,20 @@ M.process_all = function(ctx)
     to_add = add_installed_to_rtp(reversed)
   end
   for _, pack_spec in ipairs(to_add) do
-    local ok, err = pcall(vim.cmd.packadd, { pack_spec.name, bang = not ctx.load })
+    local ok, err = pcall(function()
+      -- Sourcing now, so lazy dependencies have to come first too. On
+      -- 'runtimepath' before them, as in plugin_loader.process_spec.
+      if ctx.load and lazy_deps_map[pack_spec.src] then
+        vim.cmd.packadd({ pack_spec.name, bang = true })
+        for _, dep_src in ipairs(lazy_deps_map[pack_spec.src]) do
+          local dep_pack = state.src_to_pack_spec[dep_src]
+          if dep_pack then
+            loader.try_process_spec(dep_pack)
+          end
+        end
+      end
+      vim.cmd.packadd({ pack_spec.name, bang = not ctx.load })
+    end)
     if not ok then
       failed_packs[pack_spec.src] = true
       util.schedule_notify(("Failed to packadd %s: %s"):format(pack_spec.name or pack_spec.src, tostring(err)), vim.log.levels.ERROR)

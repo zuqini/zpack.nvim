@@ -92,6 +92,27 @@ M.unloaded_plugin_names = {}
 
 ---Forget a trial resolve, to import the specs again. `validated_specs` and
 ---`enabled_results` stay, since a spec's warnings and `enabled` come once.
+---The proxy commands of each lazy plugin, by source.
+---@type { [string]: string[] }
+M.cmd_proxies = {}
+---@type { [string]: true }
+M.live_cmd_proxies = {}
+
+---@param cmd string
+M.drop_cmd_proxy = function(cmd)
+  if M.live_cmd_proxies[cmd] then
+    M.live_cmd_proxies[cmd] = nil
+    pcall(vim.api.nvim_del_user_command, cmd)
+  end
+end
+
+---@param src string
+M.drop_cmd_proxies = function(src)
+  for _, cmd in ipairs(M.cmd_proxies[src] or {}) do
+    M.drop_cmd_proxy(cmd)
+  end
+end
+
 M.reset_specs = function()
   M.spec_registry = {}
   M.import_order = 0
