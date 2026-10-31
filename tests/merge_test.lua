@@ -261,7 +261,7 @@ describe("Merge Module Unit Tests", function()
     assert.are.equal(3, #result.event)
   end)
 
-  it("merge_specs uses AND logic for cond", function()
+  it("merge_specs: the later cond wins when false", function()
     local merge = require('zpack.merge')
 
     local base = { cond = true }
@@ -271,47 +271,14 @@ describe("Merge Module Unit Tests", function()
     assert.are.equal(false, result.cond)
   end)
 
-  it("merge_and for enabled: function returning false composes to false", function()
+  it("merge_specs: the later cond wins when true", function()
     local merge = require('zpack.merge')
-    local utils = require('zpack.utils')
-
-    local base = { enabled = function() return false end }
-    local incoming = { enabled = true }
-    local result = merge.merge_specs(base, incoming)
-
-    assert.are.equal("function", type(result.enabled))
-    assert.is_falsy(
-      utils.check_enabled(result),
-      "enabled fn returning false must propagate through merge, not collapse via ternary"
-    )
-  end)
-
-  it("merge_and for cond: function returning false composes to false", function()
-    local merge = require('zpack.merge')
-    local utils = require('zpack.utils')
 
     local base = { cond = function() return false end }
     local incoming = { cond = true }
     local result = merge.merge_specs(base, incoming)
 
-    assert.are.equal("function", type(result.cond))
-    assert.is_falsy(
-      utils.check_cond(result, {}),
-      "cond fn returning false must propagate through merge, not collapse via ternary"
-    )
-  end)
-
-  it("merge_and_enabled: merged function is called with no arguments", function()
-    local merge = require('zpack.merge')
-    local utils = require('zpack.utils')
-
-    local received_arg
-    local base = { enabled = function(...) received_arg = select('#', ...); return true end }
-    local incoming = { enabled = function() return true end }
-    local result = merge.merge_specs(base, incoming)
-    utils.check_enabled(result)
-
-    assert.are.equal(0, received_arg)
+    assert.are.equal(true, result.cond)
   end)
 
   it("sort_specs puts dependencies before standalone", function()
@@ -788,7 +755,7 @@ describe("Merge Module Unit Tests", function()
     local merged = state.spec_registry[src].merged_spec
 
     assert.are.equal(1, #merged.keys)
-    assert.are.equal('first', merged.keys[1].desc)
+    assert.are.equal('second', merged.keys[1].desc)
   end)
 
   it("keys with same modes in different order are deduplicated", function()

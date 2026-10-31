@@ -118,34 +118,40 @@ M.process_spec = function(pack_spec, opts)
   -- this pcall — once run_config has succeeded, a key-spec throw must not
   -- roll back into a retry that double-runs run_config.
   local ok, err = pcall(function()
-    vim.cmd.packadd({ name, bang = opts.bang })
+    local deps = utils.sorted_dependencies(pack_spec.src)
 
-    -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
-    if not opts.bang and plugin.path then
-      utils.source_after_plugin_files(plugin.path)
+    -- lazy.nvim parity: on 'runtimepath' first, since a dependency's scripts can
+    -- require its parent, but sourced after its dependencies.
+    if opts.bang or #deps > 0 then
+      vim.cmd.packadd({ name, bang = true })
     end
 
-    local deps = state.dependency_graph[pack_spec.src]
-    if deps then
-      for dep_src in pairs(deps) do
-        local dep_entry = state.spec_registry[dep_src]
-        if dep_entry and dep_entry.load_status ~= "loaded" then
-          if dep_entry.cond_result == false then
-            utils.schedule_notify(
-              ("%s has cond=false but is a dependency of %s and will be loaded anyway"):format(dep_src, pack_spec.src),
-              vim.log.levels.WARN
-            )
-          end
-          local dep_pack_spec = find_pack_spec_by_src(dep_src)
-          if dep_pack_spec then
-            M.process_spec(dep_pack_spec, opts)
-          else
-            utils.schedule_notify(
-              ("Dependency %s not found for %s"):format(dep_src, pack_spec.src),
-              vim.log.levels.WARN
-            )
-          end
+    for _, dep_src in ipairs(deps) do
+      local dep_entry = state.spec_registry[dep_src]
+      if dep_entry and dep_entry.load_status ~= "loaded" then
+        if dep_entry.cond_result == false then
+          utils.schedule_notify(
+            ("%s has cond=false but is a dependency of %s and will be loaded anyway"):format(dep_src, pack_spec.src),
+            vim.log.levels.WARN
+          )
         end
+        local dep_pack_spec = find_pack_spec_by_src(dep_src)
+        if dep_pack_spec then
+          M.process_spec(dep_pack_spec, opts)
+        else
+          utils.schedule_notify(
+            ("Dependency %s not found for %s"):format(dep_src, pack_spec.src),
+            vim.log.levels.WARN
+          )
+        end
+      end
+    end
+
+    if not opts.bang then
+      vim.cmd.packadd({ name })
+      -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
+      if plugin.path then
+        utils.source_after_plugin_files(plugin.path)
       end
     end
 

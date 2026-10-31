@@ -81,4 +81,32 @@ describe("ZPack clean", function()
     local call = _G.test_state.vim_pack_del_calls[1]
     assert.are.equal(2, #call.names)
   end)
+
+  describe("zpack itself", function()
+    local function cleaned(pack)
+      require('zpack').setup({ spec = { { 'test/plugin-a' } }, defaults = { confirm = false } })
+      helpers.flush_pending()
+      _G.test_state.registered_pack_specs[pack.name] = pack
+      local deleted = {}
+      local original = vim.pack.del
+      vim.pack.del = function(names)
+        vim.list_extend(deleted, names)
+      end
+      require('zpack.commands').clean_unused()
+      vim.pack.del = original
+      return vim.list_contains(deleted, pack.name)
+    end
+
+    it("is kept", function()
+      assert.is_false(cleaned({ src = 'https://github.com/zuqini/zpack.nvim', name = 'zpack.nvim' }))
+    end)
+
+    it("is kept when installed from a fork with a .git url", function()
+      assert.is_false(cleaned({ src = 'https://example.com/me/zpack.nvim.git', name = 'zpack.nvim' }))
+    end)
+
+    it("does not shield a plugin that only has zpack in its name", function()
+      assert.is_true(cleaned({ src = 'https://github.com/u/zpack-extras', name = 'zpack-extras' }))
+    end)
+  end)
 end)

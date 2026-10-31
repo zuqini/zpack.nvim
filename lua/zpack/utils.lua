@@ -42,14 +42,59 @@ M.reset_lsdir_cache = function()
   lsdir_cache = {}
 end
 
+---vim.notify's default handler echoes every level, so a debug note waits for
+---'verbose'.
 M.notify = function(msg, level)
+  if level == vim.log.levels.DEBUG and vim.o.verbose == 0 then
+    return
+  end
   vim.notify('[zpack.nvim] ' .. msg, level)
 end
 
+local silenced = false
+
 M.schedule_notify = function(msg, level)
+  if silenced then
+    return
+  end
   vim.schedule(function()
     M.notify(msg, level)
   end)
+end
+
+---Call `fn` with schedule_notify silent.
+---@param fn fun()
+M.silently = function(fn)
+  silenced = true
+  local ok, err = pcall(fn)
+  silenced = false
+  if not ok then
+    error(err, 0)
+  end
+end
+
+---Where vim.pack installs a plugin.
+---@param name string
+---@return string
+M.plugin_dir = function(name)
+  return vim.fn.stdpath('data') .. '/site/pack/core/opt/' .. name
+end
+
+---A plugin's dependencies in the order it lists them, as vim.pack and lazy.nvim
+---would see them; `dependency_graph` alone is a set.
+---@param src string
+---@return string[]
+M.sorted_dependencies = function(src)
+  local deps = vim.tbl_keys(state.dependency_graph[src] or {})
+  local order = state.dependency_order[src] or {}
+  table.sort(deps, function(a, b)
+    local order_a, order_b = order[a] or math.huge, order[b] or math.huge
+    if order_a ~= order_b then
+      return order_a < order_b
+    end
+    return a < b
+  end)
+  return deps
 end
 
 ---Get priority for a plugin source (default: 50)
@@ -94,12 +139,43 @@ M.compare_priority = function(a, b)
   return M.get_import_order(src_a) < M.get_import_order(src_b)
 end
 
----Normalize keys to a consistent format
+---A table starting with a string is one KeySpec when it has a field, a
+---non-string rhs, or a second string that can only be an rhs (empty, `<Nop>`,
+---`<cmd>...`, `<Plug>...`, `:...`, `...<CR>`). `{ '<a>', '<b>' }`
+---is a list of two keys, as in lazy.nvim, and so is any list holding a table.
+---@param keys table
+---@return boolean
+local function is_single_key(keys)
+  if type(keys[1]) ~= "string" then
+    return false
+  end
+  local single = #keys == 1
+  for k, v in pairs(keys) do
+    if type(k) == "number" and type(v) == "table" then
+      return false
+    end
+    if type(k) ~= "number" or type(v) ~= "string" then
+      single = true
+    end
+  end
+  if single then
+    return true
+  end
+  local rhs = #keys == 2 and keys[2]:lower()
+  return rhs ~= false and (M.is_nop_rhs(rhs)
+    or rhs:find("^<cmd>") ~= nil or rhs:find("^<plug>") ~= nil or rhs:find("^:") ~= nil
+    -- `<CR>` and `<C-x><CR>` are keys someone may map; text before `<CR>` is a command.
+    or (rhs:find(".<cr>$") ~= nil and rhs:find("^<[^<>]*><cr>$") == nil))
+end
+
+---Normalize keys to a list of KeySpec tables
 ---@param keys zpack.KeySpec|zpack.KeySpec[]|string|string[]
 ---@return zpack.KeySpec[]
 M.normalize_keys = function(keys)
-  -- Normalize to always be an array
-  local key_list = (type(keys) == "string" or (keys[1] and type(keys[1]) == "string"))
+  if type(keys) ~= "string" and type(keys) ~= "table" then
+    return {}
+  end
+  local key_list = (type(keys) == "string" or is_single_key(keys))
       and { keys }
       or keys --[[@as string[]|zpack.KeySpec[] ]]
 
@@ -107,8 +183,91 @@ M.normalize_keys = function(keys)
   for _, key in ipairs(key_list) do
     if type(key) == "string" then
       table.insert(result, { key })
-    else
+    elseif type(key) == "table" then
       table.insert(result, key)
+    end
+  end
+  return result
+end
+
+---@param rhs any
+---@return boolean
+M.is_nop_rhs = function(rhs)
+  return type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>")
+end
+
+---What makes two keys the same mapping. lazy.nvim parity: `buffer = true` and
+---`buffer = 0` both mean "current buffer".
+---@param lhs string
+---@param mode string
+---@param ft string|string[]|nil
+---@param buffer integer|boolean|nil
+---@return string
+M.key_id = function(lhs, mode, ft, buffer)
+  local scope = M.normalize_ft_scope(ft)
+  if scope then
+    scope = vim.list_slice(scope)
+    table.sort(scope)
+  end
+  return table.concat({
+    vim.api.nvim_replace_termcodes(lhs, true, true, true),
+    mode,
+    scope and table.concat(scope, ",") or "",
+    tostring(buffer == true and 0 or buffer or ""),
+  }, "\0")
+end
+
+---Claim a key's lhs, ft and buffer in each of its modes.
+---@param key zpack.KeySpec
+---@param claimed { [string]: true }
+---@return string[] kept The modes no later key had claimed
+---@return integer total How many modes the key has
+local function claim_key_modes(key, claimed)
+  local modes = M.normalize_string_list(key.mode or "n")
+  local kept = {}
+  for _, mode in ipairs(modes) do
+    local id = M.key_id(key[1], mode, key.ft, key.buffer)
+    if not claimed[id] then
+      claimed[id] = true
+      kept[#kept + 1] = mode
+    end
+  end
+  return kept, #modes
+end
+
+---Later keys replace earlier ones with the same lhs, mode, ft and buffer, one
+---mode at a time (lazy.nvim's Keys.resolve). A key that loses only some of its
+---modes is copied with the ones left. A malformed key is kept as it is, for the
+---keys trigger to report against its plugin, since this also runs mid-merge.
+---@param key_list zpack.KeySpec[]
+---@return zpack.KeySpec[]
+M.dedupe_keys = function(key_list)
+  local claimed, reversed = {}, {}
+  for i = #key_list, 1, -1 do
+    local key = key_list[i]
+    local ok, kept, total = pcall(claim_key_modes, key, claimed)
+    if not ok or #kept == total then
+      reversed[#reversed + 1] = key
+    elseif #kept > 0 then
+      reversed[#reversed + 1] = vim.tbl_extend("force", {}, key, { mode = kept })
+    end
+  end
+  local result = {}
+  for i = #reversed, 1, -1 do
+    result[#result + 1] = reversed[i]
+  end
+  return result
+end
+
+---The keys to map: normalized, deduped, and without the ones a spec disabled
+---with a `false` or vim.NIL rhs.
+---@param keys zpack.KeySpec|zpack.KeySpec[]|string|string[]
+---@return zpack.KeySpec[]
+M.resolve_keys = function(keys)
+  local result = {}
+  for _, key in ipairs(M.dedupe_keys(M.normalize_keys(keys))) do
+    if key[2] ~= false and key[2] ~= vim.NIL then
+      result[#result + 1] = key
     end
   end
   return result
@@ -210,7 +369,8 @@ M.try_resolve_field = function(field, plugin, src, field_name)
   if type(field) ~= "function" then
     return field
   end
-  local ok, result = pcall(field, plugin)
+  local list = {}
+  local ok, result = pcall(field, plugin, list)
   if not ok then
     M.schedule_notify(
       ("Failed to resolve %s for %s: %s"):format(field_name or 'field', src or 'plugin', tostring(result)),
@@ -218,7 +378,25 @@ M.try_resolve_field = function(field, plugin, src, field_name)
     )
     return nil
   end
+  if result == nil and next(list) ~= nil then
+    return list
+  end
   return result
+end
+
+---Run one plugin's trigger setup so a malformed value reports that plugin
+---instead of aborting setup() for every plugin after it.
+---@param label string
+---@param field_name string
+---@param setup fun()
+M.try_trigger_setup = function(label, field_name, setup)
+  local ok, err = pcall(setup)
+  if not ok then
+    M.schedule_notify(
+      ("Failed to set up %s for %s: %s"):format(field_name, label, tostring(err)),
+      vim.log.levels.ERROR
+    )
+  end
 end
 
 ---Coerce `spec.enabled` to a bool; function-form is pcall'd and a throw
@@ -245,6 +423,19 @@ M.check_enabled = function(spec, src)
     end
   end
   return true
+end
+
+---`check_enabled`, evaluated once per spec for a setup() run.
+---@param spec zpack.Spec
+---@param src? string Identifier for the failure notify
+---@return boolean
+M.spec_enabled = function(spec, src)
+  local result = state.enabled_results[spec]
+  if result == nil then
+    result = M.check_enabled(spec, src)
+    state.enabled_results[spec] = result
+  end
+  return result
 end
 
 ---Coerce `spec.cond` (or `default_cond` when nil) to a bool; function-form
@@ -313,7 +504,7 @@ end
 ---@param src string Normalized source (fallback name basis)
 ---@return string
 M.resolve_plugin_name = function(merged_spec, src)
-  if merged_spec.name then
+  if type(merged_spec.name) == 'string' then
     return merged_spec.name
   end
   if type(merged_spec[1]) == 'string' then
@@ -350,6 +541,20 @@ M.is_semver_like = function(str)
       or str:match('^%d+[%d%.]*$') ~= nil
 end
 
+---A string git can't take as a ref can only be a semver range. lazy.nvim parity,
+---so a distro's `version = '*'` works; anything that could be a ref stays one.
+---@param version any
+---@return any
+local function range_if_not_a_ref(version)
+  if type(version) == 'string' and (version:find('*', 1, true) or version:match('^[>=<^~]')) then
+    local ok, range = pcall(vim.version.range, version)
+    if ok and range then
+      return range
+    end
+  end
+  return version
+end
+
 ---Normalize plugin version using priority: version > sem_version > branch > tag > commit > defaults.version.
 ---`version = false` is a lazy.nvim escape hatch meaning "no version constraint" —
 ---returns nil so vim.pack tracks the default branch even when a global default would
@@ -362,8 +567,8 @@ M.normalize_version = function(spec)
   end
   if spec.version ~= nil then
     -- LLS doesn't narrow past the `== false` check above; cast.
-    return spec.version --[[@as string|vim.VersionRange]]
-  elseif spec.sem_version then
+    return range_if_not_a_ref(spec.version) --[[@as string|vim.VersionRange]]
+  elseif type(spec.sem_version) == 'string' then
     return vim.version.range(spec.sem_version)
   elseif spec.branch then
     return spec.branch
@@ -374,7 +579,7 @@ M.normalize_version = function(spec)
   end
   local default_version = state.config and state.config.defaults and state.config.defaults.version
   if type(default_version) == 'string' or type(default_version) == 'table' then
-    return default_version
+    return range_if_not_a_ref(default_version)
   end
   return nil
 end

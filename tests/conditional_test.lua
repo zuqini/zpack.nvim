@@ -315,23 +315,52 @@ describe("Conditional Loading", function()
     assert.are.equal(true, entry.cond_result)
   end)
 
-  it("check_enabled handles merge_and-composed functions without crashing", function()
-    local merge = require('zpack.merge')
-    local utils = require('zpack.utils')
+  describe("across specs of one plugin", function()
+    local function registered(spec)
+      require('zpack').setup({ spec = spec, defaults = { confirm = false } })
+      helpers.flush_pending()
+      return require('zpack.state').spec_registry['https://github.com/test/plugin'] ~= nil
+    end
 
-    local base = { enabled = function() return true end }
-    local incoming = { enabled = function() return false end }
-    local merged = merge.merge_specs(base, incoming)
+    it("a later enabled = true undoes an earlier function returning false", function()
+      assert.is_true(registered({
+        { 'test/plugin', enabled = function() return false end },
+        { 'test/plugin', enabled = true },
+      }))
+    end)
 
-    assert.are.equal("function", type(merged.enabled))
-    local result = utils.check_enabled(merged)
-    assert.is_falsy(result, "merged function AND_LOGIC should evaluate to false")
+    it("the last function decides", function()
+      assert.is_false(registered({
+        { 'test/plugin', enabled = function() return true end },
+        { 'test/plugin', enabled = function() return false end },
+      }))
+    end)
 
-    local both_true = merge.merge_specs(
-      { enabled = function() return true end },
-      { enabled = function() return true end }
-    )
-    assert.is_truthy(utils.check_enabled(both_true), "both-true functions should merge to true")
+    it("a later spec without enabled changes nothing", function()
+      assert.is_false(registered({
+        { 'test/plugin', enabled = false },
+        { 'test/plugin', opts = {} },
+      }))
+    end)
+
+    it("only the deciding function runs, once, with no arguments", function()
+      local earlier, calls, args = 0, 0, nil
+      registered({
+        { 'test/plugin', enabled = function() earlier = earlier + 1; return true end },
+        { 'test/plugin', enabled = function(...) calls = calls + 1; args = select('#', ...); return true end },
+      })
+      assert.are.equal(0, earlier)
+      assert.are.equal(1, calls)
+      assert.are.equal(0, args)
+    end)
+
+    it("is not left on the merged spec", function()
+      registered({
+        { 'test/plugin', enabled = true },
+        { 'test/plugin', enabled = true },
+      })
+      assert.is_nil(require('zpack.state').spec_registry['https://github.com/test/plugin'].merged_spec.enabled)
+    end)
   end)
 end)
 

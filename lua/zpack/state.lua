@@ -36,8 +36,26 @@ M.spec_children = {}
 ---@type { [zpack.Spec]: string }
 M.spec_src = {}
 
+---Each spec's `enabled`, so a spec that is both a plugin and an import gets one
+---answer from a function-form `enabled`.
+---@type { [zpack.Spec]: boolean }
+M.enabled_results = {}
+
+---Specs already validated: a spec can be walked once per parent listing it.
+---@type { [any]: true }
+M.validated_specs = {}
+
+---Which field gave each spec its source. A `reference` is a `[1]` without an
+---owner, which names a plugin but no repo (lazy.nvim parity).
+---@type { [zpack.Spec]: 'dev'|'explicit'|'repo'|'reference' }
+M.source_kinds = {}
+
 ---@type { [string]: { [string]: true } }
 M.dependency_graph = {}
+
+---Where each plugin lists each dependency, as an import order.
+---@type { [string]: { [string]: integer } }
+M.dependency_order = {}
 
 ---@type { [string]: { [string]: true } }
 M.reverse_dependency_graph = {}
@@ -66,6 +84,16 @@ M.registered_plugin_names = { 'zpack.nvim' }
 M.plugin_names_with_build = {}
 ---@type { [string]: boolean }
 M.unloaded_plugin_names = {}
+
+---Forget a trial resolve, to import the specs again. `validated_specs` and
+---`enabled_results` stay, since a spec's warnings and `enabled` come once.
+M.reset_specs = function()
+  M.spec_registry = {}
+  M.import_order = 0
+  M.top_specs, M.spec_parents, M.spec_children, M.spec_src, M.source_kinds = {}, {}, {}, {}, {}
+  M.dependency_graph, M.dependency_order, M.reverse_dependency_graph = {}, {}, {}
+  M.src_to_pack_spec, M.name_to_src, M.lazy_parent_cache = {}, {}, {}
+end
 
 M.remove_plugin = function(plugin_name, src)
   M.spec_registry[src] = nil

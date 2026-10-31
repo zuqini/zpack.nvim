@@ -8,7 +8,20 @@ local M = {}
 ---@param pack_spec vim.pack.Spec
 ---@param ft zpack.FtValue
 M.setup = function(pack_spec, ft)
-  local filetypes = util.normalize_string_list(ft)
+  local filetypes = {}
+  for _, filetype in ipairs(util.normalize_string_list(ft)) do
+    if type(filetype) == 'string' then
+      filetypes[#filetypes + 1] = filetype
+    else
+      util.schedule_notify(
+        ("Invalid ft for %s: expected string, got %s"):format(pack_spec.name or pack_spec.src, type(filetype)),
+        vim.log.levels.ERROR
+      )
+    end
+  end
+  if #filetypes == 0 then
+    return
+  end
 
   -- Source the plugin's ftdetect/* now so its filetype rules are active
   -- before any file is opened. Without this, `ft = '<custom>'` for a plugin

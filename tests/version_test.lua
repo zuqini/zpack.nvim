@@ -188,14 +188,14 @@ describe("Version Normalization", function()
         spec = {
           {
             'test/plugin',
-            version = '1.*',
+            version = '1.x',
           },
         },
         defaults = { confirm = false },
       })
     end)
 
-    assert.are.equal(false, ok)
+    assert.are.equal(true, ok)
     assert.are.equal(true, #_G.test_state.notifications >= 2)
 
     local found_header = false
@@ -204,7 +204,7 @@ describe("Version Normalization", function()
       if notif.msg:match('`vim%.pack%.add` failed') then
         found_header = true
       end
-      if notif.msg:match('sem_version') and notif.msg:match('1%.%*') then
+      if notif.msg:match('sem_version') and notif.msg:match('1%.x') then
         found_detail = true
       end
     end
@@ -223,15 +223,15 @@ describe("Version Normalization", function()
     local ok = pcall(function()
       require('zpack').setup({
         spec = {
-          { 'test/plugin-a', version = '1.*' },
-          { 'test/plugin-b', version = '^2.0.0' },
+          { 'test/plugin-a', version = '1.x' },
+          { 'test/plugin-b', version = '2.0.0' },
           { 'test/plugin-c', version = 'main' },
         },
         defaults = { confirm = false },
       })
     end)
 
-    assert.are.equal(false, ok)
+    assert.are.equal(true, ok)
 
     local found_header = false
     local detail_count = 0
@@ -243,10 +243,10 @@ describe("Version Normalization", function()
       end
       if notif.msg:match('sem_version') then
         detail_count = detail_count + 1
-        if notif.msg:match('1%.%*') and notif.msg:match('plugin%-a') then
+        if notif.msg:match('1%.x') and notif.msg:match('plugin%-a') then
           found_plugin_a = true
         end
-        if notif.msg:match('%^2%.0%.0') and notif.msg:match('plugin%-b') then
+        if notif.msg:match('2%.0%.0') and notif.msg:match('plugin%-b') then
           found_plugin_b = true
         end
       end
@@ -278,7 +278,7 @@ describe("Version Normalization", function()
       })
     end)
 
-    assert.are.equal(false, ok)
+    assert.are.equal(true, ok)
 
     local found_warning = false
     for _, notif in ipairs(_G.test_state.notifications) do

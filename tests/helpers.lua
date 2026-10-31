@@ -39,6 +39,13 @@ function M.setup_test_env()
 
   vim.g.mapleader = ' '
 
+  -- `nvim -l` runs after init, and setup() normally runs during it.
+  _G.test_state.original_vim_v = vim.v
+  vim.v = setmetatable({ vim_did_init = 0 }, {
+    __index = _G.test_state.original_vim_v,
+    __newindex = _G.test_state.original_vim_v,
+  })
+
   _G.test_state.original_notify = vim.notify
   vim.notify = function(msg, level)
     table.insert(_G.test_state.notifications, { msg = msg, level = level })
@@ -160,6 +167,9 @@ function M.cleanup_test_env()
     end
     if _G.test_state.original_vim_pack_update then
       vim.pack.update = _G.test_state.original_vim_pack_update
+    end
+    if _G.test_state.original_vim_v then
+      vim.v = _G.test_state.original_vim_v
     end
     if _G.test_state.original_vim_cmd_packadd then
       vim.cmd.packadd = _G.test_state.original_vim_cmd_packadd

@@ -4,6 +4,34 @@ local loader = require('zpack.plugin_loader')
 
 local M = {}
 
+---Split the strings in `cmd` into names nvim_create_user_command takes and the rest.
+---@param cmd any
+---@return string[] valid, string[] invalid
+local function classify_names(cmd)
+  local valid, invalid = {}, {}
+  local names = util.normalize_string_list(cmd)
+  for _, name in ipairs(type(names) == 'table' and names or {}) do
+    if type(name) == 'string' and name ~= '' then
+      local list = name:find('^%u%w*$') and valid or invalid
+      list[#list + 1] = name
+    end
+  end
+  return valid, invalid
+end
+
+---@param cmd any
+---@return boolean
+M.has_commands = function(cmd)
+  return #classify_names(cmd) > 0
+end
+
+---@param cmd any
+---@return string[]
+M.invalid_commands = function(cmd)
+  local _, invalid = classify_names(cmd)
+  return invalid
+end
+
 ---@param registered_pack_specs vim.pack.Spec[]
 M.setup = function(registered_pack_specs)
   local cmd_to_pack_specs = {}
@@ -15,11 +43,18 @@ M.setup = function(registered_pack_specs)
     local cmd = util.try_resolve_field(spec.cmd, plugin, pack_spec.name or pack_spec.src, 'cmd')
     if cmd then
       local commands = util.normalize_string_list(cmd) --[[@as string[] ]]
-      for _, c in ipairs(commands) do
-        if not cmd_to_pack_specs[c] then
-          cmd_to_pack_specs[c] = {}
+      for _, c in ipairs(type(commands) == 'table' and commands or {}) do
+        if type(c) ~= 'string' then
+          util.schedule_notify(
+            ("Invalid cmd for %s: expected string, got %s"):format(pack_spec.name or pack_spec.src, type(c)),
+            vim.log.levels.ERROR
+          )
+        else
+          if not cmd_to_pack_specs[c] then
+            cmd_to_pack_specs[c] = {}
+          end
+          table.insert(cmd_to_pack_specs[c], pack_spec)
         end
-        table.insert(cmd_to_pack_specs[c], pack_spec)
       end
     end
   end
@@ -52,61 +87,63 @@ M.setup = function(registered_pack_specs)
       return any_ok
     end
 
-    vim.api.nvim_create_user_command(cmd, function(cmd_args)
-      -- Build the dispatch struct from the proxy invocation before loading,
-      -- so a load failure can't lose typed args. Forwards `range` (not
-      -- `count`): nvim_cmd auto-translates range to count for count-decl
-      -- real commands, but forwarding count to a range-decl command would
-      -- error with "Command cannot accept count". The range-only path also
-      -- correctly handles the bare `:5Foo` count form, since count=-1
-      -- proxies report cmd_args.range == 1, line1 == 5.
-      local command = {
-        cmd = cmd,
-        bang = cmd_args.bang or nil,
-        mods = cmd_args.smods --[[@as vim.api.keyset.cmd.mods]],
-        args = cmd_args.fargs,
-        range = (cmd_args.range or 0) > 0
-            and (cmd_args.range == 1 and { cmd_args.line1 } or { cmd_args.line1, cmd_args.line2 })
-            or nil,
-      }
+    util.try_trigger_setup(pack_specs[1].name or pack_specs[1].src, 'cmd', function()
+      vim.api.nvim_create_user_command(cmd, function(cmd_args)
+        -- Build the dispatch struct from the proxy invocation before loading,
+        -- so a load failure can't lose typed args. Forwards `range` (not
+        -- `count`): nvim_cmd auto-translates range to count for count-decl
+        -- real commands, but forwarding count to a range-decl command would
+        -- error with "Command cannot accept count". The range-only path also
+        -- correctly handles the bare `:5Foo` count form, since count=-1
+        -- proxies report cmd_args.range == 1, line1 == 5.
+        local command = {
+          cmd = cmd,
+          bang = cmd_args.bang or nil,
+          mods = cmd_args.smods --[[@as vim.api.keyset.cmd.mods]],
+          args = cmd_args.fargs,
+          range = (cmd_args.range or 0) > 0
+              and (cmd_args.range == 1 and { cmd_args.line1 } or { cmd_args.line1, cmd_args.line2 })
+              or nil,
+        }
 
-      -- Proxy already self-deleted; nvim_cmd would error with "Not an
-      -- editor command" on top of the per-plugin load-failure notify.
-      if not load_plugins() then
-        return
-      end
-
-      -- lazy.nvim spec parity (handler/cmd.lua:44-47): after loading the
-      -- real command, consult its nargs. For `nargs = '1'` or `nargs = '?'`,
-      -- the proxy's whitespace-split fargs are re-packed into a single arg
-      -- string so :Foo hello world stays one arg. Without this, a nargs=1
-      -- real command would reject the proxy-fired call as "too many
-      -- arguments" on first invocation only.
-      local info = vim.api.nvim_get_commands({})[cmd]
-          or vim.api.nvim_buf_get_commands(0, {})[cmd]
-      if info and cmd_args.args and cmd_args.args ~= ""
-          and info.nargs and info.nargs:find("[1?]") then
-        command.args = { cmd_args.args }
-      end
-
-      local ok, err = pcall(vim.api.nvim_cmd, command, {})
-      if not ok then
-        util.schedule_notify(("Failed to re-fire :%s: %s"):format(cmd, tostring(err)), vim.log.levels.ERROR)
-      end
-    end, {
-      nargs = '*',
-      bang = true,
-      count = -1,
-      -- Tabbing at the cmdline loads the plugin so the real command's
-      -- complete handler can return actual completions on the first press,
-      -- matching lazy.nvim's UX (handler/cmd.lua complete callback).
-      complete = function(_, line)
+        -- Proxy already self-deleted; nvim_cmd would error with "Not an
+        -- editor command" on top of the per-plugin load-failure notify.
         if not load_plugins() then
-          return {}
+          return
         end
-        return vim.fn.getcompletion(line, 'cmdline')
-      end,
-    })
+
+        -- lazy.nvim spec parity (handler/cmd.lua:44-47): after loading the
+        -- real command, consult its nargs. For `nargs = '1'` or `nargs = '?'`,
+        -- the proxy's whitespace-split fargs are re-packed into a single arg
+        -- string so :Foo hello world stays one arg. Without this, a nargs=1
+        -- real command would reject the proxy-fired call as "too many
+        -- arguments" on first invocation only.
+        local info = vim.api.nvim_get_commands({})[cmd]
+            or vim.api.nvim_buf_get_commands(0, {})[cmd]
+        if info and cmd_args.args and cmd_args.args ~= ""
+            and info.nargs and info.nargs:find("[1?]") then
+          command.args = { cmd_args.args }
+        end
+
+        local ok, err = pcall(vim.api.nvim_cmd, command, {})
+        if not ok then
+          util.schedule_notify(("Failed to re-fire :%s: %s"):format(cmd, tostring(err)), vim.log.levels.ERROR)
+        end
+      end, {
+        nargs = '*',
+        bang = true,
+        count = -1,
+        -- Tabbing at the cmdline loads the plugin so the real command's
+        -- complete handler can return actual completions on the first press,
+        -- matching lazy.nvim's UX (handler/cmd.lua complete callback).
+        complete = function(_, line)
+          if not load_plugins() then
+            return {}
+          end
+          return vim.fn.getcompletion(line, 'cmdline')
+        end,
+      })
+    end)
   end
 end
 

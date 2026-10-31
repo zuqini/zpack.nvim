@@ -14,7 +14,12 @@ local M = {}
 ---@field defaults zpack.Config.Defaults
 ---@field is_dependency? boolean Internal: Whether currently importing as dependency
 ---@field parent? zpack.Spec Internal: The spec whose `dependencies` or `specs` is being imported
----@field _imported_functions? table<function, true> Internal: dedup set for function-form `import`
+---@field _imported_functions table<function, { parents: table, specs: table? }> Internal: per-setup() record of function-form `import`
+---@field early_plugins table<string, zpack.Plugin> Internal: plugins added while importing their specs, by name, until registered
+---@field import_paths string[] Internal: where those plugins are, for later imports
+---@field missing_owners table<zpack.Spec, true> Internal: specs importing from a plugin that isn't installed, this pass
+---@field settled_owners table<zpack.Spec, 'added'|'removed'> Internal: what became of them
+---@field import_notes { msg: string, level: integer }[] Internal: what the last pass has to report
 
 ---@return zpack.ProcessContext
 local function create_context(opts)
@@ -23,9 +28,15 @@ local function create_context(opts)
     src_with_init = {},
     registered_startup_packs = {},
     registered_lazy_packs = {},
-    load = opts.load,
+    load = vim.v.vim_did_init == 1,
     confirm = opts.confirm,
     defaults = opts.defaults or {},
+    _imported_functions = {},
+    early_plugins = {},
+    import_paths = {},
+    missing_owners = {},
+    settled_owners = {},
+    import_notes = {},
   }
 end
 
@@ -81,7 +92,6 @@ local process_all = function(ctx)
   vim.api.nvim_clear_autocmds({ group = state.lazy_build_group })
   vim.api.nvim_clear_autocmds({ group = state.delete_group })
   ctx.vim_packs = require('zpack.merge').resolve_all()
-  hooks.setup_build_tracking()
   hooks.setup_delete_tracking()
   require('zpack.registration').register_all(ctx)
 
@@ -93,8 +103,9 @@ local process_all = function(ctx)
   module_loader.install()
 
   require('zpack.startup').process_all(ctx)
-  require('zpack.lazy').process_all(ctx)
+  -- Before the triggers: a proxy for what a build just loaded would outlive the load.
   hooks.run_pending_builds_on_startup(ctx)
+  require('zpack.lazy').process_all(ctx)
   vim.api.nvim_clear_autocmds({ group = state.startup_group })
   hooks.setup_lazy_build_tracking()
 end
@@ -157,14 +168,11 @@ M.setup = function(opts)
   local ctx = create_context({ confirm = config.defaults.confirm, defaults = config.defaults })
   local import = require('zpack.import')
 
-  local spec = (type(opts.spec) == 'table' and opts.spec) or (opts[1] and opts) or nil
-  if spec then
-    import.import_specs(spec, ctx)
-  end
+  -- Before the imports: one that needs its plugin's modules can install it.
+  require('zpack.hooks').setup_build_tracking()
 
-  if not spec then
-    import.import_specs({ import = 'plugins' }, ctx)
-  end
+  local spec = (type(opts.spec) == 'table' and opts.spec) or (opts[1] and opts) or nil
+  import.import_all(spec or { import = 'plugins' }, ctx)
 
   process_all(ctx)
 
