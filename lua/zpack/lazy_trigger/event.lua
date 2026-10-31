@@ -2,6 +2,7 @@ local util = require('zpack.utils')
 local state = require('zpack.state')
 local loader = require('zpack.plugin_loader')
 local refire = require('zpack.lazy_trigger.refire')
+local ft_trigger = require('zpack.lazy_trigger.ft')
 
 local M = {}
 
@@ -65,6 +66,17 @@ local split_very_lazy = function(events)
   return has_very_lazy, other_events
 end
 
+---@param events string[]
+---@return boolean
+local includes_filetype = function(events)
+  for _, event in ipairs(events) do
+    if event:lower() == "filetype" then
+      return true
+    end
+  end
+  return false
+end
+
 ---Schedule `cb` on the next tick (if vim has entered) or on the next
 ---UIEnter (latched against nvim#25526). Shared by the per-plugin VeryLazy
 ---load and the `User VeryLazy` emit so the latch lives in one place.
@@ -115,6 +127,9 @@ M.setup = function(pack_spec, spec, event)
     end
 
     if #other_events > 0 then
+      if includes_filetype(other_events) then
+        ft_trigger.close_groups(normalized_event.pattern)
+      end
       -- latch_first_call gates before the load_status check so a second
       -- nested fire in the same tick bails before refire.exec can double-fire
       -- user autocmds. The load_status gate handles other races (sibling

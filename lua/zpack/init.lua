@@ -9,7 +9,6 @@ local M = {}
 ---@field src_with_init string[]
 ---@field registered_startup_packs vim.pack.Spec[]
 ---@field registered_lazy_packs vim.pack.Spec[]
----@field load boolean?
 ---@field confirm boolean?
 ---@field defaults zpack.Config.Defaults
 ---@field is_dependency? boolean Internal: Whether currently importing as dependency
@@ -23,7 +22,6 @@ local function create_context(opts)
     src_with_init = {},
     registered_startup_packs = {},
     registered_lazy_packs = {},
-    load = opts.load,
     confirm = opts.confirm,
     defaults = opts.defaults or {},
   }
@@ -94,7 +92,7 @@ local process_all = function(ctx)
 
   require('zpack.startup').process_all(ctx)
   require('zpack.lazy').process_all(ctx)
-  hooks.run_pending_builds_on_startup(ctx)
+  hooks.run_pending_builds_on_startup()
   vim.api.nvim_clear_autocmds({ group = state.startup_group })
   hooks.setup_lazy_build_tracking()
 end

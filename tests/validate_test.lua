@@ -1,22 +1,7 @@
 ---@diagnostic disable: duplicate-set-field
 local helpers = require('helpers')
 
----Find a notification whose message contains every needle, at an optional level.
-local function find_notification(needles, level)
-  for _, notif in ipairs(_G.test_state.notifications) do
-    local matched = true
-    for _, needle in ipairs(needles) do
-      if not notif.msg:find(needle, 1, true) then
-        matched = false
-        break
-      end
-    end
-    if matched and (level == nil or notif.level == level) then
-      return notif
-    end
-  end
-  return nil
-end
+local find_notification = helpers.find_notification
 
 describe("Config Validation", function()
   it("validate_config accepts a valid options table", function()

@@ -608,6 +608,7 @@ parent's lazy trigger fires.
       cond = true|false|function(plugin),   -- Condition to load
       lazy = true|false,                    -- Force eager (auto-detect)
       priority = 50,                        -- Load order (default: 50)
+                                            --   doesn't order different ft patterns
 
       -- Plugin configuration
       opts = {},                            -- Options passed to setup()
@@ -634,6 +635,9 @@ parent's lazy trigger fires.
       cmd = string|string[]|fn(plugin),     -- Command(s) to create
       keys = KeySpec|KeySpec[]|fn(plugin),  -- Keymap(s) to create
       ft = string|string[]|function(plugin), -- FileType(s) to lazy load on
+                                            --   plugins sharing a filetype load
+                                            --   together and re-trigger FileType
+                                            --   once, after the last of them
 
       -- Source control (version for `vim.pack.add`, string|vim.VersionRange)
       version = "main",                     -- Branch/tag/commit
@@ -746,8 +750,10 @@ priority        (number, optional)
                 Load priority for both startup and lazy-loaded plugins.
                 Higher values load earlier. Default: 50. For lazy plugins
                 with the same trigger (e.g., same event), higher priority
-                plugins load first. Useful for colorschemes and plugins
-                that other plugins depend on.
+                plugins load first. Priority doesn't order different `ft`
+                patterns, such as a literal and a glob: each loads when
+                its own pattern's turn comes. Useful for colorschemes and
+                plugins that other plugins depend on.
 
                                                             *zpack-Spec.opts*
 opts            (table|function(plugin, opts), optional)
@@ -885,7 +891,17 @@ ft              (string|string[]|function(plugin), optional)
                 |zpack.Plugin| that returns the value. Automatically
                 re-triggers BufReadPre, BufReadPost, and FileType events
                 after loading to ensure LSP clients and Treesitter attach
-                properly. Auto-sets `lazy=true`.
+                properly. Plugins sharing a filetype load together in
+                priority order and re-trigger once, after the last of
+                them, so a plugin's `config` doesn't see `ftplugin` or
+                BufRead handler effects from others in the group, even with
+                `dependencies` declared. Read such values from a FileType
+                handler or the plugin's own `ftplugin` instead. A plugin
+                with `event = 'FileType'` between them in priority order
+                splits the group if its pattern can match that filetype. A
+                value with no filetypes warns and the plugin never loads
+                from it, and an invalid pattern warns and is skipped.
+                Auto-sets `lazy=true`.
 
                                                          *zpack-Spec.version*
 version         (string|vim.VersionRange, optional)
