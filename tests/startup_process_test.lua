@@ -20,7 +20,7 @@ describe("a real startup", function()
   end
 
   ---@param spec_body string Lua for the spec list, with `aa` and `bb` as repo URLs
-  ---@param opts? { after_setup?: string, late?: boolean } Lua to run in init.lua after setup(), or setup() at VimEnter
+  ---@param opts? { after_setup?: string, late?: boolean, noplugin?: boolean } Lua to run in init.lua after setup(), setup() at VimEnter, or --noplugin
   ---@return string[] log what ran by the time VimEnter's autocmds finished
   local function start(spec_body, opts)
     opts = opts or {}
@@ -46,7 +46,7 @@ describe("a real startup", function()
     }, init)
 
     local result = vim.system(
-      { vim.v.progpath, '--headless', '-u', init, init },
+      { vim.v.progpath, '--headless', opts.noplugin and '--noplugin' or '--headless', '-u', init, init },
       {
         timeout = 30000,
         env = {
@@ -85,6 +85,14 @@ describe("a real startup", function()
       { after_setup = "vim.api.nvim_exec_autocmds('User', { pattern = 'EarlyX' })" }
     )
     assert.are.equal(1, #vim.tbl_filter(function(entry) return entry == 'aa.after' end, log))
+  end)
+
+  it("sources after/plugin for a lazy plugin loaded during init with --noplugin", function()
+    local log = start(
+      [[{ { url = aa, name = 'aa', event = 'User EarlyX' } }]],
+      { after_setup = "vim.api.nvim_exec_autocmds('User', { pattern = 'EarlyX' })", noplugin = true }
+    )
+    assert.are.same({ 'aa.plugin', 'aa.after' }, log)
   end)
 
   it("sources after/plugin once for an eager plugin", function()

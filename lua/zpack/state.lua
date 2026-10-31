@@ -115,12 +115,11 @@ M.drop_cmd_proxies = function(src)
     if claimants then
       claimants[src] = nil
       if next(claimants) == nil then
+        M.live_cmd_proxies[cmd] = nil
         local info = vim.api.nvim_get_commands({})[cmd] --[[@as table?]]
         -- v0.12.0 reports a desc as `definition`.
         if info and (info.desc or info.definition) == M.CMD_PROXY_DESC then
-          M.drop_cmd_proxy(cmd)
-        else
-          M.live_cmd_proxies[cmd] = nil
+          pcall(vim.api.nvim_del_user_command, cmd)
         end
       end
     end

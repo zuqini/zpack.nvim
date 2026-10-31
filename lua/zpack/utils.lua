@@ -736,13 +736,11 @@ end
 local sourced_plugin_paths = {}
 
 ---Source after/plugin/ files for a plugin.
----:packadd sources plugin/ files but never after/plugin/ files. The startup
----sequence that normally sources after/plugin/ from the rtp has already run
----by the time lazy-loaded plugins are activated, so we do it manually.
+---:packadd sources plugin/ files but never after/plugin/ files, and native
+---startup only does for what reaches the rtp before v:vim_did_init.
 ---@param plugin_path string
 M.source_after_plugin_files = function(plugin_path)
-  -- Native startup still sources it, for anything on 'runtimepath' before v:vim_did_init.
-  if sourced_plugin_paths[plugin_path] or vim.v.vim_did_init == 0 then
+  if sourced_plugin_paths[plugin_path] or (vim.v.vim_did_init == 0 and vim.o.loadplugins) then
     return
   end
 
