@@ -36,28 +36,21 @@ local function claims_topmod(path, topmod)
 end
 
 ---Find the pending plugin to load for a module: the first claimant of the top-level
----name holding its file, or failing that a sole pending claimant
+---name holding its file
 ---@param modname string
 ---@return string? src plugin source if found
 local function find_src_by_scanning(modname)
   local topmod = modname:match("^[^.]+")
-  local first_pending, pending_count = nil, 0
 
   for _, pack_spec in ipairs(lazy_pack_specs) do
     local src = pack_spec.src
     local registry_entry = state.spec_registry[src]
     local plugin = registry_entry and registry_entry.plugin
     if plugin and registry_entry.load_status == "pending" and registry_entry.merged_spec.module ~= false
-        and claims_topmod(plugin.path, topmod) then
-      if module_file(plugin.path, modname) then
-        return src
-      end
-      first_pending = first_pending or src
-      pending_count = pending_count + 1
+        and claims_topmod(plugin.path, topmod) and module_file(plugin.path, modname) then
+      return src
     end
   end
-
-  return pending_count == 1 and first_pending or nil
 end
 
 ---Initialize module loader with lazy plugins

@@ -275,7 +275,7 @@ A helper in an imported directory, such as `lua/plugins/util.lua` returning `{ o
 - A function-form `event`, `cmd`, `ft` or `keys` that throws used to leave the plugin loading at startup. The error is still reported, but the plugin now stays lazy, and only a `require` of its modules loads it.
 - `opts_extend` used to be ignored. Now it applies, so lists that used to replace each other are joined: `{ 'u/x', opts_extend = { 'l' }, opts = { l = { 'a' } } }` beside `{ 'u/x', opts = { l = { 'b' } } }` gave `{ 'b' }` and now gives `{ 'a', 'b' }`.
 - A bare string in a spec list used to be reported as an invalid spec and skipped. `{ 'u/a', { 'u/b' } }` now installs both. A string without an owner, as in a module returning `{ 'lua_ls', 'rust_analyzer' }`, is still skipped with a warning.
-- A `require` used to load a lazy plugin whose name or `main` looked like the module's name, even with no such module. As in lazy.nvim, it now takes that top-level name under the plugin's `lua/`.
+- A `require` used to load a lazy plugin whose name or `main` looked like the module's name, or whose `lua/` had only the module's top-level name. So an optional `pcall(require, 'mini.icons')` at startup loaded and configured a lazy `mini.pairs`, and `pcall(require, 'nvim-treesitter.configs')` loaded nvim-treesitter's main branch, which has no such module. As in lazy.nvim, a `require` now loads only the plugin holding the module's file under `lua/`, and fails as usual when none does. A plugin that makes a module at load time, from `plugin/` or `package.preload`, needs a trigger of its own.
 - `setup({ profiling = ... })` is ignored without a word, and `print_profile` and `get_profile` are gone from `zpack.module_loader`.
 
 ## Upgrading from 1.x to 2.0
