@@ -101,7 +101,7 @@ describe("Lazy Loading - Commands", function()
   end)
 
   -- The proxy is registered permissively so the cmdline parser accepts every
-  -- form the real command might support. Without bang/count on the proxy,
+  -- form the real command might support. Without bang/range on the proxy,
   -- invocations like :Foo! / :1,5Foo / :5Foo error at parse time before the
   -- callback runs, and the plugin is never loaded.
   it("Lazy proxy command forwards bang to the real command", function()
@@ -192,6 +192,33 @@ describe("Lazy Loading - Commands", function()
     assert.are.equal(7, captured.count, "Count should be forwarded to real command")
 
     pcall(vim.api.nvim_del_user_command, 'TestCountCmd')
+  end)
+
+  -- A count declaration on the proxy would read the 1 as a count and drop it.
+  it("Lazy proxy command passes a numeric first argument on as an argument", function()
+    local captured
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          cmd = 'TestNumericArg',
+          config = function()
+            vim.api.nvim_create_user_command('TestNumericArg', function(a)
+              captured = { args = a.args, range = a.range }
+            end, { nargs = '*' })
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    vim.cmd('TestNumericArg 1 2')
+    helpers.flush_pending()
+
+    assert.are.same({ args = '1 2', range = 0 }, captured)
+
+    pcall(vim.api.nvim_del_user_command, 'TestNumericArg')
   end)
 
   -- Regression for zpack_nvim-7p7: a real command with `nargs = 1` or

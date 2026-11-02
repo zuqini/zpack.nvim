@@ -152,7 +152,7 @@ describe("Plugin Data (zpack.Plugin)", function()
     }
 
     local mock_plugin = { spec = { src = 'test' }, path = '/mock/path' }
-    assert.is_truthy(lazy_module.is_lazy(spec, mock_plugin), "Plugin with cmd function should be lazy")
+    assert.is_truthy(lazy_module.is_lazy({ merged_spec = spec }, mock_plugin), "Plugin with cmd function should be lazy")
   end)
 
   it("event can be a function returning events", function()
@@ -166,7 +166,7 @@ describe("Plugin Data (zpack.Plugin)", function()
     }
 
     local mock_plugin = { spec = { src = 'test' }, path = '/mock/path' }
-    assert.is_truthy(lazy_module.is_lazy(spec, mock_plugin), "Plugin with event function should be lazy")
+    assert.is_truthy(lazy_module.is_lazy({ merged_spec = spec }, mock_plugin), "Plugin with event function should be lazy")
   end)
 
   it("ft can be a function returning filetypes", function()
@@ -180,7 +180,7 @@ describe("Plugin Data (zpack.Plugin)", function()
     }
 
     local mock_plugin = { spec = { src = 'test' }, path = '/mock/path' }
-    assert.is_truthy(lazy_module.is_lazy(spec, mock_plugin), "Plugin with ft function should be lazy")
+    assert.is_truthy(lazy_module.is_lazy({ merged_spec = spec }, mock_plugin), "Plugin with ft function should be lazy")
   end)
 
   it("keys can be a function returning keymaps", function()
@@ -194,7 +194,7 @@ describe("Plugin Data (zpack.Plugin)", function()
     }
 
     local mock_plugin = { spec = { src = 'test' }, path = '/mock/path' }
-    assert.is_truthy(lazy_module.is_lazy(spec, mock_plugin), "Plugin with keys function should be lazy")
+    assert.is_truthy(lazy_module.is_lazy({ merged_spec = spec }, mock_plugin), "Plugin with keys function should be lazy")
   end)
 
   it("function trigger returning nil means not lazy", function()
@@ -208,7 +208,7 @@ describe("Plugin Data (zpack.Plugin)", function()
     }
 
     local mock_plugin = { spec = { src = 'test' }, path = '/mock/path' }
-    assert.is_falsy(lazy_module.is_lazy(spec, mock_plugin), "Plugin with cmd function returning nil should not be lazy")
+    assert.is_falsy(lazy_module.is_lazy({ merged_spec = spec }, mock_plugin), "Plugin with cmd function returning nil should not be lazy")
   end)
 
   it("cmd function receives plugin and returns value", function()
@@ -225,7 +225,7 @@ describe("Plugin Data (zpack.Plugin)", function()
 
     local mock_plugin = { spec = { src = 'test', name = 'plugin' }, path = '/mock/path' }
     local lazy_module = require('zpack.lazy')
-    lazy_module.is_lazy(spec, mock_plugin)
+    lazy_module.is_lazy({ merged_spec = spec }, mock_plugin)
 
     assert.is_not_nil(received_plugin, "cmd function should receive plugin")
     assert.are.equal('/mock/path', received_plugin.path)

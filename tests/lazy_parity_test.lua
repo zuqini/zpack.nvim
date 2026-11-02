@@ -11,7 +11,7 @@ describe("version = false (zpack_nvim-9tm)", function()
 
   it("normalize_version returns nil for version = false", function()
     local utils = require('zpack.utils')
-    assert.is_nil(utils.normalize_version({ version = false }))
+    assert.is_nil(require('zpack.pack').normalize_version({ version = false }))
   end)
 
   it("version = false skips emitting a version on the vim.pack spec", function()
@@ -35,7 +35,7 @@ describe("version = false (zpack_nvim-9tm)", function()
   end)
 
   it("version = false keeps a branch, tag or commit, as in lazy.nvim", function()
-    local normalize = require('zpack.utils').normalize_version
+    local normalize = require('zpack.pack').normalize_version
     assert.are.equal('main', normalize({ version = false, branch = 'main' }))
     assert.are.equal('v1.0.0', normalize({ version = false, tag = 'v1.0.0' }))
     assert.are.equal('abc123', normalize({ version = false, commit = 'abc123' }))
@@ -300,7 +300,7 @@ describe("specs declared under a removed plugin's dependencies", function()
       local entry = state.spec_registry['https://github.com/test/mason']
       assert.is_not_nil(entry)
       assert.is_true(state.dependency_graph['https://github.com/test/lsp']['https://github.com/test/mason'])
-      local opts = require('zpack.merge').resolve_opts(entry.sorted_specs, nil, entry.merged_spec.opts_extend)
+      local opts = require('zpack.opts').resolve_opts(entry.sorted_specs, nil, entry.merged_spec.opts_extend)
       assert.are.same({ 'delve' }, opts.ensure_installed)
     end)
   end
@@ -454,7 +454,7 @@ describe("specs declared under a removed plugin's dependencies", function()
     local first, second = 'test/' .. names[1], 'test/' .. names[2]
     local label = table.concat(names, ',')
 
-    it(("warn about each plugin with a disabled dependency, nested or not (%s)")
+    it(("keep each plugin with a disabled dependency, nested or not (%s)")
       :format(label), function()
       local state = setup_spec({
         { 'test/r', specs = { { first, dependencies = { 'test/x', { second, dependencies = { 'test/y' } } } } } },
@@ -464,13 +464,6 @@ describe("specs declared under a removed plugin's dependencies", function()
       })
       assert.is_not_nil(state.spec_registry[GH .. first])
       assert.is_not_nil(state.spec_registry[GH .. second])
-      local notes = 0
-      for _, n in ipairs(_G.test_state.notifications) do
-        if n.level == vim.log.levels.DEBUG and n.msg:find('may not work', 1, true) then
-          notes = notes + 1
-        end
-      end
-      assert.are.equal(2, notes)
     end)
 
     it(("do not disable a plugin through a nested disabled plugin's dependencies (%s)"):format(label), function()
@@ -564,12 +557,106 @@ describe("specs declared under a removed plugin's dependencies", function()
     end)
   end
 
+  describe("a removal resting under another removal waits for it, in any import order:", function()
+    local function x_off() return { 'test/x', enabled = false } end
+
+    local function reverse(list)
+      local reversed = {}
+      for i = #list, 1, -1 do
+        reversed[#reversed + 1] = list[i]
+      end
+      return reversed
+    end
+
+    local shapes = {
+      ["what's removed first saves the plugin it would remove"] = {
+        make = function()
+          return {
+            { 'test/a', dependencies = { 'test/x' } },
+            { 'test/y', specs = { x_off() } },
+            { 'test/z', dependencies = { { 'test/y', enabled = false } } },
+          }
+        end,
+        kept = { 'a', 'x', 'z' },
+      },
+      ["with nothing else listing it"] = {
+        make = function()
+          return {
+            { 'test/y', specs = { x_off() } },
+            { 'test/z', specs = { { 'test/y', enabled = false } } },
+            { 'test/x' },
+          }
+        end,
+        kept = { 'x', 'z' },
+      },
+      ["along a chain"] = {
+        make = function()
+          return {
+            { 'test/x' },
+            { 'test/y', specs = { x_off() } },
+            { 'test/w', specs = { { 'test/y', enabled = false } } },
+            { 'test/z', specs = { { 'test/w', enabled = false } } },
+          }
+        end,
+        kept = { 'y', 'z' },
+      },
+      ["unless a plugin that stays lists the same spec"] = {
+        make = function()
+          local off = x_off()
+          return {
+            { 'test/x' },
+            { 'test/y', specs = { off } },
+            { 'test/kept', specs = { off } },
+            { 'test/z', specs = { { 'test/y', enabled = false } } },
+          }
+        end,
+        kept = { 'kept', 'z' },
+      },
+      ["unless it rests on its own plugin's spec"] = {
+        make = function()
+          return {
+            { 'test/x', specs = { x_off() } },
+            { 'test/y', specs = { { 'test/x', dependencies = { { 'test/kept', enabled = false } } } } },
+            { 'test/kept' },
+          }
+        end,
+        kept = { 'kept', 'y' },
+      },
+    }
+
+    for name, shape in pairs(shapes) do
+      for _, reversed in ipairs({ false, true }) do
+        it(("%s (%s)"):format(name, reversed and 'reversed' or 'as written'), function()
+          local specs = shape.make()
+          setup_spec(reversed and reverse(specs) or specs)
+          local names = vim.tbl_map(function(entry) return entry:match('^%S+') end, pack_add_names())
+          table.sort(names)
+          assert.are.same(shape.kept, names)
+        end)
+      end
+    end
+
+    it("a cycle goes by which spec imported first", function()
+      local function cycle(reversed)
+        local specs = {
+          { 'test/p', specs = { { 'test/q', enabled = false } } },
+          { 'test/q', dependencies = { { 'test/p', enabled = false } } },
+        }
+        return reversed and reverse(specs) or specs
+      end
+      assert.is_not_nil(setup_spec(cycle(false)).spec_registry[GH .. 'test/p'])
+      helpers.cleanup_test_env()
+      helpers.setup_test_env()
+      assert.is_not_nil(setup_spec(cycle(true)).spec_registry[GH .. 'test/q'])
+    end)
+  end)
+
   it("are not kept in state after setup", function()
     local state = setup_spec({ { 'test/p', enabled = false, dependencies = { 'test/x' } }, { 'test/x' } })
-    assert.is_nil(next(state.top_specs))
-    assert.is_nil(next(state.spec_parents))
-    assert.is_nil(next(state.spec_children))
-    assert.is_nil(next(state.spec_src))
+    assert.is_nil(state.top_specs)
+    assert.is_nil(state.spec_parents)
+    assert.is_nil(state.spec_children)
+    assert.is_nil(state.spec_src)
   end)
 
   it("keep the edge to a table listed in both a parent's dependencies and specs", function()
@@ -718,7 +805,7 @@ describe(":ZPack sync (zpack_nvim-0sp)", function()
       name = 'stray',
     }
 
-    vim.cmd('ZPack sync')
+    vim.cmd('ZPack! sync')
     helpers.flush_pending()
     assert.are.equal(1, #_G.test_state.vim_pack_update_calls, "sync must update")
     local opts = _G.test_state.vim_pack_update_calls[1].opts
@@ -1121,6 +1208,50 @@ describe("spec lists", function()
     assert.is_truthy(found[1]:find('entries after [1]', 1, true))
   end)
 
+  it("entries after a hole in a spec with fields warn too", function()
+    registered({ { 'test/a', nil, 'test/b', lazy = true } })
+    local found = warnings()
+    assert.are.equal(1, #found)
+    assert.is_truthy(found[1]:find('entries after [1]', 1, true))
+  end)
+
+  for name, shape in pairs({
+    ['a hole'] = { nil, 'test/a', lazy = true },
+    ['a hole and two entries'] = { nil, 'test/a', 'test/b', lazy = true },
+    ['false'] = { false, 'test/a', lazy = true },
+    ['{}'] = { {}, 'test/a', lazy = true },
+  }) do
+    it("entries past " .. name .. " in a spec with fields warn like entries after [1]", function()
+      registered({ shape })
+      assert.is_truthy(table.concat(warnings(), '\n'):find('entries after [1]', 1, true))
+    end)
+  end
+
+  it("entries past a hole in a dependencies value with fields warn too", function()
+    registered({ { 'test/p', dependencies = { nil, 'test/a', lazy = true } } })
+    assert.is_truthy(table.concat(warnings(), '\n'):find('entries after [1]', 1, true))
+  end)
+
+  for name, entries in pairs({
+    ['false'] = { false },
+    ['{}'] = { {} },
+    ['a hole, false and {}'] = { nil, false, {} },
+  }) do
+    it(name .. " after [1] in a spec with fields declares nothing", function()
+      local spec = { 'test/a', [2] = entries[1], [3] = entries[2], [4] = entries[3], lazy = true }
+      local registry = registered({ spec })
+      assert.are.same({}, warnings())
+      assert.is_true(registry['https://github.com/test/a'].merged_spec.lazy)
+    end)
+  end
+
+  it("anything else after false in a spec with fields still warns", function()
+    registered({ { 'test/a', false, 'test/b', lazy = true } })
+    local found = warnings()
+    assert.are.equal(1, #found)
+    assert.is_truthy(found[1]:find('entries after [1]', 1, true))
+  end)
+
   it("a non-table specs value warns instead of aborting setup()", function()
     local registry = registered({
       { 'test/p', specs = 42 },
@@ -1426,19 +1557,19 @@ describe("merged keys", function()
 
   it("a second string that can only be an rhs keeps one key", function()
     for _, rhs in ipairs({ '<cmd>Foo<cr>', '<Cmd>Foo<CR>', ':Foo<cr>', '<Plug>(foo)' }) do
-      local keys = require('zpack.utils').normalize_keys({ '<F21>', rhs })
+      local keys = require('zpack.keymap').normalize_keys({ '<F21>', rhs })
       assert.are.same({ { '<F21>', rhs } }, keys)
     end
   end)
 
   it("three strings stay three keys whatever the second looks like", function()
     assert.are.same({ { '<F21>' }, { '<cmd>x' }, { '<F22>' } },
-      require('zpack.utils').normalize_keys({ '<F21>', '<cmd>x', '<F22>' }))
+      require('zpack.keymap').normalize_keys({ '<F21>', '<cmd>x', '<F22>' }))
   end)
 
   it("a list starting with a string and holding a table is a list", function()
     assert.are.same({ { '<F21>' }, { '<F22>', 'x' } },
-      require('zpack.utils').normalize_keys({ '<F21>', { '<F22>', 'x' } }))
+      require('zpack.keymap').normalize_keys({ '<F21>', { '<F22>', 'x' } }))
   end)
 
   it("a key's table is not edited when it loses a mode", function()
@@ -1814,32 +1945,11 @@ describe("a dependency of a lazy plugin's dependency", function()
   end)
 end)
 
-describe("the disabled dependency warning", function()
+describe("a dependency disabled by the plugin's own spec", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)
 
-  it("names only the plugin whose own dependency is disabled", function()
-    require('zpack').setup({
-      spec = {
-        { 'u/top', dependencies = { 'u/mid' } },
-        { 'u/mid', dependencies = { 'u/leaf' } },
-        { 'u/leaf', enabled = false },
-      },
-      defaults = { confirm = false },
-    })
-    helpers.flush_pending()
-    local found = {}
-    for _, n in ipairs(_G.test_state.notifications) do
-      if n.level == vim.log.levels.DEBUG and n.msg:find('may not work', 1, true) then
-        found[#found + 1] = n.msg
-      end
-    end
-    assert.are.equal(1, #found)
-    assert.is_truthy(found[1]:find(
-      'https://github.com/u/mid may not work: its dependency https://github.com/u/leaf has enabled=false', 1, true))
-  end)
-
-  it("stays quiet about a dependency the plugin's own spec turned off", function()
+  it("is dropped without a warning", function()
     require('zpack').setup({
       spec = {
         { 'u/p', dependencies = { { 'u/fzf', enabled = false } } },
@@ -1854,25 +1964,6 @@ describe("the disabled dependency warning", function()
     for _, n in ipairs(_G.test_state.notifications) do
       assert.is_true(n.level < vim.log.levels.WARN, n.msg)
     end
-  end)
-
-  it("appears once per parent and dependency", function()
-    require('zpack').setup({
-      spec = {
-        { 'u/p', dependencies = { 'u/d' } },
-        { 'u/p', dependencies = { 'u/d' } },
-        { 'u/d', enabled = false },
-      },
-      defaults = { confirm = false },
-    })
-    helpers.flush_pending()
-    local count = 0
-    for _, n in ipairs(_G.test_state.notifications) do
-      if n.msg:find('may not work', 1, true) then
-        count = count + 1
-      end
-    end
-    assert.are.equal(1, count)
   end)
 end)
 
@@ -1995,7 +2086,7 @@ describe("rhs-only strings in a two-string key", function()
 
   for _, rhs in ipairs({ '<Nop>', '<nop>', '', '<cmd>x<cr>', '<Plug>(x)', ':x<cr>' }) do
     it(("{ lhs, %q } is one key"):format(rhs), function()
-      local keys = require('zpack.utils').normalize_keys({ 'zx', rhs })
+      local keys = require('zpack.keymap').normalize_keys({ 'zx', rhs })
       assert.are.equal(1, #keys)
       assert.are.equal('zx', keys[1][1])
       assert.are.equal(rhs, keys[1][2])
@@ -2017,6 +2108,33 @@ end)
 describe("a function trigger that yields nothing", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)
+
+  it("is asked again at load, once its plugin's config has run", function()
+    local configured = false
+    require('zpack').setup({
+      spec = { {
+        'test/a',
+        config = function() configured = true end,
+        keys = function() return configured and { { 'zxk', '<Nop>' } } or nil end,
+      } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    assert.is_false(require('zpack.state').spec_registry['https://github.com/test/a'].is_lazy_resolved)
+    assert.are_not.equal('', vim.fn.maparg('zxk', 'n'))
+    pcall(vim.keymap.del, 'n', 'zxk')
+  end)
+
+  it("a static trigger is parsed into its entry, once", function()
+    require('zpack').setup({
+      spec = { { 'test/a', cmd = 'ZpackStatic' } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    local entry = require('zpack.state').spec_registry['https://github.com/test/a']
+    assert.are.same({ 'ZpackStatic' }, entry.triggers.cmd.names)
+    pcall(vim.api.nvim_del_user_command, 'ZpackStatic')
+  end)
 
   it("leaves its dependency eager and loaded first, even with a higher priority", function()
     require('zpack').setup({
@@ -2095,6 +2213,19 @@ describe("cond and enabled on an import", function()
     assert.is_nil(arg)
   end)
 
+  it("a function-form cond that throws reports it, skips what the import declares and leaves the rest", function()
+    local shared = { 'test/owner', import = import, cond = function() error('boom') end }
+    local registry = registered({ shared, { 'test/parent', dependencies = { shared } } })
+    local reported = false
+    for _, n in ipairs(_G.test_state.notifications) do
+      reported = reported or n.msg:find('Failed to evaluate cond', 1, true) ~= nil
+    end
+    assert.is_true(reported)
+    assert.is_nil(registry['https://github.com/test/imported'])
+    assert.is_false(registry['https://github.com/test/owner'].cond_result)
+    assert.is_not_nil(registry['https://github.com/test/parent'])
+  end)
+
   it("defaults.cond doesn't apply to an import", function()
     require('zpack').setup({ spec = { { import = import } }, defaults = { confirm = false, cond = false } })
     helpers.flush_pending()
@@ -2158,7 +2289,7 @@ describe("a plugin turned off by an optional spec", function()
     assert.are.same({}, warnings())
   end)
 
-  it("notes its dependents if another spec turns it off outright", function()
+  it("is dropped if another spec turns it off outright", function()
     local state = setup_spec({
       { 'test/p', dependencies = { 'test/d' } },
       { 'test/d', optional = true, enabled = false },
@@ -2166,13 +2297,6 @@ describe("a plugin turned off by an optional spec", function()
     })
     assert.is_not_nil(state.spec_registry[GH .. 'test/p'])
     assert.is_nil(state.spec_registry[GH .. 'test/d'])
-    local notes = 0
-    for _, n in ipairs(_G.test_state.notifications) do
-      if n.level == vim.log.levels.DEBUG and n.msg:find('may not work', 1, true) then
-        notes = notes + 1
-      end
-    end
-    assert.are.equal(1, notes)
   end)
 end)
 
@@ -2307,13 +2431,13 @@ describe("an rhs ending in <CR> in a two-string key", function()
   local util = require('zpack.utils')
 
   it("is one key", function()
-    assert.are.same({ { '<leader>a', '<Esc>:w<CR>' } }, util.normalize_keys({ '<leader>a', '<Esc>:w<CR>' }))
-    assert.are.same({ { '<leader>a', 'ifoo<cr>' } }, util.normalize_keys({ '<leader>a', 'ifoo<cr>' }))
+    assert.are.same({ { '<leader>a', '<Esc>:w<CR>' } }, require('zpack.keymap').normalize_keys({ '<leader>a', '<Esc>:w<CR>' }))
+    assert.are.same({ { '<leader>a', 'ifoo<cr>' } }, require('zpack.keymap').normalize_keys({ '<leader>a', 'ifoo<cr>' }))
   end)
 
   it("leaves other two-string lists as two keys", function()
-    assert.are.same({ { '<leader>a' }, { 'dd' } }, util.normalize_keys({ '<leader>a', 'dd' }))
-    assert.are.same({ { 'a<CR>' }, { 'b' } }, util.normalize_keys({ 'a<CR>', 'b' }))
+    assert.are.same({ { '<leader>a' }, { 'dd' } }, require('zpack.keymap').normalize_keys({ '<leader>a', 'dd' }))
+    assert.are.same({ { 'a<CR>' }, { 'b' } }, require('zpack.keymap').normalize_keys({ 'a<CR>', 'b' }))
   end)
 end)
 
@@ -2352,25 +2476,20 @@ describe("a spec with both a source and an import", function()
     assert.is_nil(registry[GH .. 'test/y'])
   end)
 
-  it("gives a function-form cond the plugin's name and source at the import", function()
+  it("gives a function-form cond no plugin at the import, as in lazy.nvim, and the plugin at registration", function()
     local seen = {}
     local registry = setup_spec({
       {
         'test/x',
         import = function() return { { 'test/y' } } end,
         cond = function(plugin)
-          seen[#seen + 1] = plugin
-          return plugin.name == 'x'
+          seen[#seen + 1] = plugin and plugin.spec.name or 'none'
+          return true
         end,
       },
     })
     assert.is_not_nil(registry[GH .. 'test/y'])
-    assert.are.equal('x', seen[1].name)
-    assert.are.equal('x', seen[1].spec.name)
-    assert.are.equal(GH .. 'test/x', seen[1].spec.src)
-    for _, n in ipairs(_G.test_state.notifications) do
-      assert.is_true(n.level < vim.log.levels.ERROR, n.msg)
-    end
+    assert.are.same({ 'none', 'x' }, seen)
   end)
 end)
 
@@ -2617,9 +2736,15 @@ describe("an import that finds nothing", function()
     assert.is_truthy(found[1]:find('no specs found for import "zpack_no_such_module"', 1, true))
   end)
 
+  it("says to put the import on its plugin, should one provide it", function()
+    local found = warnings({ { import = 'zpack_no_such_module' } })
+    assert.is_truthy(found[1]:find("{ 'user/dist', import = 'zpack_no_such_module' }", 1, true))
+  end)
+
   it("warns for a plugin's own module, which isn't searched", function()
     local found = warnings({ { 'test/distro', import = 'zpack_no_such_module' } })
     assert.are.equal(1, #found)
+    assert.is_falsy(found[1]:find('user/dist', 1, true))
   end)
 
   it("warns once when listed under several parents", function()
@@ -2691,10 +2816,10 @@ describe("the third xhigh review of the parity follow-up", function()
 
   it("reads two strings ending in a lone <CR> as two keys, in either order", function()
     local util = require('zpack.utils')
-    assert.are.same({ { '<Tab>' }, { '<CR>' } }, util.normalize_keys({ '<Tab>', '<CR>' }))
-    assert.are.same({ { '<CR>' }, { '<Tab>' } }, util.normalize_keys({ '<CR>', '<Tab>' }))
-    assert.are.same({ { '<Tab>' }, { '<C-x><CR>' } }, util.normalize_keys({ '<Tab>', '<C-x><CR>' }))
-    assert.are.same({ { '<leader>a', 'ifoo<CR>' } }, util.normalize_keys({ '<leader>a', 'ifoo<CR>' }))
+    assert.are.same({ { '<Tab>' }, { '<CR>' } }, require('zpack.keymap').normalize_keys({ '<Tab>', '<CR>' }))
+    assert.are.same({ { '<CR>' }, { '<Tab>' } }, require('zpack.keymap').normalize_keys({ '<CR>', '<Tab>' }))
+    assert.are.same({ { '<Tab>' }, { '<C-x><CR>' } }, require('zpack.keymap').normalize_keys({ '<Tab>', '<C-x><CR>' }))
+    assert.are.same({ { '<leader>a', 'ifoo<CR>' } }, require('zpack.keymap').normalize_keys({ '<leader>a', 'ifoo<CR>' }))
   end)
 
   it("joins a dev name to the plugin of that name when dev.fallback finds no checkout", function()
@@ -2779,11 +2904,6 @@ describe("the third xhigh review of the parity follow-up", function()
   it("doesn't warn about a dependency turned off elsewhere", function()
     setup({ { 'u/p', dependencies = { 'u/x' } }, { 'u/x', enabled = false } })
     assert.are.same({}, warnings())
-    local noted = false
-    for _, n in ipairs(_G.test_state.notifications) do
-      noted = noted or (n.level == vim.log.levels.DEBUG and n.msg:find('may not work', 1, true) ~= nil)
-    end
-    assert.is_true(noted)
   end)
 
   describe("zpack_nvim-8cy", function()
@@ -3054,16 +3174,6 @@ describe("the fourth xhigh review of the parity follow-up", function()
       assert.are.same({}, warnings())
     end)
 
-    it("gives cond the path the plugin installs to", function()
-      local seen
-      setup({ { 'u/zd', import = 'zd.plugins', cond = function(p)
-        seen = seen or p.path
-        return vim.uv.fs_stat(p.path .. '/nope') == nil
-      end } })
-      assert.are.equal(vim.fn.stdpath('data') .. '/site/pack/core/opt/zd', seen)
-      assert.are.same({}, warnings())
-    end)
-
     it("imports by module name, with init.lua as the module itself", function()
       write(root, 'zd.sorted.a-b', "vim.g.zd_order = (vim.g.zd_order or '') .. 'a-b ' return {}")
       write(root, 'zd.sorted.a', "vim.g.zd_order = (vim.g.zd_order or '') .. 'a ' return {}")
@@ -3136,14 +3246,14 @@ describe("the fourth xhigh review of the parity follow-up", function()
 
     it("wait for 'verbose'", function()
       vim.o.verbose = 0
-      setup({ { 'u/p', dependencies = { 'u/x' } }, { 'u/x', enabled = false }, { 'u/o', optional = true } })
+      setup({ { 'u/o', optional = true } })
       assert.are.equal(0, notes())
     end)
 
     it("come out with 'verbose'", function()
       vim.o.verbose = 1
-      setup({ { 'u/p', dependencies = { 'u/x' } }, { 'u/x', enabled = false }, { 'u/o', optional = true } })
-      assert.are.equal(2, notes())
+      setup({ { 'u/o', optional = true } })
+      assert.are.equal(1, notes())
     end)
   end)
 
@@ -3196,7 +3306,9 @@ describe("the fourth xhigh review of the parity follow-up", function()
     vim.pack.add = function(packs, opts)
       local good = vim.tbl_filter(function(p) return p.name ~= 'bad' end, packs)
       add(good, opts)
-      error('vim.pack:\n\n`bad`:\nclone failed')
+      if #packs > 0 then
+        error('vim.pack:\n\n`bad`:\nclone failed')
+      end
     end
     local configured = false
     local state = setup({
@@ -3215,10 +3327,10 @@ describe("the fourth xhigh review of the parity follow-up", function()
   it("reads a version git can't take as a ref as a semver range", function()
     local utils = require('zpack.utils')
     for _, version in ipairs({ '*', '1.*', 'v2.*', '^1.0', '~1.2', '>=1.0' }) do
-      assert.are.equal('table', type(utils.normalize_version({ version = version })), version)
+      assert.are.equal('table', type(require('zpack.pack').normalize_version({ version = version })), version)
     end
     for _, version in ipairs({ 'main', 'v1', '1.x', '0.1.x', '1.0.0', 'release/1' }) do
-      assert.are.equal(version, utils.normalize_version({ version = version }))
+      assert.are.equal(version, require('zpack.pack').normalize_version({ version = version }))
     end
   end)
 
@@ -3323,13 +3435,113 @@ describe("the fourth xhigh review of the parity follow-up", function()
         install('v2.0.0', 'nightly')
         assert.is_nil(version_after_setup('1.*'))
       end)
+
+      describe(":ZPack update", function()
+        local update, seen, fetched_tag
+
+        before_each(function()
+          update = vim.pack.update
+          seen = nil
+          fetched_tag = nil
+          vim.pack.update = function(names)
+            seen = names or 'all'
+            if fetched_tag then
+              install(fetched_tag)
+            end
+          end
+        end)
+
+        after_each(function()
+          vim.pack.update = update
+        end)
+
+        local function restart_notes()
+          helpers.flush_pending()
+          return vim.tbl_filter(function(msg) return msg:find('Restart and update again', 1, true) ~= nil end, warnings())
+        end
+
+        it("leaves fetching to vim.pack", function()
+          local system = vim.system
+          local calls = 0
+          vim.system = function(...)
+            calls = calls + 1
+            return system(...)
+          end
+          install('v2.0.0', 'nightly')
+          version_after_setup('1.*')
+          vim.cmd('ZPack update ztags')
+          vim.system = system
+          assert.are.equal(0, calls)
+          assert.are.same({ 'ztags' }, seen)
+        end)
+
+        it("moves a plugin the update brought a fitting tag for, and says to restart", function()
+          install('v2.0.0')
+          setup({ { 'u/ztags', version = '1.*' }, { 'u/other' } })
+          fetched_tag = 'v1.5.0'
+          vim.cmd('ZPack update')
+          assert.are.equal('all', seen)
+          local notes = restart_notes()
+          assert.are.equal(1, #notes)
+          assert.is_truthy(notes[1]:find('ztags', 1, true))
+        end)
+
+        it("says nothing if no tag fits after the update", function()
+          install('v2.0.0', 'nightly')
+          version_after_setup('1.*')
+          fetched_tag = 'v3.0.0'
+          vim.cmd('ZPack update')
+          assert.are.same({}, restart_notes())
+        end)
+
+        it("says nothing of a plugin that kept its range", function()
+          install('v1.2.0')
+          version_after_setup('1.*')
+          vim.cmd('ZPack update ztags')
+          assert.are.same({ 'ztags' }, seen)
+          assert.are.same({}, restart_notes())
+        end)
+
+        it("says nothing of a plugin another plugin's update left alone", function()
+          install('v2.0.0')
+          setup({ { 'u/ztags', version = '1.*' }, { 'u/other' } })
+          install('v1.5.0')
+          vim.cmd('ZPack update other')
+          assert.are.same({ 'other' }, seen)
+          assert.are.same({}, restart_notes())
+        end)
+
+        it("says nothing of a plugin no longer on disk", function()
+          install('v2.0.0')
+          version_after_setup('1.*')
+          vim.fn.delete(require('zpack.pack').plugin_dir('ztags'), 'rf')
+          vim.cmd('ZPack update ztags')
+          assert.are.same({}, restart_notes())
+        end)
+
+        it("leaves a restore to the lockfile", function()
+          install('v2.0.0')
+          version_after_setup('1.*')
+          install('v1.5.0')
+          vim.cmd('ZPack restore ztags')
+          assert.are.same({ 'ztags' }, seen)
+          assert.are.same({}, restart_notes())
+        end)
+
+        it("keeps vim.pack.update's default", function()
+          install('v2.0.0', 'nightly')
+          version_after_setup('1.*')
+          vim.cmd('ZPack update')
+          assert.are.equal('all', seen)
+        end)
+      end)
     end)
   end)
 
   it("reads defaults.version the same way", function()
     setup({ { 'u/a' } })
     require('zpack.state').config.defaults.version = '*'
-    assert.are.equal('table', type(require('zpack.utils').normalize_version({})))
+    assert.are.equal('table', type(require('zpack.pack').normalize_version({})))
     require('zpack.state').config.defaults.version = nil
   end)
 end)
@@ -3383,10 +3595,12 @@ describe("the fifth xhigh review of the parity follow-up", function()
     end)
 
     it("is how a require after startup loads a plugin", function()
+      helpers.write_plugin_files('zpack_late_mod', { 'zpack_late_mod.lua' })
       local state = setup({ { 'u/zpack_late_mod', cmd = 'ZpackLateB' } })
       log = {}
       after_init()
       pcall(require, 'zpack_late_mod')
+      package.loaded.zpack_late_mod = nil
       assert.are.same({ { name = 'zpack_late_mod', bang = false } }, log)
       assert.are.equal('loaded', state.spec_registry[GH .. 'u/zpack_late_mod'].load_status)
     end)
@@ -3463,12 +3677,12 @@ describe("the fifth xhigh review of the parity follow-up", function()
       local loadplugins = vim.o.loadplugins
       vim.o.loadplugins = true
       vim.v = setmetatable({ vim_did_init = 0, vim_did_enter = 0 }, { __index = real_v })
-      require('zpack.utils').source_after_plugin_files(dir)
+      require('zpack.runtime').source_after_plugin_files(dir)
       vim.o.loadplugins = loadplugins
       assert.is_nil(_G._zpack_after_runs)
 
       vim.v = setmetatable({ vim_did_init = 1, vim_did_enter = 0 }, { __index = real_v })
-      require('zpack.utils').source_after_plugin_files(dir)
+      require('zpack.runtime').source_after_plugin_files(dir)
       assert.are.equal(1, _G._zpack_after_runs)
     end)
   end)
@@ -3486,14 +3700,24 @@ describe("the fifth xhigh review of the parity follow-up", function()
     assert.are.same({ name = 'parent', bang = true }, log[1])
   end)
 
-  it("reports a throwing enabled found by a silent trial resolve, once", function()
-    local utils = require('zpack.utils')
+  it("reports a throwing enabled found by a trial resolve, once", function()
     local runs = 0
-    local spec = { 'u/p', enabled = function() runs = runs + 1; error('boom') end }
-    utils.silently(function() utils.spec_enabled(spec, 'u/p') end)
-    assert.is_false(utils.spec_enabled(spec, 'u/p'))
+    setup({
+      { 'u/zpack-not-installed', import = 'zpack_not_installed.plugins' },
+      { 'u/p', enabled = function() runs = runs + 1; error('boom') end },
+    })
     assert.are.equal(1, runs)
-    assert.is_truthy(warnings():find('Failed to evaluate enabled', 1, true))
+    local _, reported = warnings():gsub('Failed to evaluate enabled', '')
+    assert.are.equal(1, reported)
+  end)
+
+  it("keeps a trial resolve's other notes to the real resolve", function()
+    setup({
+      { 'u/zpack-not-installed', import = 'zpack_not_installed.plugins' },
+      { 'telescope.nvim' },
+    })
+    local _, reported = warnings():gsub('a name without an owner', '')
+    assert.are.equal(1, reported)
   end)
 
   describe("an import of a plugin's modules", function()
@@ -3507,7 +3731,7 @@ describe("the fifth xhigh review of the parity follow-up", function()
     end
 
     local function install(name, files)
-      local root = require('zpack.utils').plugin_dir(name)
+      local root = require('zpack.pack').plugin_dir(name)
       roots[#roots + 1] = root
       for file, content in pairs(files) do
         write(root .. '/' .. file, content)
@@ -3556,27 +3780,35 @@ describe("the fifth xhigh review of the parity follow-up", function()
       assert.is_nil(warnings():find('no specs found', 1, true))
     end)
 
-    it("finds a plugin installed under a name another of its specs gives, without a trial resolve", function()
+    it("finds a plugin installed under a name another of its specs gives", function()
       install('zpackowner-renamed', { ['lua/zpackowner/plugins.lua'] = "return { { 'dist/core' } }" })
-      local merge = require('zpack.merge')
-      local resolve_all, resolves = merge.resolve_all, 0
-      merge.resolve_all = function()
-        resolves = resolves + 1
-        return resolve_all()
-      end
       local state = setup({
         { 'u/zpackowner', import = 'zpackowner.plugins' },
         { 'u/zpackowner', name = 'zpackowner-renamed' },
       })
-      merge.resolve_all = resolve_all
       assert.is_not_nil(state.spec_registry[GH .. 'dist/core'])
-      assert.are.equal(1, resolves)
     end)
+
+    for field, is_dep in pairs({ dependencies = true, specs = false }) do
+      it(("finds a module for an import nested under %s, from a plugin a later spec names"):format(field), function()
+        install('zpackowner', {
+          ['lua/zpackowner/plugins.lua'] = "return { { 'dist/core' } }",
+          ['lua/zpackowner/extra.lua'] = "return { { 'dist/extra' } }",
+        })
+        local state = setup({
+          { 'u/aa', [field] = { { import = 'zpackowner.extra' } } },
+          { 'u/zpackowner', import = 'zpackowner.plugins' },
+        })
+        assert.is_not_nil(state.spec_registry[GH .. 'dist/extra'])
+        assert.is_nil(warnings():find('no specs found', 1, true))
+        assert.are.equal(is_dep, state.dependency_graph[GH .. 'u/aa'] ~= nil)
+      end)
+    end
 
     it("names the plugin's directory when that's where it looked", function()
       install('zpackowner', { ['README'] = '' })
       setup({ { 'u/zpackowner', import = 'zpackowner.nope' } })
-      local dir = require('zpack.utils').plugin_dir('zpackowner')
+      local dir = require('zpack.pack').plugin_dir('zpackowner')
       assert.is_truthy(warnings():find(dir .. '/lua/zpackowner/nope', 1, true))
     end)
 
@@ -3605,7 +3837,7 @@ describe("the fifth xhigh review of the parity follow-up", function()
     local dir
 
     before_each(function()
-      dir = require('zpack.utils').plugin_dir('zpacktags')
+      dir = require('zpack.pack').plugin_dir('zpacktags')
       vim.fn.mkdir(dir .. '/.git/refs/tags', 'p')
     end)
 
@@ -3614,7 +3846,9 @@ describe("the fifth xhigh review of the parity follow-up", function()
     end)
 
     local function version_with_tag(tag)
-      local f = assert(io.open(dir .. '/.git/refs/tags/' .. tag, 'w'))
+      local path = dir .. '/.git/refs/tags/' .. tag
+      vim.fn.mkdir(vim.fs.dirname(path), 'p')
+      local f = assert(io.open(path, 'w'))
       f:write('abc\n')
       f:close()
       setup({ { 'u/zpacktags', version = '*' } })
@@ -3634,6 +3868,24 @@ describe("the fifth xhigh review of the parity follow-up", function()
       else
         assert.are.equal('table', type(version))
       end
+    end)
+
+    for _, tag in ipairs({ 'release-1.2.3', 'release/1.2.3' }) do
+      it("reads " .. tag .. " as this Neovim's vim.pack does", function()
+        local version = version_with_tag(tag)
+        if vim.fn.has('nvim-0.13') == 1 then
+          assert.is_nil(version)
+        else
+          assert.are.equal('table', type(version))
+        end
+      end)
+    end
+
+    it("doesn't take a directory under refs/tags for a tag", function()
+      vim.fn.mkdir(dir .. '/.git/refs/tags/v1.2.3', 'p')
+      setup({ { 'u/zpacktags', version = '*' } })
+      local call = _G.test_state.vim_pack_calls[#_G.test_state.vim_pack_calls]
+      assert.is_nil(call[1].version)
     end)
 
     it("stays a range if a tag fits", function()

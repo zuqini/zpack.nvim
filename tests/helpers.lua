@@ -26,6 +26,67 @@ say:set('assertion.contains.negative', 'Expected table to not contain value.\nTa
 luassert:register('assertion', 'contains', table_contains,
   'assertion.contains.positive', 'assertion.contains.negative')
 
+---For a test that mocks utils.lsdir: an import looks for its directory first.
+---Teardown restores fs_stat.
+---@param dir string
+function M.mock_config_dir(dir)
+  local fs_stat = vim.uv.fs_stat
+  vim.uv.fs_stat = function(path, ...)
+    if path == dir then
+      return { type = 'directory' }
+    end
+    return fs_stat(path, ...)
+  end
+end
+
+---The `:ZPack` commands' views of the registry.
+function M.registered_plugin_names()
+  return require('zpack.commands').registered_names()
+end
+
+function M.plugin_names_with_build()
+  return require('zpack.commands').names_with_build()
+end
+
+---@return { [string]: true }
+function M.unloaded_plugin_names()
+  local set = {}
+  for _, name in ipairs(require('zpack.commands').unloaded_names()) do
+    set[name] = true
+  end
+  return set
+end
+
+function M.registered_plugins()
+  return require('zpack.commands').packs_in_load_order()
+end
+
+local KEYMAP_MODES = { 'n', 'x', 's', 'o', 'i', 'c', 't' }
+
+---@return { [string]: { [string]: true } } lhs of each global keymap, by mode
+local function global_keymaps()
+  local keymaps = {}
+  for _, mode in ipairs(KEYMAP_MODES) do
+    keymaps[mode] = {}
+    for _, keymap in ipairs(vim.api.nvim_get_keymap(mode)) do
+      keymaps[mode][keymap.lhs] = true
+    end
+  end
+  return keymaps
+end
+
+local default_keymaps = global_keymaps()
+
+local function delete_test_keymaps()
+  for mode, keymaps in pairs(global_keymaps()) do
+    for lhs in pairs(keymaps) do
+      if not default_keymaps[mode][lhs] then
+        vim.keymap.del(mode, lhs)
+      end
+    end
+  end
+end
+
 function M.setup_test_env()
   _G.test_state = {
     loaded_plugins = {},
@@ -35,6 +96,7 @@ function M.setup_test_env()
     triggered_events = {},
     vim_pack_calls = {},
     notifications = {},
+    plugin_roots = {},
   }
 
   vim.g.mapleader = ' '
@@ -60,6 +122,10 @@ function M.setup_test_env()
 
   _G.test_state.original_vim_pack_add = vim.pack.add
   vim.pack.add = function(specs, opts)
+    -- zpack.pack's call for vim.pack to sync with the lockfile.
+    if #specs == 0 then
+      return
+    end
     table.insert(_G.test_state.vim_pack_calls, specs)
     opts = opts or {}
 
@@ -140,6 +206,8 @@ function M.cleanup_test_env()
   -- A test firing a key proxy's callback directly leaves its re-fed keys queued,
   -- which would otherwise eat the first key a later test feeds.
   vim.api.nvim_feedkeys('', 'x', false)
+  -- What a test left scheduled, such as its notifications, stays out of the next test.
+  vim.wait(0)
   -- Clear autocmds before reloading modules
   if package.loaded['zpack.state'] then
     local state = package.loaded['zpack.state']
@@ -186,21 +254,27 @@ function M.cleanup_test_env()
     if _G.test_state.original_fs_stat then
       vim.uv.fs_stat = _G.test_state.original_fs_stat
     end
+    for _, root in ipairs(_G.test_state.plugin_roots) do
+      vim.fn.delete(root, 'rf')
+    end
   end
 
   _G.test_state = nil
 
   M.delete_zpack_commands()
+  delete_test_keymaps()
 
   -- Force reload all zpack modules to reset state
   package.loaded['zpack.state'] = nil
   package.loaded['zpack'] = nil
   package.loaded['zpack.import'] = nil
+  package.loaded['zpack.import_run'] = nil
   package.loaded['zpack.registration'] = nil
   package.loaded['zpack.startup'] = nil
   package.loaded['zpack.lazy'] = nil
   package.loaded['zpack.hooks'] = nil
   package.loaded['zpack.plugin_loader'] = nil
+  package.loaded['zpack.cmd_proxy'] = nil
   package.loaded['zpack.lazy_trigger.event'] = nil
   package.loaded['zpack.lazy_trigger.ft'] = nil
   package.loaded['zpack.lazy_trigger.refire'] = nil
@@ -210,6 +284,11 @@ function M.cleanup_test_env()
   package.loaded['zpack.utils'] = nil
   package.loaded['zpack.commands'] = nil
   package.loaded['zpack.merge'] = nil
+  package.loaded['zpack.merge_fields'] = nil
+  package.loaded['zpack.fold'] = nil
+  package.loaded['zpack.prune'] = nil
+  package.loaded['zpack.opts'] = nil
+  package.loaded['zpack.runtime'] = nil
   package.loaded['zpack.module_loader'] = nil
   package.loaded['zpack.api'] = nil
   package.loaded['zpack.pack'] = nil
@@ -300,6 +379,19 @@ end
 
 function M.cleanup_mock_plugin_dir(base_path)
   vim.fn.delete(base_path, 'rf')
+end
+
+---Real files for a plugin at the path the mocked vim.pack.add gives it, removed by
+---cleanup_test_env.
+---@param name string
+---@param files string[] Relative to the plugin's lua/
+function M.write_plugin_files(name, files)
+  local root = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name
+  table.insert(_G.test_state.plugin_roots, root)
+  for _, file in ipairs(files) do
+    vim.fn.mkdir(vim.fs.dirname(root .. '/lua/' .. file), 'p')
+    vim.fn.writefile({ 'return {}' }, root .. '/lua/' .. file)
+  end
 end
 
 ---@param cmd_name? string Primary command name registered by `setup` (default 'ZPack').

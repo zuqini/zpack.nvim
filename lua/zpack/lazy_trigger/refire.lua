@@ -1,3 +1,5 @@
+if jit then jit.off(true, true) end
+
 local M = {}
 
 local triggers = {

@@ -21,7 +21,7 @@ describe("Conditional Loading", function()
     local src = 'https://github.com/test/plugin'
     assert.is_nil(state.spec_registry[src], "enabled=false plugin should be pruned from spec_registry")
     assert.is_falsy(
-      vim.tbl_contains(state.registered_plugin_names, 'plugin'),
+      vim.tbl_contains(helpers.registered_plugin_names(), 'plugin'),
       "Plugin should not be in registered_plugin_names when enabled=false"
     )
     assert.is_nil(
@@ -65,7 +65,7 @@ describe("Conditional Loading", function()
     local src = 'https://github.com/test/plugin'
     assert.is_nil(state.spec_registry[src], "enabled fn returning false should prune from spec_registry")
     assert.is_falsy(
-      vim.tbl_contains(state.registered_plugin_names, 'plugin'),
+      vim.tbl_contains(helpers.registered_plugin_names(), 'plugin'),
       "Plugin should not be in registered_plugin_names"
     )
     assert.is_nil(
@@ -234,7 +234,7 @@ describe("Conditional Loading", function()
       lazy = false,
     }
 
-    assert.is_falsy(lazy_module.is_lazy(spec), "Plugin should not be lazy when lazy=false")
+    assert.is_falsy(lazy_module.is_lazy({ merged_spec = spec }), "Plugin should not be lazy when lazy=false")
   end)
 
   it("lazy=true forces lazy loading even without triggers", function()
@@ -245,7 +245,7 @@ describe("Conditional Loading", function()
       lazy = true,
     }
 
-    assert.is_truthy(lazy_module.is_lazy(spec), "Plugin should be lazy when lazy=true")
+    assert.is_truthy(lazy_module.is_lazy({ merged_spec = spec }), "Plugin should be lazy when lazy=true")
   end)
 
   it("default_cond=false prevents loading when spec.cond is nil", function()

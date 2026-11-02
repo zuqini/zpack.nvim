@@ -85,7 +85,7 @@ return {
 
 -- Or using EventSpec for multiple patterns
 return {
-  'polyglot-plugin',
+  'user/polyglot-plugin',
   event = {
     event = 'BufReadPre',
     pattern = { '*.lua', '*.rs' },
@@ -108,10 +108,10 @@ return {
 Plugins sharing a filetype load together in priority order and re-trigger these events once, after the last of them:
 
 - A plugin's `config` doesn't see `ftplugin` or `BufReadPre`/`BufReadPost` handler effects from others in the group, even with `dependencies` declared. Read such values from a `FileType` handler or the plugin's own `ftplugin` instead.
-- If several plugins ship an `ftplugin` guarded by `b:did_ftplugin`, the lowest-priority plugin wins.
+- If several plugins ship an `ftplugin` guarded by `b:did_ftplugin` that don't set `b:undo_ftplugin`, the lowest-priority plugin wins.
 - If a plugin's `config` loads another buffer of that filetype, `FileType` handlers of plugins still pending in the group miss that buffer. Declaring the pending plugin as a dependency avoids this.
 - Priority doesn't order different `ft` patterns, such as a literal and a glob: each loads when its own pattern's turn comes.
-- A plugin with `event = 'FileType'` between them in priority order splits the group if its pattern can match that filetype, at the cost of one extra re-trigger.
+- A plugin with `event = 'FileType'` between them in priority order splits the group, whatever its pattern, and each part re-triggers.
 
 #### Conditional Loading
 
@@ -119,7 +119,7 @@ Use `enabled` to skip `vim.pack.add` entirely, or `cond` to conditionally load a
 
 ```lua
 return {
-  'project-specific-plugin',
+  'user/project-specific-plugin',
   enabled = vim.fn.has('linux') == 1, -- skip installation
   cond = function() return vim.fn.filereadable('.project-marker') == 1 end, -- skip loading
   opts = {},

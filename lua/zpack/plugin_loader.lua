@@ -1,7 +1,11 @@
+if jit then jit.off(true, true) end
+
 local state = require('zpack.state')
 local keymap = require('zpack.keymap')
+local runtime = require('zpack.runtime')
 local utils = require('zpack.utils')
-local merge = require('zpack.merge')
+local spec_opts = require('zpack.opts')
+local cmd_proxy = require('zpack.cmd_proxy')
 
 local M = {}
 
@@ -34,15 +38,15 @@ end
 ---Run config/setup for a plugin
 ---@param src string
 ---@param plugin zpack.Plugin
----@param spec zpack.Spec
-function M.run_config(src, plugin, spec)
+function M.run_config(src, plugin)
   local registry_entry = state.spec_registry[src]
+  local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
   -- resolve_opts is the single authoritative path for opts; it walks
   -- sorted_specs fresh so function-form opts compose correctly.
-  local resolved_opts = merge.resolve_opts(
+  local resolved_opts = spec_opts.resolve_opts(
     registry_entry.sorted_specs or {},
     plugin,
-    registry_entry.merged_spec and registry_entry.merged_spec.opts_extend
+    spec.opts_extend
   )
   local main = utils.resolve_main(plugin, spec)
   local label = (plugin and plugin.spec and plugin.spec.name) or src
@@ -66,11 +70,32 @@ function M.run_config(src, plugin, spec)
   end
 end
 
----Find pack_spec by source URL
----@param src string
----@return vim.pack.Spec?
-local function find_pack_spec_by_src(src)
-  return state.src_to_pack_spec[src]
+---@param dep_src string
+---@param parent_src string
+M.warn_if_cond_false = function(dep_src, parent_src)
+  local dep_entry = state.spec_registry[dep_src]
+  if dep_entry and dep_entry.cond_result == false then
+    utils.schedule_notify(
+      ("%s has cond=false but is a dependency of %s and will be loaded anyway"):format(dep_src, parent_src),
+      vim.log.levels.WARN
+    )
+  end
+end
+
+---One bad key spec doesn't stop the plugins after it, and the plugin stays loaded.
+---@param registry_entry zpack.RegistryEntry
+---@param label string
+M.bind_keys = function(registry_entry, label)
+  local parsed = utils.read_trigger(registry_entry, 'keys', keymap.parse, registry_entry.plugin, label)
+  if parsed then
+    local ok, err = pcall(keymap.apply_keys, parsed.keys, label)
+    if not ok then
+      utils.schedule_notify(
+        ("Failed to apply keys for %s: %s"):format(label, tostring(err)),
+        vim.log.levels.ERROR
+      )
+    end
+  end
 end
 
 ---@param pack_spec vim.pack.Spec
@@ -115,7 +140,7 @@ M.process_spec = function(pack_spec, opts)
 
   registry_entry.load_status = "loading"
   -- lazy.nvim parity: a plugin's own `:command Foo` fails while a proxy holds the name.
-  state.drop_cmd_proxies(pack_spec.src)
+  cmd_proxy.release(pack_spec.src)
 
   -- On throw, reset load_status to "pending" so a retry doesn't hit the
   -- "Circular dependency" branch above; re-raise to preserve the existing
@@ -134,13 +159,8 @@ M.process_spec = function(pack_spec, opts)
     for _, dep_src in ipairs(deps) do
       local dep_entry = state.spec_registry[dep_src]
       if dep_entry and dep_entry.load_status ~= "loaded" then
-        if dep_entry.cond_result == false then
-          utils.schedule_notify(
-            ("%s has cond=false but is a dependency of %s and will be loaded anyway"):format(dep_src, pack_spec.src),
-            vim.log.levels.WARN
-          )
-        end
-        local dep_pack_spec = find_pack_spec_by_src(dep_src)
+        M.warn_if_cond_false(dep_src, pack_spec.src)
+        local dep_pack_spec = state.src_to_pack_spec[dep_src]
         if dep_pack_spec then
           -- lazy.nvim parity: a dependency that fails doesn't stop its parent.
           M.try_process_spec(dep_pack_spec, opts)
@@ -154,15 +174,15 @@ M.process_spec = function(pack_spec, opts)
     end
 
     if not bang then
-      vim.cmd.packadd({ name })
+      runtime.packadd_sourcing(name)
       -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
       if plugin.path then
-        utils.source_after_plugin_files(plugin.path)
+        runtime.source_after_plugin_files(plugin.path)
       end
     end
 
     if spec.config or registry_entry.has_opts then
-      M.run_config(pack_spec.src, plugin, spec)
+      M.run_config(pack_spec.src, plugin)
     end
   end)
 
@@ -174,18 +194,7 @@ M.process_spec = function(pack_spec, opts)
   -- Commit load_status before apply_keys so a key-spec throw can't roll
   -- back into a retry that would double-run run_config.
   registry_entry.load_status = "loaded"
-  state.unloaded_plugin_names[name] = nil
-
-  local keys = utils.try_resolve_field(spec.keys, plugin, name, 'keys')
-  if keys then
-    local keys_ok, keys_err = pcall(keymap.apply_keys, keys, name)
-    if not keys_ok then
-      utils.schedule_notify(
-        ("Failed to apply keys for %s: %s"):format(name, tostring(keys_err)),
-        vim.log.levels.ERROR
-      )
-    end
-  end
+  M.bind_keys(registry_entry, name)
 end
 
 ---pcall + structured-notify wrapper for `process_spec`. Used at every lazy

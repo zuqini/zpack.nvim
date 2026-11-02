@@ -1,3 +1,5 @@
+if jit then jit.off(true, true) end
+
 local util = require('zpack.utils')
 local state = require('zpack.state')
 local loader = require('zpack.plugin_loader')
@@ -67,42 +69,35 @@ local function is_event_name(name)
   return name:find("^%w+$") ~= nil and vim.fn.exists("##" .. name) == 1
 end
 
----Split the names in `event` into those an autocmd can use and the rest.
+---@class zpack.ParsedEvent
+---@field entries zpack.NormalizedEvent[] Each gets an autocmd; a bad name reports itself there
+---@field usable boolean Whether an entry has a name an autocmd can use
+---@field unknown string[] Non-empty names it can't
+---@field not_a_list? string The type of a value that's neither a string nor a table
+
 ---@param event any
 ---@param spec? zpack.Spec Gives the fallback pattern
----@return string[] known, string[] unknown
-local function classify_names(event, spec)
-  local known, unknown = {}, {}
-  if type(event) ~= "string" and type(event) ~= "table" then
-    return known, unknown
+---@return zpack.ParsedEvent?
+M.parse = function(event, spec)
+  if not event then
+    return nil
   end
-  for _, normalized in ipairs(normalize_and_apply_fallback_pattern(spec or {}, event)) do
+  if type(event) ~= "string" and type(event) ~= "table" then
+    return { entries = {}, usable = false, unknown = { tostring(event) }, not_a_list = type(event) }
+  end
+  local parsed = { entries = normalize_and_apply_fallback_pattern(spec or {}, event), usable = false, unknown = {} }
+  for _, normalized in ipairs(parsed.entries) do
     for _, name in ipairs(normalized.events) do
       if type(name) == "string" and name ~= "" then
         if name == "VeryLazy" or (is_event_name(name) and is_usable_pattern(normalized.pattern)) then
-          known[#known + 1] = name
+          parsed.usable = true
         else
-          unknown[#unknown + 1] = name
+          parsed.unknown[#parsed.unknown + 1] = name
         end
       end
     end
   end
-  return known, unknown
-end
-
----@param event any
----@param spec? zpack.Spec
----@return boolean
-M.has_events = function(event, spec)
-  return #classify_names(event, spec) > 0
-end
-
----@param event any
----@param spec? zpack.Spec
----@return string[]
-M.unknown_events = function(event, spec)
-  local _, unknown = classify_names(event, spec)
-  return unknown
+  return parsed
 end
 
 ---@param events string[]
@@ -163,20 +158,24 @@ M.fire_very_lazy = function()
 end
 
 ---@param pack_spec vim.pack.Spec
----@param spec zpack.Spec
----@param event zpack.EventValue
-M.setup = function(pack_spec, spec, event)
-  local normalized_events = normalize_and_apply_fallback_pattern(spec, event)
+---@param parsed zpack.ParsedEvent
+M.setup = function(pack_spec, parsed)
   local label = pack_spec.name or pack_spec.src
+  if parsed.not_a_list then
+    util.schedule_notify(
+      ("Invalid event for %s: expected string or table, got %s"):format(label, parsed.not_a_list),
+      vim.log.levels.ERROR
+    )
+  end
 
-  for _, normalized_event in ipairs(normalized_events) do
+  for _, normalized_event in ipairs(parsed.entries) do
     local has_very_lazy, other_events = split_very_lazy(normalized_event.events)
 
     if has_very_lazy then
       -- VeryLazy is synthetic (UIEnter-only); no real event to re-fire.
       -- When setup() runs after UIEnter (`:luafile`, config reload), the
       -- UIEnter autocmd would never fire — schedule the load directly so
-      -- the plugin still loads before lazy.fire_very_lazy's User VeryLazy
+      -- the plugin still loads before fire_very_lazy's User VeryLazy
       -- emit (which also fast-paths on vim_did_enter).
       on_ui_enter_or_now(function()
         loader.try_process_spec(pack_spec)
@@ -185,7 +184,7 @@ M.setup = function(pack_spec, spec, event)
 
     if #other_events > 0 then
       if includes_filetype(other_events) then
-        ft_trigger.close_groups(normalized_event.pattern)
+        ft_trigger.close_groups()
       end
       -- latch_first_call gates before the load_status check so a second
       -- nested fire in the same tick bails before refire.exec can double-fire

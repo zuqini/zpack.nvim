@@ -1,3 +1,5 @@
+if jit then jit.off(true, true) end
+
 local state = require('zpack.state')
 
 local M = {}
@@ -42,6 +44,13 @@ M.reset_lsdir_cache = function()
   lsdir_cache = {}
 end
 
+---The top-level module an entry of a plugin's lua/ provides.
+---@param entry zpack.DirEntry
+---@return string?
+M.top_module = function(entry)
+  return entry.name:match("^(.+)%.lua$") or ((entry.type == "directory" or entry.type == "link") and entry.name or nil)
+end
+
 ---vim.notify's default handler echoes every level, so a debug note waits for
 ---'verbose'.
 M.notify = function(msg, level)
@@ -51,36 +60,12 @@ M.notify = function(msg, level)
   vim.notify('[zpack.nvim] ' .. msg, level)
 end
 
-local silenced = false
-
 ---@param msg string
 ---@param level integer
----@param unsilenced? boolean Report it even during `silently`
-M.schedule_notify = function(msg, level, unsilenced)
-  if silenced and not unsilenced then
-    return
-  end
+M.schedule_notify = function(msg, level)
   vim.schedule(function()
     M.notify(msg, level)
   end)
-end
-
----Call `fn` with schedule_notify silent.
----@param fn fun()
-M.silently = function(fn)
-  silenced = true
-  local ok, err = pcall(fn)
-  silenced = false
-  if not ok then
-    error(err, 0)
-  end
-end
-
----Where vim.pack installs a plugin.
----@param name string
----@return string
-M.plugin_dir = function(name)
-  return vim.fn.stdpath('data') .. '/site/pack/core/opt/' .. name
 end
 
 ---A plugin's dependencies in the order it lists them, as vim.pack and lazy.nvim
@@ -142,158 +127,32 @@ M.compare_priority = function(a, b)
   return M.get_import_order(src_a) < M.get_import_order(src_b)
 end
 
----A table starting with a string is one KeySpec when it has a field, a
----non-string rhs, or a second string that can only be an rhs (empty, `<Nop>`,
----`<cmd>...`, `<Plug>...`, `:...`, `...<CR>`). `{ '<a>', '<b>' }`
----is a list of two keys, as in lazy.nvim, and so is any list holding a table.
----@param keys table
----@return boolean
-local function is_single_key(keys)
-  if type(keys[1]) ~= "string" then
-    return false
-  end
-  local single = #keys == 1
-  for k, v in pairs(keys) do
-    if type(k) == "number" and type(v) == "table" then
-      return false
-    end
-    if type(k) ~= "number" or type(v) ~= "string" then
-      single = true
-    end
-  end
-  if single then
-    return true
-  end
-  local rhs = #keys == 2 and keys[2]:lower()
-  return rhs ~= false and (M.is_nop_rhs(rhs)
-    or rhs:find("^<cmd>") ~= nil or rhs:find("^<plug>") ~= nil or rhs:find("^:") ~= nil
-    -- `<CR>` and `<C-x><CR>` are keys someone may map; text before `<CR>` is a command.
-    or (rhs:find(".<cr>$") ~= nil and rhs:find("^<[^<>]*><cr>$") == nil))
-end
-
----Normalize keys to a list of KeySpec tables
----@param keys zpack.KeySpec|zpack.KeySpec[]|string|string[]
----@return zpack.KeySpec[]
-M.normalize_keys = function(keys)
-  if type(keys) ~= "string" and type(keys) ~= "table" then
+---Normalize value to array for list fields (event, cmd, ft, keys, opts_extend).
+---Handles three cases:
+---  1. nil -> empty array
+---  2. Non-table (string) -> wrap in array: "BufRead" -> {"BufRead"}
+---  3. Table:
+---     - Already array-like (has [1]) or empty -> return as-is
+---     - Dict-like (e.g., EventSpec {event="X", pattern="Y"}) -> wrap in array
+---@param val any
+---@return any[]
+M.to_array = function(val)
+  if val == nil then
     return {}
   end
-  local key_list = (type(keys) == "string" or is_single_key(keys))
-      and { keys }
-      or keys --[[@as string[]|zpack.KeySpec[] ]]
-
-  local result = {}
-  for _, key in ipairs(key_list) do
-    if type(key) == "string" then
-      table.insert(result, { key })
-    elseif type(key) == "table" then
-      table.insert(result, key)
-    end
+  if type(val) ~= "table" then
+    return { val }
   end
-  return result
-end
-
----@param rhs any
----@return boolean
-M.is_nop_rhs = function(rhs)
-  return type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>")
-end
-
----What makes two keys the same mapping. lazy.nvim parity: `buffer = true` and
----`buffer = 0` both mean "current buffer".
----@param lhs string
----@param mode string
----@param ft string|string[]|nil
----@param buffer integer|boolean|nil
----@return string
-M.key_id = function(lhs, mode, ft, buffer)
-  local scope = M.normalize_ft_scope(ft)
-  if scope then
-    scope = vim.list_slice(scope)
-    table.sort(scope)
+  if val[1] ~= nil or next(val) == nil then
+    return val
   end
-  return table.concat({
-    vim.api.nvim_replace_termcodes(lhs, true, true, true),
-    mode,
-    scope and table.concat(scope, ",") or "",
-    tostring(buffer == true and 0 or buffer or ""),
-  }, "\0")
-end
-
----Claim a key's lhs, ft and buffer in each of its modes.
----@param key zpack.KeySpec
----@param claimed { [string]: true }
----@return string[] kept The modes no later key had claimed
----@return integer total How many modes the key has
-local function claim_key_modes(key, claimed)
-  local modes = M.normalize_string_list(key.mode or "n")
-  local kept = {}
-  for _, mode in ipairs(modes) do
-    local id = M.key_id(key[1], mode, key.ft, key.buffer)
-    if not claimed[id] then
-      claimed[id] = true
-      kept[#kept + 1] = mode
-    end
-  end
-  return kept, #modes
-end
-
----Later keys replace earlier ones with the same lhs, mode, ft and buffer, one
----mode at a time (lazy.nvim's Keys.resolve). A key that loses only some of its
----modes is copied with the ones left. A malformed key is kept as it is, for the
----keys trigger to report against its plugin, since this also runs mid-merge.
----@param key_list zpack.KeySpec[]
----@return zpack.KeySpec[]
-M.dedupe_keys = function(key_list)
-  local claimed, reversed = {}, {}
-  for i = #key_list, 1, -1 do
-    local key = key_list[i]
-    local ok, kept, total = pcall(claim_key_modes, key, claimed)
-    if not ok or #kept == total then
-      reversed[#reversed + 1] = key
-    elseif #kept > 0 then
-      reversed[#reversed + 1] = vim.tbl_extend("force", {}, key, { mode = kept })
-    end
-  end
-  local result = {}
-  for i = #reversed, 1, -1 do
-    result[#result + 1] = reversed[i]
-  end
-  return result
-end
-
----The keys to map: normalized, deduped, and without the ones a spec disabled
----with a `false` or vim.NIL rhs.
----@param keys zpack.KeySpec|zpack.KeySpec[]|string|string[]
----@return zpack.KeySpec[]
-M.resolve_keys = function(keys)
-  local result = {}
-  for _, key in ipairs(M.dedupe_keys(M.normalize_keys(keys))) do
-    if key[2] ~= false and key[2] ~= vim.NIL then
-      result[#result + 1] = key
-    end
-  end
-  return result
+  return { val }
 end
 
 ---@param val string|string[]
 ---@return string[]
 M.normalize_string_list = function(val)
   return type(val) == "string" and { val } or val --[[@as string[] ]]
-end
-
----Returns the normalized pattern list (nil when unscoped) for a KeySpec's
----`ft`. Shared by keys.lua's proxy install + keymap.lua's apply_ft_scoped.
----@param ft any
----@return string[]? patterns nil when `ft` is not an effective scope
-M.normalize_ft_scope = function(ft)
-  if type(ft) == 'string' and ft ~= '' then
-    return { ft }
-  end
-  if type(ft) == 'table' and next(ft) ~= nil then
-    return ft
-  end
-  return nil
 end
 
 ---Create an autocmd with callback
@@ -327,63 +186,60 @@ M.latch_first_call = function(callback)
   end
 end
 
----Register a `FileType` autocmd + synchronously call `installer(buf)` for
----already-loaded matching buffers. Installer must catch its own throws —
----a throwing installer strands the autocmd in the caller's group. The
----sweep runs before the id is returned, so callers' self-deleting closures
----can rely on `autocmd_id` still being nil during the sweep. Sweep matches
----by literal filetype; globs (`markdown.*`) work in the autocmd path but
----skip the sweep.
----@param patterns string[]
----@param installer fun(buf: integer)
----@param opts? table Extra opts merged into the autocmd (group, etc.)
----@return integer autocmd_id
-M.install_on_ft = function(patterns, installer, opts)
-  local pat_set = {}
-  local deduped = {}
-  for _, p in ipairs(patterns) do
-    if not pat_set[p] then
-      pat_set[p] = true
-      table.insert(deduped, p)
-    end
-  end
-  local autocmd_opts = vim.tbl_extend("force", opts or {}, {
-    pattern = deduped,
-    callback = function(ev) installer(ev.buf) end,
-  })
-  local id = vim.api.nvim_create_autocmd("FileType", autocmd_opts)
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(buf) and pat_set[vim.bo[buf].filetype] then
-      installer(buf)
-    end
-  end
-  return id
-end
-
 ---Resolve a function-form spec field; a throw becomes a structured notify
 ---and a nil return instead of aborting the caller.
 ---@param field any
 ---@param plugin zpack.Plugin?
 ---@param src? string Identifier for the failure notify
 ---@param field_name? string Which field is being resolved (for the notify)
+---@param on_throw? fun() Told of a throw, instead of the notify
 ---@return any
-M.try_resolve_field = function(field, plugin, src, field_name)
+M.try_resolve_field = function(field, plugin, src, field_name, on_throw)
   if type(field) ~= "function" then
     return field
   end
   local list = {}
   local ok, result = pcall(field, plugin, list)
   if not ok then
-    M.schedule_notify(
-      ("Failed to resolve %s for %s: %s"):format(field_name or 'field', src or 'plugin', tostring(result)),
-      vim.log.levels.ERROR
-    )
+    if on_throw then
+      on_throw()
+    else
+      M.schedule_notify(
+        ("Failed to resolve %s for %s: %s"):format(field_name or 'field', src or 'plugin', tostring(result)),
+        vim.log.levels.ERROR
+      )
+    end
     return nil
   end
   if result == nil and next(list) ~= nil then
     return list
   end
   return result
+end
+
+---A trigger's value through its handler's `parse`. A static value is parsed once. A
+---function-form one runs each time, since it can answer differently by then: a
+---keys function may need the modules of a plugin that has since loaded.
+---@param entry { merged_spec: zpack.Spec, triggers?: table }
+---@param field 'event'|'cmd'|'ft'|'keys'
+---@param parse fun(value: any, spec: zpack.Spec): any
+---@param plugin zpack.Plugin?
+---@param label? string Identifier for the failure notify
+---@param on_throw? fun() Told of a function's throw, instead of the notify
+---@return any
+M.read_trigger = function(entry, field, parse, plugin, label, on_throw)
+  local spec = entry.merged_spec
+  local value = spec[field]
+  if type(value) == "function" then
+    return parse(M.try_resolve_field(value, plugin, label, field, on_throw), spec)
+  end
+  entry.triggers = entry.triggers or {}
+  local parsed = entry.triggers[field]
+  if parsed == nil then
+    parsed = parse(value, spec)
+    entry.triggers[field] = parsed
+  end
+  return parsed
 end
 
 ---Run one plugin's trigger setup so a malformed value reports that plugin
@@ -401,120 +257,59 @@ M.try_trigger_setup = function(label, field_name, setup)
   end
 end
 
----Coerce `spec.enabled` to a bool; function-form is pcall'd and a throw
----is treated as `false` with a structured notify.
----@param spec zpack.Spec
----@param src? string Identifier for the failure notify
----@return boolean
-M.check_enabled = function(spec, src)
-  local en = spec.enabled
-  if en == false then
-    return false
-  end
-  if type(en) == "function" then
-    local ok, result = pcall(en)
-    if not ok then
-      -- Unsilenced: the result is kept, so a trial resolve is the only time it's run.
-      M.schedule_notify(
-        ("Failed to evaluate enabled for %s: %s"):format(src or 'plugin', tostring(result)),
-        vim.log.levels.ERROR,
-        true
-      )
-      return false
-    end
-    if not result then
-      return false
-    end
-  end
-  return true
+---@param msg string
+local function notify_error(msg)
+  M.schedule_notify(msg, vim.log.levels.ERROR)
 end
 
----`check_enabled`, evaluated once per spec for a setup() run.
+---Coerce a boolean-or-function spec field to a bool; a function that throws
+---counts as `false`, and `report` is told.
+---@param value any
+---@param field_name string
+---@param src? string Identifier for the failure message
+---@param report fun(msg: string)
+---@param ... any Arguments for a function-form value
+---@return boolean
+local function check_field(value, field_name, src, report, ...)
+  if type(value) ~= "function" then
+    return value ~= false
+  end
+  local ok, result = pcall(value, ...)
+  if not ok then
+    report(("Failed to evaluate %s for %s: %s"):format(field_name, src or 'plugin', tostring(result)))
+    return false
+  end
+  return result and true or false
+end
+
+---`spec.enabled`, evaluated once per spec for a setup() run. A spec that throws
+---is dropped as disabled.
 ---@param spec zpack.Spec
 ---@param src? string Identifier for the failure notify
+---@param results { [zpack.Spec]: boolean } The answers so far
 ---@return boolean
-M.spec_enabled = function(spec, src)
-  local result = state.enabled_results[spec]
+M.spec_enabled = function(spec, src, results)
+  local result = results[spec]
   if result == nil then
-    result = M.check_enabled(spec, src)
-    state.enabled_results[spec] = result
+    result = check_field(spec.enabled, 'enabled', src, notify_error)
+    results[spec] = result
   end
   return result
 end
 
----Coerce `spec.cond` (or `default_cond` when nil) to a bool; function-form
----is pcall'd and a throw is treated as `false` with a structured notify.
+---`spec.cond`, or `default_cond` when nil.
 ---@param spec zpack.Spec
 ---@param plugin zpack.Plugin?
 ---@param default_cond? boolean|(fun(plugin: zpack.Plugin):boolean)
 ---@param src? string Identifier for the failure notify
+---@param report? fun(msg: string) Told of a throw. Default: notify
 ---@return boolean
-M.check_cond = function(spec, plugin, default_cond, src)
+M.check_cond = function(spec, plugin, default_cond, src, report)
   local cond = spec.cond
   if cond == nil then
     cond = default_cond
   end
-
-  if cond == false then
-    return false
-  end
-  if type(cond) == "function" then
-    local ok, result = pcall(cond, plugin)
-    if not ok then
-      M.schedule_notify(
-        ("Failed to evaluate cond for %s: %s"):format(src or 'plugin', tostring(result)),
-        vim.log.levels.ERROR
-      )
-      return false
-    end
-    if not result then
-      return false
-    end
-  end
-  return true
-end
-
----Derive a plugin name from a source (URL, path, or `[1]` short name):
----basename, stripped of a trailing `.git`. Used to resolve a stable name
----before `vim.pack.add`'s load callback has populated `plugin.spec.name`.
----@param src string
----@return string
-M.derive_name_from_src = function(src)
-  local trimmed = src:gsub('/+$', '')
-  local basename = trimmed:match('([^/]+)$') or trimmed
-  return (basename:gsub('%.git$', ''))
-end
-
----Resolve a `[1]` value to a source. `owner/repo` shorthand expands to its
----GitHub URL; a full git URL (`scheme://`, `user@host:`) is returned
----unchanged (lazy.nvim parity). Filesystem paths are not recognized: vim.pack
----hands src to git verbatim, so local checkouts belong in `dir`, which
----normalize_source expands. Shared by `normalize_source` and merge.lua's
----coalesce fold so the two sites cannot drift on what a shorthand resolves to.
----@param src string `[1]` value: `owner/repo` or a full git URL
----@return string
-M.expand_src = function(src)
-  if src:match('^%a[%w+.-]*://') or src:match('^[%w_.-]+@[^/]+:') then
-    return src
-  end
-  return 'https://github.com/' .. src
-end
-
----Resolve a plugin's display/pack name. lazy.nvim parity: the name derives
----from `[1]` even when an explicit src/url/dir wins the source resolution,
----so `{ 'user/repo', url = fork }` keeps the name "repo" regardless of the
----fork's basename. An explicit `name` always wins.
----@param merged_spec zpack.Spec
----@param src string Normalized source (fallback name basis)
----@return string
-M.resolve_plugin_name = function(merged_spec, src)
-  if type(merged_spec.name) == 'string' then
-    return merged_spec.name
-  end
-  if type(merged_spec[1]) == 'string' then
-    return M.derive_name_from_src(merged_spec[1])
-  end
-  return M.derive_name_from_src(src)
+  return check_field(cond, 'cond', src, report or notify_error, plugin)
 end
 
 ---Inspired by lazy.nvim's Util.normname()
@@ -528,65 +323,6 @@ M.normalize_name = function(name)
   local norm = (name:lower():gsub("^n?vim%-", ""):gsub("%.n?vim$", ""):gsub("[%.%-]lua", ""):gsub("[^a-z]+", ""))
   normalized_name_cache[name] = norm
   return norm
-end
-
----Check if a string looks like a semver range (not a branch/tag/commit)
----@param str any
----@return boolean
-M.is_semver_like = function(str)
-  if type(str) ~= 'string' then
-    return false
-  end
-  return str:match('%*') ~= nil
-      or str:match('^%d[%d%.]*%.[xX]$') ~= nil
-      or str:match('^%d[%d%.]*%.%a') ~= nil
-      or str:match('^[>=<^~]') ~= nil
-      or str:match('[>=<]') ~= nil
-      or str:match('^%d+[%d%.]*$') ~= nil
-end
-
----A string git can't take as a ref can only be a semver range. lazy.nvim parity,
----so a distro's `version = '*'` works; anything that could be a ref stays one.
----@param version any
----@return any
----@return boolean? is_range
-local function range_if_not_a_ref(version)
-  if type(version) == 'string' and (version:find('*', 1, true) or version:match('^[>=<^~]')) then
-    local ok, range = pcall(vim.version.range, version)
-    if ok and range then
-      return range, true
-    end
-  end
-  return version
-end
-
----Normalize plugin version using lazy.nvim's priority: commit > tag > version >
----sem_version > branch > defaults.version.
----`version = false` is a lazy.nvim escape hatch meaning "no version constraint" —
----a commit, tag or branch still applies, but sem_version and a global default don't.
----@param spec zpack.Spec
----@return string|vim.VersionRange|nil version
----@return boolean? is_soft A semver string, which falls back to the default branch; see zpack.pack
-M.normalize_version = function(spec)
-  if spec.commit then
-    return spec.commit
-  elseif spec.tag then
-    return spec.tag
-  elseif spec.version then
-    return range_if_not_a_ref(spec.version)
-  elseif spec.version == nil and type(spec.sem_version) == 'string' then
-    local range = vim.version.range(spec.sem_version)
-    return range, range ~= nil
-  elseif spec.branch then
-    return spec.branch
-  elseif spec.version == false then
-    return nil
-  end
-  local default_version = state.config and state.config.defaults and state.config.defaults.version
-  if type(default_version) == 'string' or type(default_version) == 'table' then
-    return range_if_not_a_ref(default_version)
-  end
-  return nil
 end
 
 ---Resolve the main module for a plugin (for auto-setup)
@@ -625,13 +361,7 @@ M.resolve_main = function(plugin, spec)
   local lua_dir = plugin.path .. "/lua"
 
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do
-    local mod
-    if dir_entry.name:sub(-4) == ".lua" then
-      mod = dir_entry.name:sub(1, -5)
-    elseif dir_entry.type == "directory" or dir_entry.type == "link" then
-      mod = dir_entry.name
-    end
-
+    local mod = M.top_module(dir_entry)
     if mod and M.normalize_name(mod) == norm_name then
       plugin.main = mod
       return mod
@@ -640,154 +370,6 @@ M.resolve_main = function(plugin, spec)
 
   state.resolve_main_not_found[cache_key] = true
   return nil
-end
-
----Batch form of `:packadd!`: one 'runtimepath' write instead of one per plugin,
----which is what dominates startup with many eager plugins. Mirrors
----add_pack_dir_to_rtp() in runtime.c, including the reversed order its repeated
----inserts produce. Layouts it does not cover are left to `:packadd!`.
----@param paths string[] plugin dirs under one pack root, in `:packadd!` call order
----@return boolean added
-M.add_packs_to_rtp = function(paths)
-  local rtp = vim.go.rtp
-  -- A trailing comma's empty entry sits differently in runtime.c
-  if #paths == 0 or rtp:find('\\', 1, true) or rtp:sub(-1) == ',' then
-    return false
-  end
-
-  local fold_case = vim.go.fileignorecase and string.lower or function(path) return path end
-  local function resolve(path)
-    return fold_case(vim.uv.fs_realpath(path) or path)
-  end
-
-  local parent = vim.fs.dirname(paths[1])
-  local root = paths[1]
-  for _ = 1, 4 do
-    root = vim.fs.dirname(root)
-  end
-  root = resolve(root)
-
-  local entries = vim.split(rtp, ',', { plain = true })
-  local active = {}
-  local insert_at, first_after
-  for i, entry in ipairs(entries) do
-    active[fold_case(entry)] = true
-    if not first_after then
-      -- runtime.c only tests the first "after" in an entry
-      local s = entry:find('after', 1, true)
-      if s and entry:sub(s - 1, s - 1) == '/' and (s + 5 > #entry or entry:sub(s + 5, s + 5) == '/') then
-        first_after = i
-      elseif not insert_at then
-        -- runtime.c prefixes the cwd to relative and empty entries before resolving them
-        if entry:sub(1, 1) ~= '/' then
-          return false
-        end
-        -- runtime.c prefix-matches resolved paths, so a sibling like <root>2 may or may not match
-        local resolved = resolve(entry)
-        if resolved:sub(1, #root) == root then
-          if (resolved .. '/'):sub(#root + 1, #root + 1) ~= '/' then
-            return false
-          end
-          insert_at = i
-        end
-      end
-    end
-  end
-  if not insert_at then
-    return false
-  end
-
-  local dirs, after_dirs = {}, {}
-  for i = #paths, 1, -1 do
-    local path = paths[i]
-    -- Whether runtime.c sees `<path>/` as active differs across Neovim versions.
-    -- An "after" in the path changes which inserted entries mark the first after dir.
-    -- A plugin name with a slash gives that plugin a different pack root.
-    if path:find(',', 1, true) or path:find('after', 1, true) or active[fold_case(path) .. '/']
-        or vim.fs.dirname(path) ~= parent then
-      return false
-    end
-    if not active[fold_case(path)] then
-      dirs[#dirs + 1] = path
-      local after = path .. '/after'
-      local stat = vim.uv.fs_stat(after)
-      if stat and stat.type == 'directory' then
-        after_dirs[#after_dirs + 1] = after
-      end
-    end
-  end
-
-  if #dirs == 0 then
-    return true
-  end
-
-  local res = {}
-  vim.list_extend(res, entries, 1, insert_at)
-  vim.list_extend(res, dirs)
-  vim.list_extend(res, entries, insert_at + 1, first_after and first_after - 1 or #entries)
-  vim.list_extend(res, after_dirs)
-  vim.list_extend(res, entries, first_after or #entries + 1, #entries)
-  vim.api.nvim_set_option_value('runtimepath', table.concat(res, ','), {})
-  return true
-end
-
----Track which plugin paths have had their after/plugin/ files sourced
----@type { [string]: true }
-local sourced_plugin_paths = {}
-
----Source after/plugin/ files for a plugin.
----:packadd sources plugin/ files but never after/plugin/ files, and native
----startup only does for what reaches the rtp before v:vim_did_init.
----@param plugin_path string
-M.source_after_plugin_files = function(plugin_path)
-  if sourced_plugin_paths[plugin_path] or (vim.v.vim_did_init == 0 and vim.o.loadplugins) then
-    return
-  end
-
-  local files = vim.fn.glob(plugin_path .. '/after/plugin/**/*.{vim,lua}', false, true)
-  -- Per-file pcall so one broken file doesn't skip its siblings; cache
-  -- marker is set after the loop so the first call always attempts every
-  -- file even if a sibling throws.
-  for _, file in ipairs(files) do
-    local ok, err = pcall(vim.cmd.source, file)
-    if not ok then
-      M.schedule_notify(("Failed to source %s: %s"):format(file, tostring(err)), vim.log.levels.ERROR)
-    end
-  end
-
-  sourced_plugin_paths[plugin_path] = true
-end
-
----Track which plugin paths have had their ftdetect/ files sourced
----@type { [string]: true }
-local sourced_ftdetect_paths = {}
-
----Source ftdetect/ files for a lazy plugin so its filetype rules are in
----place before any file is opened. Without this a plugin specced as
----`ft = 'rust'` would never load on `:edit foo.rs`, because the rules that
----set `&ft = 'rust'` live in the plugin's un-sourced `ftdetect/rust.vim`.
----@param plugin_path string
-M.source_ftdetect_files = function(plugin_path)
-  if sourced_ftdetect_paths[plugin_path] then
-    return
-  end
-  sourced_ftdetect_paths[plugin_path] = true
-
-  local files = vim.fn.glob(plugin_path .. '/ftdetect/*.{vim,lua}', false, true)
-  -- ftdetect files must execute inside the `filetypedetect` augroup so their
-  -- autocmds register there (matches Neovim's standard ftdetect sourcing).
-  -- The augroup begin/end are issued as separate ex-commands rather than
-  -- `|`-chained with the `source`, because a throw inside the chained source
-  -- skips the trailing `augroup END` and leaves Neovim in `filetypedetect`
-  -- — subsequent vimscript `autocmd` statements would silently land there.
-  for _, file in ipairs(files) do
-    vim.cmd('augroup filetypedetect')
-    local ok, err = pcall(vim.cmd.source, file)
-    vim.cmd('augroup END')
-    if not ok then
-      M.schedule_notify(("Failed to source %s: %s"):format(file, tostring(err)), vim.log.levels.ERROR)
-    end
-  end
 end
 
 return M

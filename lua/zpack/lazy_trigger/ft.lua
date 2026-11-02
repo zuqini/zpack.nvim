@@ -1,4 +1,7 @@
+if jit then jit.off(true, true) end
+
 local util = require('zpack.utils')
+local runtime = require('zpack.runtime')
 local state = require('zpack.state')
 local loader = require('zpack.plugin_loader')
 local refire = require('zpack.lazy_trigger.refire')
@@ -53,48 +56,27 @@ local function split_patterns(pattern)
   return patterns
 end
 
----@param pattern string
----@return boolean
-local function is_literal(pattern)
-  return pattern:match('^[%w_%-%.]+$') ~= nil
+---Later plugins start new groups, so they run after an autocmd registered now.
+---An `event = 'FileType'` plugin keeps its priority slot between ft plugins, at the
+---cost of a re-fire for each group it splits, which ft-only configs never pay.
+M.close_groups = function()
+  open_groups = {}
 end
 
----Later plugins start new groups, so they run after an autocmd registered now.
----An `event = 'FileType'` plugin keeps its priority slot between ft plugins, so
----this closes the groups `patterns` can fire alongside.
----@param patterns string|string[]
-M.close_groups = function(patterns)
-  local entries = util.normalize_string_list(patterns)
-  -- v0.12.0 treats an empty pattern list as matching everything
-  if #entries == 0 then
-    open_groups = {}
-    return
-  end
-  -- Lowercased because 'fileignorecase' makes spellings of a name match
-  local literals = {}
-  for _, entry in ipairs(entries) do
-    for _, pattern in ipairs(split_patterns(entry)) do
-      if not is_literal(pattern) then
-        open_groups = {}
-        return
-      end
-      literals[pattern:lower()] = true
-    end
-  end
-  for filetype in pairs(open_groups) do
-    if literals[filetype:lower()] or not is_literal(filetype) then
-      open_groups[filetype] = nil
-    end
-  end
-end
+---@class zpack.ParsedFt
+---@field filetypes string[]
+---@field usable boolean Whether it holds a non-empty string
+---@field ignored boolean Whether it held anything besides a list of filetypes
 
 ---@param ft any
----@return string[] filetypes
----@return boolean ignored whether `ft` held anything besides a list of filetypes
-local function usable_filetypes(ft)
+---@return zpack.ParsedFt?
+M.parse = function(ft)
+  if not ft then
+    return nil
+  end
   local list = type(ft) == "string" and { ft } or ft
   if type(list) ~= "table" then
-    return {}, true
+    return { filetypes = {}, usable = false, ignored = true }
   end
   local filetypes = {}
   local usable = 0
@@ -104,13 +86,13 @@ local function usable_filetypes(ft)
       vim.list_extend(filetypes, split_patterns(entry))
     end
   end
-  return filetypes, usable < vim.tbl_count(list)
+  return { filetypes = filetypes, usable = usable > 0, ignored = usable < vim.tbl_count(list) }
 end
 
 ---@param pack_spec vim.pack.Spec
----@param ft zpack.FtValue
-M.setup = function(pack_spec, ft)
-  local filetypes, ignored = usable_filetypes(ft)
+---@param parsed zpack.ParsedFt
+M.setup = function(pack_spec, parsed)
+  local filetypes = parsed.filetypes
   local label = pack_spec.name or pack_spec.src
   if #filetypes == 0 then
     util.schedule_notify(
@@ -119,7 +101,7 @@ M.setup = function(pack_spec, ft)
     )
     return
   end
-  if ignored then
+  if parsed.ignored then
     util.schedule_notify(
       ("%s: ignoring ft entries other than a list of non-empty strings"):format(label),
       vim.log.levels.WARN
@@ -133,7 +115,7 @@ M.setup = function(pack_spec, ft)
   local registry_entry = state.spec_registry[pack_spec.src]
   local plugin_path = registry_entry and registry_entry.plugin and registry_entry.plugin.path
   if plugin_path then
-    util.source_ftdetect_files(plugin_path)
+    runtime.source_ftdetect_files(plugin_path)
   end
 
   -- Latched per plugin, not per filetype: a plugin that failed on one filetype

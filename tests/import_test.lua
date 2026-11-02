@@ -1,8 +1,115 @@
 local helpers = require('helpers')
 
+describe("a false entry in a spec list", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  for name, spec in pairs({
+    ['at the top level'] = function() return { false, { 'test/plugin' } } end,
+    ['under dependencies'] = function() return { { 'test/parent', dependencies = { false, { 'test/plugin' } } } } end,
+  }) do
+    it("declares nothing and says nothing, " .. name, function()
+      require('zpack').setup({ spec = spec(), defaults = { confirm = false } })
+      helpers.flush_pending()
+      assert.are.same({}, _G.test_state.notifications)
+      local state = require('zpack.state')
+      assert.is_not_nil(state.spec_registry['https://github.com/test/plugin'])
+    end)
+  end
+end)
+
 describe("Spec Import", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)
+
+  describe("a list with nil holes", function()
+    local function names_in_order()
+      local state = require('zpack.state')
+      local entries = vim.tbl_values(state.spec_registry)
+      table.sort(entries, function(a, b) return a.specs[1]._import_order < b.specs[1]._import_order end)
+      return vim.tbl_map(function(entry) return entry.specs[1][1] end, entries)
+    end
+
+    for name, case in pairs({
+      ['of tables'] = { { { 'test/a' }, nil, { 'test/b' } }, { 'test/a', 'test/b' } },
+      ['starting with a hole'] = { { nil, { 'test/a' } }, { 'test/a' } },
+      ['of strings'] = { { 'test/a', vim.g.zpack_no_such_flag and 'test/x', 'test/b' }, { 'test/a', 'test/b' } },
+      ['of strings starting with a hole'] = { { nil, 'test/a', nil, 'test/b' }, { 'test/a', 'test/b' } },
+      ['with several holes'] = { { 'test/a', nil, nil, 'test/b', nil, { 'test/c' } }, { 'test/a', 'test/b', 'test/c' } },
+      ['nested in a list'] = { { { { 'test/a' }, nil, { 'test/b' } } }, { 'test/a', 'test/b' } },
+      ['of strings nested in a list'] = { { { 'test/a', nil, 'test/b' } }, { 'test/a', 'test/b' } },
+      ['nested, starting with a hole'] = { { { nil, { 'test/a' } }, { 'test/b' } }, { 'test/a', 'test/b' } },
+      ['beside fields, nested'] = { { { { 'test/a' }, nil, { 'test/b' }, opts = {} } }, { 'test/a', 'test/b' } },
+      ['of tables starting with a hole, beside fields'] = { { { nil, { 'test/a' }, opts = {} } }, { 'test/a' } },
+    }) do
+      it(name .. " is walked in order, without a word", function()
+        require('zpack').setup({ spec = case[1] })
+        helpers.flush_pending()
+        assert.are.same(case[2], names_in_order())
+        assert.are.same({}, _G.test_state.notifications)
+      end)
+    end
+
+    it("passed as setup()'s own list is the spec", function()
+      require('zpack').setup({ nil, { 'test/a' } })
+      helpers.flush_pending()
+      assert.are.same({ 'test/a' }, names_in_order())
+      assert.are.same({}, _G.test_state.notifications)
+    end)
+
+    it("passed as setup()'s own list beside options is the spec", function()
+      require('zpack').setup({ nil, { 'test/a' }, defaults = { confirm = false } })
+      helpers.flush_pending()
+      assert.are.same({ 'test/a' }, names_in_order())
+      assert.are.same({}, _G.test_state.notifications)
+    end)
+
+    for field, is_dep in pairs({ dependencies = true, specs = false }) do
+      it("as a " .. field .. " value is walked past the hole", function()
+        require('zpack').setup({ spec = { { 'test/p', [field] = { 'test/a', nil, 'test/b' } } } })
+        helpers.flush_pending()
+        local registry = require('zpack.state').spec_registry
+        assert.are.equal(is_dep, registry['https://github.com/test/a'].specs[1]._is_dependency)
+        assert.are.equal(is_dep, registry['https://github.com/test/b'].specs[1]._is_dependency)
+        assert.are.same({}, _G.test_state.notifications)
+      end)
+    end
+
+    it("from a module, as LazyVim's ai extras write it, keeps what follows the hole", function()
+      local root = vim.fn.tempname()
+      vim.fn.mkdir(root .. '/lua', 'p')
+      vim.fn.writefile({
+        'return {',
+        "  { 'test/supermaven', event = 'InsertEnter' },",
+        "  { 'test/cmp', optional = true, dependencies = { 'supermaven' } },",
+        "  vim.g.zpack_test_ai_cmp and { 'test/blink', optional = true } or nil,",
+        "  { 'test/lualine', opts = function() end, config = function() end },",
+        '}',
+      }, root .. '/lua/zpack_hole_specs.lua')
+      vim.opt.rtp:prepend(root)
+      package.loaded.zpack_hole_specs = nil
+      require('zpack').setup({ spec = { { import = 'zpack_hole_specs' }, { 'test/cmp' } } })
+      helpers.flush_pending()
+      assert.are.same({ 'test/supermaven', 'test/cmp', 'test/lualine' }, names_in_order())
+      assert.are.same({}, vim.tbl_filter(function(note)
+        return note.level >= vim.log.levels.WARN
+      end, _G.test_state.notifications))
+      package.loaded.zpack_hole_specs = nil
+    end)
+
+    for name, spec in pairs({
+      ['alone'] = { 'test/a' },
+      ['with fields'] = { 'test/a', opts = {}, config = function() end },
+      ['with a trailing nil'] = { 'test/a', nil },
+    }) do
+      it("doesn't touch a single spec " .. name, function()
+        require('zpack').setup({ spec = { spec } })
+        helpers.flush_pending()
+        assert.are.same({ 'test/a' }, names_in_order())
+        assert.are.same({}, _G.test_state.notifications)
+      end)
+    end
+  end)
 
   it("import loads *.lua files from directory", function()
     local utils = require('zpack.utils')
@@ -22,6 +129,7 @@ describe("Spec Import", function()
     package.loaded['test_plugins.bar'] = { 'test/bar-plugin' }
 
     local state = require('zpack.state')
+    helpers.mock_config_dir('/mock/config/lua/test_plugins')
     require('zpack').setup({ { import = 'test_plugins' } })
     helpers.flush_pending()
 
@@ -56,6 +164,7 @@ describe("Spec Import", function()
     package.loaded['test_plugins.mini'] = { 'test/mini-plugin' }
 
     local state = require('zpack.state')
+    helpers.mock_config_dir('/mock/config/lua/test_plugins')
     require('zpack').setup({ { import = 'test_plugins' } })
     helpers.flush_pending()
 
@@ -91,6 +200,7 @@ describe("Spec Import", function()
     package.loaded['test_plugins.mini'] = { 'test/mini' }
 
     local state = require('zpack.state')
+    helpers.mock_config_dir('/mock/config/lua/test_plugins')
     require('zpack').setup({ { import = 'test_plugins' } })
     helpers.flush_pending()
 
@@ -234,6 +344,7 @@ describe("Spec Import", function()
     package.loaded['test_plugins.level1'] = { 'test/level1-plugin' }
 
     local state = require('zpack.state')
+    helpers.mock_config_dir('/mock/config/lua/test_plugins')
     require('zpack').setup({ { import = 'test_plugins' } })
     helpers.flush_pending()
 
@@ -272,7 +383,7 @@ describe("Spec Import", function()
 
   -- Regression: an import spec's `enabled = function() error(...) end` used to
   -- abort setup() mid-import, stranding every later spec. After routing the
-  -- import spec's eager enabled through utils.check_enabled, a throwing enabled
+  -- import spec's eager enabled through utils.spec_enabled, a throwing enabled
   -- is treated as disabled (import skipped) and setup() continues to siblings.
   it("import with throwing enabled is skipped, sibling specs still register", function()
     local utils = require('zpack.utils')
@@ -345,6 +456,8 @@ describe("Spec Import", function()
     package.loaded['test_plugins.mini.surround'] = { 'echasnovski/mini.surround' }
 
     local state = require('zpack.state')
+    helpers.mock_config_dir('/mock/config/lua/test_plugins/mini')
+    helpers.mock_config_dir('/mock/config/lua/test_plugins')
     require('zpack').setup({ { import = 'test_plugins' } })
     helpers.flush_pending()
 
@@ -376,6 +489,7 @@ describe("Spec Import", function()
 
     package.loaded['test_plugins.foo'] = { 'test/foo-plugin' }
 
+    helpers.mock_config_dir('/mock/config/lua/test_plugins')
     require('zpack').setup({
       { import = 'test_plugins' },
       { import = 'test_plugins' },

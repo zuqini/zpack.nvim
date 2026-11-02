@@ -1,3 +1,5 @@
+if jit then jit.off(true, true) end
+
 ---Input validation for zpack.
 ---
 ---Malformed `setup()` options or plugin specs otherwise surface as cryptic
@@ -6,8 +8,8 @@
 ---
 ---Each field check runs |vim.validate()| wrapped in `pcall`, so a failure
 ---is collected as a message string instead of thrown. Callers decide what to
----do with the collected errors — `setup()` aborts on config errors, `import`
----warns on spec errors, and `health` reports them. This module is a leaf
+---do with the collected errors — `setup()` reports config errors and goes on,
+---`import` warns on spec errors, and `health` reports them. This module is a leaf
 ---(no `require`s) so |zpack.health| can reuse it freely.
 
 local M = {}
@@ -25,6 +27,14 @@ local function check(errors, name, value, validator)
   if not ok then
     errors[#errors + 1] = err
   end
+end
+
+---Whether a table's fields name a source, which makes it one spec.
+---@param value table
+---@return boolean
+function M.has_source_field(value)
+  return value.src ~= nil or value.dir ~= nil or value.url ~= nil or value.import ~= nil
+      or (value.dev == true and type(value.name) == 'string')
 end
 
 ---Validate the options table passed to `zpack.setup()`.
@@ -46,11 +56,14 @@ function M.validate_config(opts)
   end
 
   local errors = {}
-  check(errors, 'spec', opts.spec, 'table')
+  check(errors, 'spec', opts.spec, { 'table', 'string' })
+  if opts.spec == '' then
+    errors[#errors + 1] = 'spec: expected a module name, got an empty string'
+  end
   check(errors, 'defaults', opts.defaults, 'table')
   check(errors, 'performance', opts.performance, 'table')
-  check(errors, 'profiling', opts.profiling, 'table')
-  check(errors, 'dev', opts.dev, 'table')
+  local specs_in_place = opts.spec == nil and (table.maxn(opts) > 0 or M.has_source_field(opts))
+  check(errors, 'dev', opts.dev, specs_in_place and { 'table', 'boolean' } or 'table')
 
   if type(opts.dev) == 'table' then
     check(errors, 'dev.path', opts.dev.path, 'string')
@@ -61,15 +74,11 @@ function M.validate_config(opts)
     check(errors, 'defaults.cond', opts.defaults.cond, { 'boolean', 'function' })
     check(errors, 'defaults.confirm', opts.defaults.confirm, 'boolean')
     check(errors, 'defaults.lazy', opts.defaults.lazy, 'boolean')
-    -- `boolean` accepts `version = false`, the no-default opt-out handled in utils.normalize_version.
+    -- `boolean` accepts `version = false`, the no-default opt-out handled in pack.normalize_version.
     check(errors, 'defaults.version', opts.defaults.version, { 'string', 'table', 'boolean' })
   end
   if type(opts.performance) == 'table' then
     check(errors, 'performance.vim_loader', opts.performance.vim_loader, 'boolean')
-  end
-  if type(opts.profiling) == 'table' then
-    check(errors, 'profiling.loader', opts.profiling.loader, 'boolean')
-    check(errors, 'profiling.require', opts.profiling.require, 'boolean')
   end
 
   return errors
@@ -107,7 +116,7 @@ local SPEC_FIELD_TYPES = {
   ft = { 'string', 'table', 'function' },
   keys = { 'string', 'table', 'function' },
   pattern = { 'string', 'table' },
-  version = { 'string', 'table', 'boolean' },
+  version = { 'string', 'table' },
   dependencies = { 'string', 'table' },
   specs = { 'string', 'table' },
   pin = 'boolean',
@@ -116,13 +125,35 @@ local SPEC_FIELD_TYPES = {
   deactivate = 'function',
 }
 
----Fields where `false` is also valid: it clears the trigger. `true` is not.
-local ACCEPTS_FALSE = { event = true, cmd = true, ft = true, keys = true, init = true }
+---Fields where `false` is also valid: it clears the trigger or opts out of a
+---default. `true` is not.
+local ACCEPTS_FALSE = { event = true, cmd = true, ft = true, keys = true, init = true, version = true }
 
 ---`SPEC_FIELD_TYPES` keys in a stable sort order, so a spec with several bad
 ---fields reports them deterministically. The sort is invariant — done once.
 local SORTED_SPEC_FIELDS = vim.tbl_keys(SPEC_FIELD_TYPES)
 table.sort(SORTED_SPEC_FIELDS)
+
+---A nil hole, `false`, or an empty table: `cond and { ... } or nil`,
+---`cond and { ... }` and, as in lazy.nvim, `cond and { ... } or {}`.
+---@param value any
+---@return boolean
+function M.is_nothing(value)
+  return not value or (type(value) == 'table' and next(value) == nil)
+end
+
+---The first list entry from `from` on that declares something.
+---@param spec table
+---@param from integer
+---@return any entry nil if there is none
+function M.declared_entry(spec, from)
+  for i = from, table.maxn(spec) do
+    if not M.is_nothing(spec[i]) then
+      return spec[i]
+    end
+  end
+  return nil
+end
 
 ---Validate a single plugin spec.
 ---@param spec any A `zpack.Spec` entry
@@ -136,7 +167,7 @@ function M.validate_spec(spec)
   check(errors, '[1]', spec[1], 'string')
   -- `[1]` is the source only when no src/url/dir is set and the spec is not
   -- `dev` (a dev spec loads from dev.path; `[1]` reaches git only under
-  -- `dev.fallback = true`, which validate cannot see). `utils.expand_src` has
+  -- `dev.fallback = true`, which validate cannot see). `pack.expand_src` has
   -- no path branch, so a path here becomes a github.com URL that does not
   -- exist; `dir` is the expanded local-path field.
   if type(spec[1]) == 'string' and spec[1]:match('^[~./]')
@@ -147,12 +178,21 @@ function M.validate_spec(spec)
   end
   -- A spec with fields is read as one spec, so list entries after `[1]` would
   -- otherwise vanish silently; lazy.nvim reads the table as a list instead.
-  if spec[2] ~= nil then
+  if M.declared_entry(spec, 2) ~= nil then
     errors[#errors + 1] = 'entries after [1] are ignored in a spec with fields — split them into their own specs'
   end
   for _, field in ipairs(SORTED_SPEC_FIELDS) do
     if not (ACCEPTS_FALSE[field] and spec[field] == false) then
       check(errors, field, spec[field], SPEC_FIELD_TYPES[field])
+    end
+  end
+  if type(spec.version) == 'table' and not pcall(spec.version.has, spec.version, '1') then
+    errors[#errors + 1] = 'version: expected a string or vim.version.range(), got another table'
+  end
+  if type(spec.sem_version) == 'string' then
+    local ok, range = pcall(vim.version.range, spec.sem_version)
+    if not (ok and range) then
+      errors[#errors + 1] = ('sem_version "%s" is not a semver range, so it is ignored'):format(spec.sem_version)
     end
   end
   if type(spec.keys) == 'table' and type(spec.keys[1]) ~= 'string' then
@@ -178,9 +218,7 @@ function M.validate_spec(spec)
   -- every type check yet cannot be loaded — `import.normalize_source` would
   -- otherwise fail and the spec would silently never import. An `import`
   -- spec recurses into a directory and legitimately carries no source.
-  if spec.import == nil and spec[1] == nil and spec.src == nil
-      and spec.url == nil and spec.dir == nil
-      and not (spec.dev == true and type(spec.name) == 'string') then
+  if spec[1] == nil and not M.has_source_field(spec) then
     errors[#errors + 1] = 'spec has no plugin source — set one of [1], src, url, dir, or import'
   end
 

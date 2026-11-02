@@ -111,54 +111,54 @@ describe("is_semver_like utility", function()
   it("detects wildcard patterns", function()
     local utils = require('zpack.utils')
 
-    assert.are.equal(true, utils.is_semver_like('1.*'))
-    assert.are.equal(true, utils.is_semver_like('*'))
-    assert.are.equal(true, utils.is_semver_like('1.2.*'))
-    assert.are.equal(true, utils.is_semver_like('1.2.x'))
-    assert.are.equal(true, utils.is_semver_like('1.x'))
-    assert.are.equal(true, utils.is_semver_like('1.X'))
-    assert.are.equal(true, utils.is_semver_like('1.2.X'))
-    assert.are.equal(true, utils.is_semver_like('1.2.y'))
-    assert.are.equal(true, utils.is_semver_like('1.a.b'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.*'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('*'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.2.*'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.2.x'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.x'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.X'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.2.X'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.2.y'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.a.b'))
   end)
 
   it("detects range operators", function()
     local utils = require('zpack.utils')
 
-    assert.are.equal(true, utils.is_semver_like('>=1.0.0'))
-    assert.are.equal(true, utils.is_semver_like('<=2.0.0'))
-    assert.are.equal(true, utils.is_semver_like('>1.0'))
-    assert.are.equal(true, utils.is_semver_like('<2.0'))
-    assert.are.equal(true, utils.is_semver_like('^1.0.0'))
-    assert.are.equal(true, utils.is_semver_like('~1.0.0'))
-    assert.are.equal(true, utils.is_semver_like('foo=bar'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('>=1.0.0'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('<=2.0.0'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('>1.0'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('<2.0'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('^1.0.0'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('~1.0.0'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('foo=bar'))
   end)
 
   it("detects bare semver patterns", function()
     local utils = require('zpack.utils')
 
-    assert.are.equal(true, utils.is_semver_like('1.0.0'))
-    assert.are.equal(true, utils.is_semver_like('1.2'))
-    assert.are.equal(true, utils.is_semver_like('1.2.3.4'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.0.0'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.2'))
+    assert.are.equal(true, require('zpack.pack').is_semver_like('1.2.3.4'))
   end)
 
   it("returns false for branch/tag names", function()
     local utils = require('zpack.utils')
 
-    assert.are.equal(false, utils.is_semver_like('main'))
-    assert.are.equal(false, utils.is_semver_like('master'))
-    assert.are.equal(false, utils.is_semver_like('v1.0.0'))
-    assert.are.equal(false, utils.is_semver_like('v1.x'))
-    assert.are.equal(false, utils.is_semver_like('release-1.0'))
-    assert.are.equal(false, utils.is_semver_like('feature/foo'))
+    assert.are.equal(false, require('zpack.pack').is_semver_like('main'))
+    assert.are.equal(false, require('zpack.pack').is_semver_like('master'))
+    assert.are.equal(false, require('zpack.pack').is_semver_like('v1.0.0'))
+    assert.are.equal(false, require('zpack.pack').is_semver_like('v1.x'))
+    assert.are.equal(false, require('zpack.pack').is_semver_like('release-1.0'))
+    assert.are.equal(false, require('zpack.pack').is_semver_like('feature/foo'))
   end)
 
   it("returns false for non-strings", function()
     local utils = require('zpack.utils')
 
-    assert.are.equal(false, utils.is_semver_like(nil))
-    assert.are.equal(false, utils.is_semver_like(123))
-    assert.are.equal(false, utils.is_semver_like({}))
+    assert.are.equal(false, require('zpack.pack').is_semver_like(nil))
+    assert.are.equal(false, require('zpack.pack').is_semver_like(123))
+    assert.are.equal(false, require('zpack.pack').is_semver_like({}))
   end)
 end)
 
@@ -223,7 +223,7 @@ end)
 describe("expand_src", function()
   it("expands a short name to a GitHub URL", function()
     local utils = require('zpack.utils')
-    assert.are.equal('https://github.com/user/repo', utils.expand_src('user/repo'))
+    assert.are.equal('https://github.com/user/repo', require('zpack.pack').expand_src('user/repo'))
   end)
 
   it("returns full URLs unchanged", function()
@@ -236,7 +236,7 @@ describe("expand_src", function()
       'file:///home/user/repo',
     }
     for _, url in ipairs(urls) do
-      assert.are.equal(url, utils.expand_src(url))
+      assert.are.equal(url, require('zpack.pack').expand_src(url))
     end
   end)
 
@@ -245,8 +245,30 @@ describe("expand_src", function()
     -- vim.pack gives src to git verbatim, so a path in [1] would clone
     -- literally; `dir` is the expanded local-path field. lazy.nvim parity:
     -- anything that is not a git URL is owner/repo shorthand.
-    assert.are.equal('https://github.com/~/repo', utils.expand_src('~/repo'))
-    assert.are.equal('https://github.com/./repo', utils.expand_src('./repo'))
-    assert.are.equal('https://github.com//home/user/repo', utils.expand_src('/home/user/repo'))
+    assert.are.equal('https://github.com/~/repo', require('zpack.pack').expand_src('~/repo'))
+    assert.are.equal('https://github.com/./repo', require('zpack.pack').expand_src('./repo'))
+    assert.are.equal('https://github.com//home/user/repo', require('zpack.pack').expand_src('/home/user/repo'))
+  end)
+end)
+
+describe("resolve_main", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  it("passes over a compiled module listed before the plugin's Lua one", function()
+    local utils = require('zpack.utils')
+    helpers.write_plugin_files('zee-bar', { 'zeebar/init.lua', 'zee_bar.so' })
+    local path = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/zee-bar'
+    local original_lsdir = utils.lsdir
+    utils.lsdir = function(dir)
+      local entries = vim.deepcopy(original_lsdir(dir))
+      table.sort(entries, function(a, b) return a.name < b.name end)
+      return entries
+    end
+
+    local main = utils.resolve_main({ spec = { src = 'https://github.com/test/zee-bar', name = 'zee-bar' }, path = path }, {})
+    utils.lsdir = original_lsdir
+
+    assert.are.equal('zeebar', main)
   end)
 end)

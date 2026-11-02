@@ -1,8 +1,8 @@
 local helpers = require('helpers')
 
 local function resolve(specs)
-  local merge = require('zpack.merge')
-  return merge.resolve_opts(specs, {}, merge.merge_spec_array(specs).opts_extend)
+  local fields = require('zpack.merge_fields')
+  return require('zpack.opts').resolve_opts(specs, {}, fields.merge_spec_array(specs).opts_extend)
 end
 
 describe("Spec Merging", function()
@@ -230,21 +230,21 @@ describe("Merge Module Unit Tests", function()
   after_each(helpers.cleanup_test_env)
 
   it("merge_specs skips opts (resolved lazily by resolve_opts)", function()
-    local merge = require('zpack.merge')
+    local fields = require('zpack.merge_fields')
 
     -- opts is intentionally not collapsed by merge_specs. It is resolved
     -- at load time by resolve_opts so function-form opts compose correctly
-    -- with a single authoritative code path. See merge.lua field_strategies
+    -- with a single authoritative code path. See merge_fields.lua merge_specs'
     -- comment. Callers that need the deep-merged value should invoke
-    -- merge.resolve_opts(sorted_specs, plugin, merged_spec.opts_extend).
+    -- opts.resolve_opts(sorted_specs, plugin, merged_spec.opts_extend).
     local base = { opts = { a = 1, nested = { x = 1 } } }
     local incoming = { opts = { b = 2, nested = { y = 2 } } }
-    local result = merge.merge_specs(base, incoming)
+    local result = fields.merge_specs(base, incoming)
 
     assert.is_nil(result.opts, "merge_specs must never populate opts")
 
     -- resolve_opts is the authoritative path and deep-merges table-form opts.
-    local resolved = merge.resolve_opts({ base, incoming }, {})
+    local resolved = require('zpack.opts').resolve_opts({ base, incoming }, {})
     assert.are.equal(1, resolved.a)
     assert.are.equal(2, resolved.b)
     assert.are.equal(1, resolved.nested.x)
@@ -252,44 +252,44 @@ describe("Merge Module Unit Tests", function()
   end)
 
   it("merge_specs extends list fields uniquely", function()
-    local merge = require('zpack.merge')
+    local fields = require('zpack.merge_fields')
 
     local base = { event = { 'A', 'B' } }
     local incoming = { event = { 'B', 'C' } }
-    local result = merge.merge_specs(base, incoming)
+    local result = fields.merge_specs(base, incoming)
 
     assert.are.equal(3, #result.event)
   end)
 
   it("merge_specs: the later cond wins when false", function()
-    local merge = require('zpack.merge')
+    local fields = require('zpack.merge_fields')
 
     local base = { cond = true }
     local incoming = { cond = false }
-    local result = merge.merge_specs(base, incoming)
+    local result = fields.merge_specs(base, incoming)
 
     assert.are.equal(false, result.cond)
   end)
 
   it("merge_specs: the later cond wins when true", function()
-    local merge = require('zpack.merge')
+    local fields = require('zpack.merge_fields')
 
     local base = { cond = function() return false end }
     local incoming = { cond = true }
-    local result = merge.merge_specs(base, incoming)
+    local result = fields.merge_specs(base, incoming)
 
     assert.are.equal(true, result.cond)
   end)
 
   it("sort_specs puts dependencies before standalone", function()
-    local merge = require('zpack.merge')
+    local fields = require('zpack.merge_fields')
 
     local specs = {
       { _is_dependency = true, _import_order = 0 },
       { _is_dependency = false, _import_order = 1 },
       { _is_dependency = true, _import_order = 2 },
     }
-    local sorted = merge.sort_specs(specs)
+    local sorted = fields.sort_specs(specs)
 
     assert.is_truthy(sorted[1]._is_dependency, "first should be dependency")
     assert.is_truthy(sorted[2]._is_dependency, "second should be dependency")
@@ -297,8 +297,6 @@ describe("Merge Module Unit Tests", function()
   end)
 
   it("resolve_opts accumulates through function opts", function()
-    local merge = require('zpack.merge')
-
     local specs = {
       { opts = { a = 1 } },
       {
@@ -308,7 +306,7 @@ describe("Merge Module Unit Tests", function()
       },
       { opts = { c = 3 } },
     }
-    local result = merge.resolve_opts(specs, {})
+    local result = require('zpack.opts').resolve_opts(specs, {})
 
     assert.are.equal(1, result.a)
     assert.are.equal(2, result.b)
@@ -562,10 +560,8 @@ describe("Merge Module Unit Tests", function()
   end)
 
   it("resolve_opts takes a single opts_extend key", function()
-    local merge = require('zpack.merge')
-
     local specs = { { opts = { l = { 'a' } } }, { opts = { l = { 'b' } } } }
-    assert.are.same({ 'a', 'b' }, merge.resolve_opts(specs, {}, 'l').l)
+    assert.are.same({ 'a', 'b' }, require('zpack.opts').resolve_opts(specs, {}, 'l').l)
   end)
 
   it("resolve_opts accepts a single opts_extend key and ignores other non-tables", function()
@@ -716,9 +712,9 @@ describe("Merge Module Unit Tests", function()
   end)
 
   it("merge_spec_array unions opts_extend across specs", function()
-    local merge = require('zpack.merge')
+    local fields = require('zpack.merge_fields')
 
-    local merged = merge.merge_spec_array({ { opts_extend = { 'a', 'b' } }, { opts_extend = { 'b', 'c' } } })
+    local merged = fields.merge_spec_array({ { opts_extend = { 'a', 'b' } }, { opts_extend = { 'b', 'c' } } })
 
     assert.are.same({ 'a', 'b', 'c' }, merged.opts_extend)
   end)

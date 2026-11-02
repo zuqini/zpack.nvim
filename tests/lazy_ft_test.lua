@@ -633,14 +633,14 @@ describe("Lazy Loading - FileType", function()
       ['another literal filetype'] = 'FileType markdown',
       ['a list of other filetypes'] = { event = 'FileType', pattern = { 'markdown', 'toml' } },
     }) do
-      it("are not split by an event plugin on " .. label, function()
+      it("are split by an event plugin on " .. label .. ", with a re-fire for each part", function()
         local order = priority_specs({ event = event })
         local count, group = count_filetype_fires()
 
         open_as('rust')
 
         assert.are.same({ 'high', 'low' }, order)
-        assert.are.equal(2, count.n)
+        assert.are.equal(3, count.n)
         vim.api.nvim_del_augroup_by_id(group)
       end)
     end
@@ -698,7 +698,7 @@ describe("Lazy Loading - FileType", function()
       return order
     end
 
-    it("keep an uppercase filetype's group whole around an event plugin on another filetype", function()
+    it("split an uppercase filetype's group for an event plugin on another filetype", function()
       local order = outline_specs('FileType markdown')
       local count, group = count_filetype_fires()
 
@@ -706,7 +706,7 @@ describe("Lazy Loading - FileType", function()
       vim.api.nvim_del_augroup_by_id(group)
 
       assert.are.same({ 'high', 'low' }, order)
-      assert.are.equal(2, count.n)
+      assert.are.equal(3, count.n)
     end)
 
     it("split an uppercase filetype's group for an event plugin on another spelling", function()

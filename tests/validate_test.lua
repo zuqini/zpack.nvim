@@ -11,7 +11,6 @@ describe("Config Validation", function()
       spec = {},
       defaults = { confirm = false, cond = function() return true end },
       performance = { vim_loader = true },
-      profiling = { loader = false, require = false },
     })
     assert.are.equal(0, #errors)
   end)
@@ -49,10 +48,15 @@ describe("Config Validation", function()
       cmd_name = 'ZPack',
       defaults = { confirm = true },
       performance = { vim_loader = true },
-      profiling = { loader = false, require = false },
       dev = { path = '~/projects', fallback = false },
     })
     assert.are.equal(0, #errors)
+  end)
+
+  it("validate_config ignores keys it doesn't know, like the removed profiling", function()
+    local validate = require('zpack.validate')
+    assert.are.equal(0, #validate.validate_config({ profiling = { loader = false } }))
+    assert.are.equal(0, #validate.validate_config({ profiling = 'oops' }))
   end)
 
   it("validate_config accepts defaults.lazy and defaults.version", function()
@@ -199,6 +203,15 @@ describe("Spec Validation", function()
     assert.are.equal(0, #validate.validate_spec({ '~/repo', dev = true }))
   end)
 
+  it("validate_spec flags a sem_version that isn't a semver range", function()
+    local validate = require('zpack.validate')
+    local errors = validate.validate_spec({ 'user/plugin', sem_version = 'abc' })
+    assert.are.equal(1, #errors)
+    assert.is_truthy(errors[1]:find('sem_version "abc" is not a semver range', 1, true))
+    assert.are.equal(0, #validate.validate_spec({ 'user/plugin', sem_version = '^1.2' }))
+    assert.are.equal(0, #validate.validate_spec({ 'user/plugin', sem_version = '1.x' }))
+  end)
+
   it("validate_spec rejects a non-table spec", function()
     local validate = require('zpack.validate')
     local errors = validate.validate_spec('user/plugin')
@@ -248,6 +261,40 @@ describe("Validation wired into setup()", function()
 
     local cmds = vim.api.nvim_get_commands({})
     assert.is_not_nil(cmds['ZPack'], ":ZPack should still register")
+  end)
+
+  describe("given something other than a table", function()
+    local function setup_with_default_import(arg)
+      local root = vim.fn.tempname()
+      vim.fn.mkdir(root .. '/lua', 'p')
+      vim.fn.writefile({}, root .. '/lua/plugins.lua')
+      package.loaded.plugins = { 'test/from-default-import' }
+      local stdpath = vim.fn.stdpath
+      vim.fn.stdpath = function(what) return what == 'config' and root or stdpath(what) end
+      local ok, err = pcall(require('zpack').setup, arg)
+      vim.fn.stdpath = stdpath
+      package.loaded.plugins = nil
+      assert.is_true(ok, err)
+      helpers.flush_pending()
+      assert.is_not_nil(require('zpack.state').spec_registry['https://github.com/test/from-default-import'])
+      assert.is_not_nil(vim.api.nvim_get_commands({})['ZPack'])
+    end
+
+    for name, arg in pairs({
+      number = 42,
+      boolean = true,
+      ['function'] = function() end,
+    }) do
+      it(name .. " is reported, then the default plugins are imported", function()
+        setup_with_default_import(arg)
+        assert.is_not_nil(find_notification({ 'invalid options', 'expected table, got ' .. type(arg) }, vim.log.levels.ERROR))
+      end)
+    end
+
+    it("false reads as no options", function()
+      setup_with_default_import(false)
+      assert.is_nil(find_notification({ 'invalid options' }))
+    end)
   end)
 
   it("a malformed spec emits a warning naming the field", function()

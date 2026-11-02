@@ -51,6 +51,176 @@ describe("Setup and Initialization", function()
     assert.is_not_nil(state.spec_registry[src], "Single inline spec should be registered")
   end)
 
+  local function setup_with_modules(arg)
+    local root = vim.fn.tempname()
+    vim.fn.mkdir(root .. '/lua/custom', 'p')
+    vim.fn.writefile({}, root .. '/lua/custom/plugins.lua')
+    vim.fn.writefile({}, root .. '/lua/plugins.lua')
+    package.loaded['custom.plugins'] = { 'test/named' }
+    package.loaded.plugins = { 'test/default' }
+    local stdpath = vim.fn.stdpath
+    vim.fn.stdpath = function(what) return what == 'config' and root or stdpath(what) end
+    local ok, err = pcall(require('zpack').setup, arg)
+    vim.fn.stdpath = stdpath
+    package.loaded['custom.plugins'], package.loaded.plugins = nil, nil
+    assert.is_true(ok, err)
+    helpers.flush_pending()
+    return require('zpack.state')
+  end
+
+  describe("a module named by a string", function()
+    for name, arg in pairs({
+      ['as the argument'] = 'custom.plugins',
+      ['as spec'] = { spec = 'custom.plugins', defaults = { confirm = false } },
+    }) do
+      it(name .. " is imported instead of the default", function()
+        local state = setup_with_modules(arg)
+        assert.is_not_nil(state.spec_registry['https://github.com/test/named'])
+        assert.is_nil(state.spec_registry['https://github.com/test/default'])
+        for _, notification in ipairs(_G.test_state.notifications) do
+          assert.is_not.equal(vim.log.levels.ERROR, notification.level, notification.msg)
+        end
+      end)
+    end
+
+    it("that isn't found warns, as an import does, in place of the default", function()
+      local state = setup_with_modules('custom.nosuch')
+      assert.is_nil(state.spec_registry['https://github.com/test/default'])
+      assert.is_truthy(helpers.find_notification({ 'no specs found' }, vim.log.levels.WARN))
+    end)
+
+    it("that's empty is reported, and doesn't import the whole of lua/", function()
+      local state = setup_with_modules('')
+      assert.is_not_nil(state.spec_registry['https://github.com/test/default'])
+      local reported = false
+      for _, notification in ipairs(_G.test_state.notifications) do
+        reported = reported or notification.msg:find('empty string', 1, true) ~= nil
+      end
+      assert.is_true(reported)
+    end)
+  end)
+
+  describe("a single spec with no array part", function()
+    for name, case in pairs({
+      import = { spec = { import = 'custom.plugins' }, src = 'https://github.com/test/named' },
+      url = { spec = { url = 'https://example.com/aa', name = 'aa' }, src = 'https://example.com/aa' },
+      src = { spec = { src = 'https://example.com/aa' }, src = 'https://example.com/aa' },
+      dir = { spec = { dir = '/nonexistent/aa' }, src = '/nonexistent/aa' },
+      ['dev name'] = { spec = { dev = true, name = 'aa' }, src = vim.fn.expand('~/projects') .. '/aa' },
+    }) do
+      it("set by " .. name .. " goes through, with the options taken out", function()
+        local state = setup_with_modules(vim.tbl_extend('error', case.spec, { defaults = { lazy = true } }))
+        assert.is_not_nil(state.spec_registry[case.src])
+        assert.is_nil(state.spec_registry['https://github.com/test/default'])
+        assert.are.equal(true, state.config.defaults.lazy)
+      end)
+    end
+
+    it("options alone are not a spec", function()
+      local state = setup_with_modules({ defaults = { lazy = true } })
+      assert.is_not_nil(state.spec_registry['https://github.com/test/default'])
+    end)
+  end)
+
+  describe("specs beside options", function()
+    local src_a, src_b = 'https://github.com/test/a', 'https://github.com/test/b'
+    local options = {
+      spec = 42,
+      defaults = { confirm = false },
+      cmd_name = 'ZPack',
+      performance = { vim_loader = false },
+      dev = { path = '/nonexistent' },
+      profiling = { enabled = true },
+    }
+
+    for name, value in pairs(options) do
+      it(name .. " leaves a list of strings a list", function()
+        local state = require('zpack.state')
+        require('zpack').setup({ 'test/a', 'test/b', [name] = value })
+        assert.is_not_nil(state.spec_registry[src_a])
+        assert.is_not_nil(state.spec_registry[src_b])
+      end)
+    end
+
+    it("a table beside a string is a list too", function()
+      local state = require('zpack.state')
+      require('zpack').setup({ 'test/a', { 'test/b', lazy = true }, defaults = { confirm = false } })
+      assert.is_not_nil(state.spec_registry[src_a])
+      assert.is_true(state.spec_registry[src_b].merged_spec.lazy)
+    end)
+
+    it("a string with spec fields stays one spec, with its options taken out", function()
+      local state = require('zpack.state')
+      local config = function() end
+      require('zpack').setup({ 'test/a', config = config, defaults = { lazy = true, confirm = false } })
+      local merged = state.spec_registry[src_a].merged_spec
+      assert.are.equal(config, merged.config)
+      assert.is_nil(merged.defaults)
+      assert.are.equal(true, state.config.defaults.lazy)
+    end)
+
+    it("a list of strings with a spec field is still one spec that warns", function()
+      local state = require('zpack.state')
+      require('zpack').setup({ 'test/a', 'test/b', opts = {}, defaults = { confirm = false } })
+      assert.is_not_nil(state.spec_registry[src_a])
+      assert.is_nil(state.spec_registry[src_b])
+      helpers.flush_pending()
+      assert.is_truthy(helpers.find_notification({ 'entries after [1]' }, vim.log.levels.WARN))
+    end)
+
+    it("an import beside a string runs", function()
+      local state = require('zpack.state')
+      require('zpack').setup({
+        'test/a',
+        { import = function() return { { 'test/b' } } end },
+        cmd_name = 'ZPack',
+      })
+      assert.is_not_nil(state.spec_registry[src_a])
+      assert.is_not_nil(state.spec_registry[src_b])
+    end)
+
+    it("dev = true stays the spec's", function()
+      local state = require('zpack.state')
+      require('zpack').setup({ 'test/a', dev = true, defaults = { confirm = false } })
+      helpers.flush_pending()
+      local src = vim.fn.expand('~/projects') .. '/a'
+      assert.is_not_nil(state.spec_registry[src])
+      assert.is_nil(state.spec_registry[src_a])
+      assert.are.same({}, vim.tbl_filter(function(n)
+        return n.level == vim.log.levels.ERROR
+      end, _G.test_state.notifications))
+    end)
+
+    it("dev = true with no spec to belong to is reported", function()
+      require('zpack').setup({ spec = {}, dev = true })
+      helpers.flush_pending()
+      assert.are.equal(1, #vim.tbl_filter(function(n)
+        return n.level == vim.log.levels.ERROR and n.msg:find('dev: expected table', 1, true) ~= nil
+      end, _G.test_state.notifications))
+    end)
+
+    it("a dev table is the option, not a spec's", function()
+      local state = require('zpack.state')
+      require('zpack').setup({ 'test/a', 'test/b', dev = { path = '/nonexistent/dev' } })
+      assert.are.equal('/nonexistent/dev', state.config.dev.path)
+      assert.is_not_nil(state.spec_registry[src_a])
+      assert.is_not_nil(state.spec_registry[src_b])
+    end)
+
+    it("leaves the caller's table as it was", function()
+      local opts = { 'test/a', 'test/b', defaults = { confirm = false }, cmd_name = 'ZPack' }
+      local before = vim.deepcopy(opts)
+      require('zpack').setup(opts)
+      assert.are.same(before, opts)
+    end)
+
+    it("a single spec's bookkeeping stays off the caller's table", function()
+      local opts = { 'test/a', config = function() end, defaults = { confirm = false } }
+      require('zpack').setup(opts)
+      assert.is_nil(opts._import_order)
+    end)
+  end)
+
   it("setup() with spec field registers single plugin", function()
     local state = require('zpack.state')
 

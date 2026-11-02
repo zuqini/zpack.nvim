@@ -19,7 +19,7 @@ describe("ZPack load", function()
 
     helpers.flush_pending()
     assert.is_truthy(
-      state.unloaded_plugin_names['lazy-plugin'] == true,
+      helpers.unloaded_plugin_names()['lazy-plugin'] == true,
       "Lazy plugin should be tracked as unloaded"
     )
   end)
@@ -39,7 +39,7 @@ describe("ZPack load", function()
 
     helpers.flush_pending()
     assert.is_nil(
-      state.unloaded_plugin_names['startup-plugin'],
+      helpers.unloaded_plugin_names()['startup-plugin'],
       "Startup plugin should not be in unloaded list"
     )
   end)
@@ -59,7 +59,7 @@ describe("ZPack load", function()
 
     helpers.flush_pending()
     assert.is_truthy(
-      state.unloaded_plugin_names['lazy-plugin'] == true,
+      helpers.unloaded_plugin_names()['lazy-plugin'] == true,
       "Plugin should be unloaded initially"
     )
 
@@ -67,7 +67,7 @@ describe("ZPack load", function()
     helpers.flush_pending()
 
     assert.is_nil(
-      state.unloaded_plugin_names['lazy-plugin'],
+      helpers.unloaded_plugin_names()['lazy-plugin'],
       "Plugin should be removed from unloaded list after loading"
     )
   end)
@@ -120,12 +120,12 @@ describe("ZPack load", function()
     })
 
     helpers.flush_pending()
-    assert.are.equal(2, vim.tbl_count(state.unloaded_plugin_names))
+    assert.are.equal(2, vim.tbl_count(helpers.unloaded_plugin_names()))
 
     vim.cmd('ZPack! load')
     helpers.flush_pending()
 
-    assert.are.equal(0, vim.tbl_count(state.unloaded_plugin_names))
+    assert.are.equal(0, vim.tbl_count(helpers.unloaded_plugin_names()))
     assert.is_truthy(config_called['plugin-a'], "Plugin A config should be called")
     assert.is_truthy(config_called['plugin-b'], "Plugin B config should be called")
   end)
@@ -182,5 +182,62 @@ describe("ZPack load", function()
       end
     end
     assert.is_truthy(found_info, "Should show info that plugin is already loaded")
+  end)
+
+  it("load! goes through startup plugins, then lazy ones, each by priority", function()
+    local order = {}
+    local function log(name) return function() order[#order + 1] = name end end
+    local status = {}
+    require('zpack').setup({
+      spec = {
+        { 'test/lazy-low', lazy = true, priority = 10, config = log('lazy-low') },
+        { 'test/lazy-high', lazy = true, priority = 90, config = log('lazy-high') },
+        { 'test/eager-bad', lazy = false, priority = 90, opts = function() error('once', 0) end, config = log('eager-bad') },
+        { 'test/eager-bad2', lazy = false, priority = 10, opts = function() error('once', 0) end, config = log('eager-bad2') },
+        { 'test/off', lazy = true, cond = false, config = log('off') },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    status.before = vim.tbl_keys(helpers.unloaded_plugin_names())
+    table.sort(status.before)
+    assert.are.same({ 'eager-bad', 'eager-bad2', 'lazy-high', 'lazy-low' }, status.before)
+
+    local names = {}
+    for _, pack_spec in ipairs(helpers.registered_plugins()) do
+      names[#names + 1] = pack_spec.name
+    end
+    assert.are.same({ 'eager-bad', 'eager-bad2', 'lazy-high', 'lazy-low' }, names)
+
+    vim.cmd('ZPack! load')
+    helpers.flush_pending()
+    assert.are.same({ 'lazy-high', 'lazy-low' }, order)
+  end)
+
+  it("completes names from what's registered, with zpack.nvim, without cond = false", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/Bravo', lazy = true, build = 'x' },
+        { 'test/alpha', lazy = true },
+        { 'test/off', lazy = true, cond = false, build = 'x' },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    local function complete(line)
+      return vim.fn.getcompletion(line, 'cmdline')
+    end
+    assert.are.same({ 'alpha', 'Bravo', 'zpack.nvim' }, complete('ZPack update '))
+    assert.are.same({ 'alpha', 'Bravo' }, complete('ZPack load '))
+    assert.are.same({ 'Bravo' }, complete('ZPack build '))
+
+    vim.cmd('ZPack load alpha')
+    helpers.flush_pending()
+    assert.are.same({ 'Bravo' }, complete('ZPack load '))
+    assert.are.same({ 'alpha', 'Bravo', 'zpack.nvim' }, complete('ZPack reload '))
+
+    vim.pack.del({ 'alpha' })
+    helpers.flush_pending()
+    assert.are.same({ 'Bravo', 'zpack.nvim' }, complete('ZPack update '))
   end)
 end)

@@ -1,3 +1,5 @@
+if jit then jit.off(true, true) end
+
 local util = require('zpack.utils')
 local state = require('zpack.state')
 
@@ -140,6 +142,19 @@ M.execute_build = function(build, plugin, src, on_done)
   end
 end
 
+---A build can need the plugin, so it starts once the plugin is loaded.
+---@param src string
+---@return boolean started False if there's no build or the plugin failed to load
+M.load_and_build = function(src)
+  local entry = state.spec_registry[src]
+  local build = entry and entry.merged_spec and entry.merged_spec.build
+  if not build or not require('zpack.plugin_loader').try_process_spec(state.src_to_pack_spec[src], { bang = true }) then
+    return false
+  end
+  M.execute_build(build, entry.plugin, src)
+  return true
+end
+
 M.setup_build_tracking = function()
   util.autocmd('PackChanged', function(event)
     if event.data.kind == "update" or event.data.kind == "install" then
@@ -160,8 +175,8 @@ M.setup_delete_tracking = function()
     local spec = event.data.spec
     -- PackChanged fires for every vim.pack removal, including plugins zpack
     -- never registered. The spec_registry check keeps this a no-op for those:
-    -- remove_plugin filters the name-keyed lists by name, so an unmanaged
-    -- plugin sharing a name with a managed one would otherwise desync state.
+    -- remove_plugin clears name_to_src by name, so an unmanaged plugin sharing
+    -- a name with a managed one would otherwise desync state.
     if spec and spec.name and spec.src and state.spec_registry[spec.src] then
       state.remove_plugin(spec.name, spec.src)
     end
@@ -171,55 +186,26 @@ end
 M.setup_lazy_build_tracking = function()
   util.autocmd('PackChanged', function(event)
     if event.data.kind == "update" or event.data.kind == "install" then
-      local src = event.data.spec.src
-      local registry_entry = state.spec_registry[src]
-      local spec = registry_entry and registry_entry.merged_spec
-      if spec and spec.build then
-        local pack_spec = state.src_to_pack_spec[src]
-        if pack_spec and not require('zpack.plugin_loader').try_process_spec(pack_spec, { bang = true }) then
-          return
-        end
-        M.execute_build(spec.build, registry_entry.plugin, src)
-      end
+      util.reset_lsdir_cache()
+      require('zpack.module_loader').reset_lookup_cache()
+      M.load_and_build(event.data.spec.src)
     end
   end, { group = state.lazy_build_group })
 end
 
 M.run_pending_builds_on_startup = function()
-  if next(state.src_with_pending_build) == nil then
-    return
-  end
-
-  local loader = require('zpack.plugin_loader')
-
   for src in pairs(state.src_with_pending_build) do
-    local entry = state.spec_registry[src]
-    local spec = entry and entry.merged_spec
-    if spec and spec.build then
-      local pack_spec = state.src_to_pack_spec[src]
-      local load_ok = pack_spec == nil or loader.try_process_spec(pack_spec, { bang = true })
-      if load_ok then
-        M.execute_build(spec.build, entry.plugin, src)
-      end
-    end
+    M.load_and_build(src)
   end
-
   state.src_with_pending_build = {}
 end
 
 M.run_all_builds = function()
-  local loader = require('zpack.plugin_loader')
   local count = 0
 
-  for src, entry in pairs(state.spec_registry) do
-    local spec = entry.merged_spec
-    if spec and spec.build then
-      local pack_spec = state.src_to_pack_spec[src]
-      local load_ok = pack_spec == nil or loader.try_process_spec(pack_spec, { bang = true })
-      if load_ok then
-        M.execute_build(spec.build, entry.plugin, src)
-        count = count + 1
-      end
+  for src in pairs(state.spec_registry) do
+    if M.load_and_build(src) then
+      count = count + 1
     end
   end
 

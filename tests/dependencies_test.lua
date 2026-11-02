@@ -215,7 +215,7 @@ describe("Dependencies Field", function()
     local state = require('zpack.state')
 
     assert.is_truthy(
-      state.unloaded_plugin_names['dep-only'] or false,
+      helpers.unloaded_plugin_names()['dep-only'] or false,
       "dependency-only plugin should be lazy when parent is lazy"
     )
   end)
@@ -246,11 +246,11 @@ describe("Dependencies Field", function()
     assert.are.equal(1, #load_order)
     assert.are.equal('shared', load_order[1])
     assert.is_nil(
-      state.unloaded_plugin_names['shared'],
+      helpers.unloaded_plugin_names()['shared'],
       "standalone spec should make plugin startup, not lazy"
     )
     assert.is_truthy(
-      state.unloaded_plugin_names['lazy-parent'] or false,
+      helpers.unloaded_plugin_names()['lazy-parent'] or false,
       "lazy-parent should still be lazy"
     )
   end)
@@ -543,7 +543,7 @@ describe("Dependencies Field", function()
 
     local state = require('zpack.state')
     assert.is_truthy(
-      state.unloaded_plugin_names['lazy-parent'] or false,
+      helpers.unloaded_plugin_names()['lazy-parent'] or false,
       "lazy-parent should still be unloaded"
     )
   end)
@@ -706,7 +706,7 @@ describe("Dependencies Field", function()
     _G.test_state.dep_config_ran = nil
   end)
 
-  it("enabled=false on a dep does not run user config and keeps the parent with a warning", function()
+  it("enabled=false on a dep does not run user config and keeps the parent", function()
     local state = require('zpack.state')
     _G.test_state.dep_config_ran = nil
 
@@ -749,11 +749,6 @@ describe("Dependencies Field", function()
       "parent should reach vim.pack.add"
     )
     assert.is_nil(state.dependency_graph['https://github.com/test/parent'], "a disabled dep leaves no edge")
-
-    assert.is_truthy(
-      has_warning_matching({ 'test/parent', 'test/dep', 'enabled=false' }),
-      "expected a warning naming the parent, dep, and enabled=false"
-    )
 
     _G.test_state.dep_config_ran = nil
   end)
@@ -810,7 +805,7 @@ describe("Dependencies Field", function()
       "a later spec that doesn't set enabled leaves it disabled"
     )
     assert.is_falsy(
-      vim.tbl_contains(state.registered_plugin_names, 'shared'),
+      vim.tbl_contains(helpers.registered_plugin_names(), 'shared'),
       "disabled plugin should not be in registered_plugin_names"
     )
     assert.is_nil(
@@ -1154,6 +1149,7 @@ describe("Dependencies Field", function()
       { 'test/imported-parent', dependencies = { 'test/imported-dep' } },
     }
 
+    helpers.mock_config_dir('/mock/config/lua/zpack_test_import_cond')
     require('zpack').setup({
       spec = { { import = 'zpack_test_import_cond' } },
       defaults = { confirm = false },
@@ -1213,6 +1209,7 @@ describe("Dependencies Field", function()
       { 'test/en-parent', dependencies = { 'test/en-dep' } },
     }
 
+    helpers.mock_config_dir('/mock/config/lua/zpack_test_import_en')
     require('zpack').setup({
       spec = { { import = 'zpack_test_import_en' } },
       defaults = { confirm = false },
@@ -1231,10 +1228,6 @@ describe("Dependencies Field", function()
     assert.is_not_nil(
       _G.test_state.registered_pack_specs['en-parent'],
       "parent should stay when its dep is enabled=false"
-    )
-    assert.is_truthy(
-      has_warning_matching({ 'test/en-parent', 'test/en-dep', 'enabled=false' }),
-      "expected a warning naming parent, dep, and enabled=false"
     )
 
     utils.lsdir = original_lsdir
@@ -1308,15 +1301,6 @@ describe("Dependencies Field", function()
     assert.is_not_nil(state.spec_registry['https://github.com/test/prop-mid'], "mid should stay")
     assert.is_not_nil(state.spec_registry['https://github.com/test/prop-grand'], "grand should stay")
     assert.is_nil(_G.test_state.registered_pack_specs['prop-leaf'], "leaf should not reach vim.pack.add")
-
-    assert.is_truthy(
-      has_warning_matching({ 'test/prop-mid', 'test/prop-leaf', 'enabled=false' }),
-      "expected a warning: mid may not work because leaf has enabled=false"
-    )
-    assert.is_falsy(
-      has_warning_matching({ 'test/prop-grand', 'may not work' }),
-      "grand's own dependency is still there"
-    )
   end)
 
   it("enabled=false on a shared dep keeps all dependents", function()
@@ -1345,8 +1329,6 @@ describe("Dependencies Field", function()
     assert.is_not_nil(_G.test_state.registered_pack_specs['shared-dep-a'], "dep-a should stay")
     assert.is_not_nil(_G.test_state.registered_pack_specs['shared-dep-b'], "dep-b should stay")
     assert.is_nil(state.spec_registry['https://github.com/test/shared-disabled'], "the dep itself goes")
-    assert.is_truthy(has_warning_matching({ 'test/shared-dep-a', 'may not work' }))
-    assert.is_truthy(has_warning_matching({ 'test/shared-dep-b', 'may not work' }))
   end)
 
   it("enabled=false on one dep leaves the parent and its other deps", function()

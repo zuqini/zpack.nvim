@@ -13,18 +13,10 @@ describe(":ZPack subcommand dispatch", function()
     helpers.flush_pending()
     _G.test_state.notifications = {}
 
-    -- An installed plugin absent from the spec gives `clean` something to
-    -- delete, so a wrongly-accepted bang would surface as a non-zero
-    -- vim_pack_del_calls below.
-    _G.test_state.registered_pack_specs['orphan-plugin'] = {
-      src = 'test/orphan-plugin',
-      name = 'orphan-plugin',
-    }
-
-    vim.cmd('ZPack! clean')
+    vim.cmd('ZPack! reload plugin-a')
     helpers.flush_pending()
 
-    assert.are.equal(0, #_G.test_state.vim_pack_del_calls)
+    assert.is_nil(helpers.find_notification({ 'Reloaded' }))
 
     local found_warning = false
     for _, notif in ipairs(_G.test_state.notifications) do
@@ -33,7 +25,7 @@ describe(":ZPack subcommand dispatch", function()
         break
       end
     end
-    assert.is_truthy(found_warning, "should warn that clean does not accept a bang")
+    assert.is_truthy(found_warning, "should warn that reload does not accept a bang")
   end)
 
   it("extra positional arguments warn and do not run", function()

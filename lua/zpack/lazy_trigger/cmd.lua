@@ -1,83 +1,91 @@
+if jit then jit.off(true, true) end
+
 local util = require('zpack.utils')
 local state = require('zpack.state')
 local loader = require('zpack.plugin_loader')
+local cmd_proxy = require('zpack.cmd_proxy')
 
 local M = {}
 
----Split the strings in `cmd` into names nvim_create_user_command takes and the rest.
+---@class zpack.ParsedCmd
+---@field names string[] Every string, each of which gets a proxy; a bad name reports itself there
+---@field usable boolean Whether one is a name nvim_create_user_command takes
+---@field invalid string[] Non-empty strings it doesn't take
+---@field not_strings any[]
+
 ---@param cmd any
----@return string[] valid, string[] invalid
-local function classify_names(cmd)
-  local valid, invalid = {}, {}
+---@return zpack.ParsedCmd?
+M.parse = function(cmd)
+  if not cmd then
+    return nil
+  end
+  local parsed = { names = {}, usable = false, invalid = {}, not_strings = {} }
   local names = util.normalize_string_list(cmd)
   for _, name in ipairs(type(names) == 'table' and names or {}) do
-    if type(name) == 'string' and name ~= '' then
-      local list = name:find('^%u%w*$') and valid or invalid
-      list[#list + 1] = name
+    if type(name) ~= 'string' then
+      parsed.not_strings[#parsed.not_strings + 1] = name
+    else
+      parsed.names[#parsed.names + 1] = name
+      if name:find('^%u%w*$') then
+        parsed.usable = true
+      elseif name ~= '' then
+        parsed.invalid[#parsed.invalid + 1] = name
+      end
     end
   end
-  return valid, invalid
-end
-
----@param cmd any
----@return boolean
-M.has_commands = function(cmd)
-  return #classify_names(cmd) > 0
-end
-
----@param cmd any
----@return string[]
-M.invalid_commands = function(cmd)
-  local _, invalid = classify_names(cmd)
-  return invalid
+  return parsed
 end
 
 ---@param registered_pack_specs vim.pack.Spec[]
 M.setup = function(registered_pack_specs)
   local cmd_to_pack_specs = {}
   for _, pack_spec in ipairs(registered_pack_specs) do
+    local label = pack_spec.name or pack_spec.src
     local registry_entry = state.spec_registry[pack_spec.src]
-    local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
-    local plugin = registry_entry.plugin
-
-    local cmd = util.try_resolve_field(spec.cmd, plugin, pack_spec.name or pack_spec.src, 'cmd')
-    if cmd then
-      local commands = util.normalize_string_list(cmd) --[[@as string[] ]]
-      for _, c in ipairs(type(commands) == 'table' and commands or {}) do
-        if type(c) ~= 'string' then
-          util.schedule_notify(
-            ("Invalid cmd for %s: expected string, got %s"):format(pack_spec.name or pack_spec.src, type(c)),
-            vim.log.levels.ERROR
-          )
-        else
-          if not cmd_to_pack_specs[c] then
-            cmd_to_pack_specs[c] = {}
-          end
-          table.insert(cmd_to_pack_specs[c], pack_spec)
+    local parsed = util.read_trigger(registry_entry, 'cmd', M.parse, registry_entry.plugin, label)
+    if parsed then
+      for _, c in ipairs(parsed.not_strings) do
+        util.schedule_notify(
+          ("Invalid cmd for %s: expected string, got %s"):format(label, type(c)),
+          vim.log.levels.ERROR
+        )
+      end
+      for _, c in ipairs(parsed.names) do
+        if not cmd_to_pack_specs[c] then
+          cmd_to_pack_specs[c] = {}
         end
+        table.insert(cmd_to_pack_specs[c], pack_spec)
       end
     end
   end
 
-  -- Proxy is registered with bang + count=-1 so the cmdline parser accepts
-  -- `:Foo!` / `:1,5Foo` / `:5Foo` without erroring at parse time (which
-  -- would prevent the plugin from ever loading). count=-1 also implicitly
-  -- accepts a range form (Neovim documents that count-decl commands take
-  -- `:1,3Foo` and treat the range's end as the count). `register = true`
-  -- is NOT set: it would destructively consume the first arg char as a
-  -- register and corrupt every non-register invocation. Tradeoff: the
-  -- typed register is silently dropped on the first lazy invocation of a
-  -- register-accepting command — subsequent calls go through the real
-  -- command directly. `:%Foo` (the whole-buffer range) is also not
-  -- accepted by count=-1; range=true is the alternative but rejects the
-  -- bare `:5Foo` count form that LazyVim-style users commonly type.
+  -- A cmd function can load a plugin by requiring its modules, whose own command
+  -- a proxy would replace or collide with.
+  for cmd, pack_specs in pairs(cmd_to_pack_specs) do
+    local waiting = vim.tbl_filter(function(pack_spec)
+      return state.spec_registry[pack_spec.src].load_status ~= 'loaded'
+    end, pack_specs)
+    cmd_to_pack_specs[cmd] = #waiting > 0 and waiting or nil
+  end
+
+  -- Proxy is registered with bang + range + addr='other' so the cmdline parser
+  -- accepts `:Foo!` / `:1,5Foo` / `:%Foo` without erroring at parse time (which
+  -- would prevent the plugin from ever loading). A `count` declaration would
+  -- read a numeric first arg as the count, and the default addr='lines' rejects
+  -- `:5Foo` in a buffer shorter than 5 lines with E16. addr='other' has its own
+  -- limit: marks and patterns, `:'<,'>Foo` or `:/x/Foo`, are E16 here even when
+  -- the real command takes them. `register = true` is NOT set: it would
+  -- destructively consume the first arg char as a register and corrupt every
+  -- non-register invocation. Tradeoff: the typed register is silently dropped
+  -- on the first lazy invocation of a register-accepting command — subsequent
+  -- calls go through the real command directly.
   for cmd, pack_specs in pairs(cmd_to_pack_specs) do
     -- Loading the claiming plugins tears down the proxy and lets the real
     -- command's callback/complete take over. Shared by the invocation
     -- callback and the tab-completion callback so first-tab completions
     -- come from the real command, not an empty proxy.
     local function load_plugins()
-      state.drop_cmd_proxy(cmd)
+      cmd_proxy.drop(cmd)
       local any_ok = false
       for _, pack_spec in ipairs(pack_specs) do
         if loader.try_process_spec(pack_spec) then
@@ -94,8 +102,8 @@ M.setup = function(registered_pack_specs)
         -- `count`): nvim_cmd auto-translates range to count for count-decl
         -- real commands, but forwarding count to a range-decl command would
         -- error with "Command cannot accept count". The range-only path also
-        -- correctly handles the bare `:5Foo` count form, since count=-1
-        -- proxies report cmd_args.range == 1, line1 == 5.
+        -- correctly handles the bare `:5Foo` count form, which the proxy
+        -- reports as cmd_args.range == 1, line1 == 5.
         local command = {
           cmd = cmd,
           bang = cmd_args.bang or nil,
@@ -130,10 +138,11 @@ M.setup = function(registered_pack_specs)
           util.schedule_notify(("Failed to re-fire :%s: %s"):format(cmd, tostring(err)), vim.log.levels.ERROR)
         end
       end, {
-        desc = state.CMD_PROXY_DESC,
+        desc = cmd_proxy.DESC,
         nargs = '*',
         bang = true,
-        count = -1,
+        range = true,
+        addr = 'other',
         -- Tabbing at the cmdline loads the plugin so the real command's
         -- complete handler can return actual completions on the first press,
         -- matching lazy.nvim's UX (handler/cmd.lua complete callback).
@@ -144,13 +153,7 @@ M.setup = function(registered_pack_specs)
           return vim.fn.getcompletion(line, 'cmdline')
         end,
       })
-      state.live_cmd_proxies[cmd] = {}
-      for _, pack_spec in ipairs(pack_specs) do
-        state.live_cmd_proxies[cmd][pack_spec.src] = true
-        local proxies = state.cmd_proxies[pack_spec.src] or {}
-        state.cmd_proxies[pack_spec.src] = proxies
-        proxies[#proxies + 1] = cmd
-      end
+      cmd_proxy.claim(cmd, pack_specs)
     end)
   end
 end

@@ -294,6 +294,70 @@ describe("Version Normalization", function()
   end)
 end)
 
+describe("a sem_version that isn't a range", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  local function version_with(fields, defaults)
+    require('zpack').setup({
+      spec = { vim.tbl_extend('error', { 'test/plugin', sem_version = 'banana' }, fields) },
+      defaults = vim.tbl_extend('error', { confirm = false }, defaults or {}),
+    })
+    helpers.flush_pending()
+    return _G.test_state.vim_pack_calls[#_G.test_state.vim_pack_calls][1].version
+  end
+
+  it("is ignored for the branch", function()
+    assert.are.equal('dev', version_with({ branch = 'dev' }))
+  end)
+
+  it("is ignored for defaults.version", function()
+    assert.is_not_nil(version_with({}, { version = '^2' }).from)
+  end)
+end)
+
+describe("a version vim.pack can't take", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  local function version_of(fields)
+    require('zpack').setup({
+      spec = { vim.tbl_extend('error', { 'test/plugin' }, fields) },
+      defaults = { confirm = false },
+    })
+    return _G.test_state.vim_pack_calls[1][1].version
+  end
+
+  for _, fields in ipairs({
+    { version = true },
+    { version = 2 },
+    { version = {} },
+    { tag = 3 },
+    { commit = 3 },
+    { branch = 3 },
+    { sem_version = 3 },
+  }) do
+    local field = next(fields)
+    it(("is dropped from %s = %s and reported"):format(field, vim.inspect(fields[field])), function()
+      assert.is_nil(version_of(fields))
+      helpers.flush_pending()
+      local reported = vim.tbl_filter(function(note)
+        return note.msg:find('invalid spec', 1, true) and note.msg:find(field, 1, true)
+      end, _G.test_state.notifications)
+      assert.are.equal(1, #reported)
+    end)
+  end
+
+  it("falls through to the next field by lazy.nvim's priority", function()
+    assert.are.equal('develop', version_of({ tag = 3, branch = 'develop' }))
+  end)
+
+  it("in defaults.version is ignored", function()
+    require('zpack').setup({ spec = { { 'test/plugin' } }, defaults = { confirm = false, version = {} } })
+    assert.is_nil(_G.test_state.vim_pack_calls[1][1].version)
+  end)
+end)
+
 describe("defaults.version", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)
