@@ -60,9 +60,8 @@ local function entry_to_info(src, entry)
   local plugin = entry.plugin
   local lazy_flag = entry.is_lazy_resolved == true
   if not plugin then
-    local utils = require('zpack.utils')
     return {
-      name = utils.resolve_plugin_name(entry.merged_spec, src),
+      name = require('zpack.pack').resolve_plugin_name(entry.merged_spec, src),
       src = src,
       status = 'installing',
       lazy = lazy_flag,

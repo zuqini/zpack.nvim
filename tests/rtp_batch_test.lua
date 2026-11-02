@@ -10,7 +10,7 @@ local function mkplugin(opt_dir, name, with_after)
   return path
 end
 
-describe('utils.add_packs_to_rtp', function()
+describe('runtime.add_packs_to_rtp', function()
   local root, opt_dir, saved_rtp, saved_pp
 
   before_each(function()
@@ -44,7 +44,7 @@ describe('utils.add_packs_to_rtp', function()
     for i, name in ipairs(names) do
       paths[i] = opt_dir .. '/' .. name
     end
-    local added = utils.add_packs_to_rtp(paths)
+    local added = require('zpack.runtime').add_packs_to_rtp(paths)
     return added, vim.go.rtp
   end
 
@@ -202,7 +202,7 @@ describe('utils.add_packs_to_rtp', function()
     mkplugin(opt, 'a', true); mkplugin(opt, 'b', true)
     vim.go.rtp = table.concat({ rafter, rafter .. '/after' }, ',')
     local rtp = vim.go.rtp
-    assert.is_false(utils.add_packs_to_rtp({ opt .. '/a', opt .. '/b' }))
+    assert.is_false(require('zpack.runtime').add_packs_to_rtp({ opt .. '/a', opt .. '/b' }))
     assert.are.equal(rtp, vim.go.rtp)
   end)
 
@@ -218,7 +218,7 @@ describe('utils.add_packs_to_rtp', function()
       callback = function() writes = writes + 1 end,
     })
 
-    local added = utils.add_packs_to_rtp({ a })
+    local added = require('zpack.runtime').add_packs_to_rtp({ a })
 
     vim.api.nvim_del_augroup_by_id(group)
     assert.is_true(added)

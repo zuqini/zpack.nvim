@@ -21,7 +21,7 @@
 
   -- Loading control
   enabled = true|false|function,        -- Enable/disable plugin
-  cond = true|false|function(plugin),   -- Condition to load plugin (on an `import`: whether to follow it; receives no plugin, or only its `name`, `spec`, `path` and `dir` if the spec has a source)
+  cond = true|false|function(plugin),   -- Condition to load plugin (on an `import`: whether to follow it, and it receives no plugin)
   lazy = true|false,                    -- Force eager loading when false (auto-detected)
   priority = 50,                        -- Load priority (higher = earlier, default: 50). Doesn't order different `ft` patterns.
 
@@ -48,7 +48,7 @@
   event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]|function(plugin, list), -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua". zpack auto-emits `User VeryLazy` once on UIEnter so user-config `autocmd User VeryLazy` hooks fire.
   pattern = string|string[],            -- Global fallback pattern(s) for all events
   cmd = string|string[]|function(plugin, list), -- Command(s) to create; tab-completion on the command also triggers the load
-  keys = string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, list), -- Keymap(s) to create
+  keys = string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, list), -- Keymap(s) to create. A table of only strings is a list of keys, so `{ lhs, 'dd' }` is two keys: nest it or add a field to make it one
   ft = string|string[]|function(plugin, list), -- FileType(s) to lazy load on. Plugins sharing a filetype load together and re-trigger FileType once, after the last of them.
 
   -- Source control (version for `vim.pack.add`, string|vim.VersionRange)

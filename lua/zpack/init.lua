@@ -1,5 +1,10 @@
 ---@module 'zpack'
 
+-- zpack's modules mostly run once, at startup, where tracing their loops costs
+-- more than it ever saves: about 6 ms with 150 plugins. So each one that runs
+-- then turns the JIT off for its own functions, leaving everything else's alone.
+if jit then jit.off(true, true) end
+
 local api = require('zpack.api')
 
 local M = {}
@@ -12,15 +17,7 @@ local M = {}
 ---@field load boolean Internal: past init, so plugins source their own scripts
 ---@field confirm boolean?
 ---@field defaults zpack.Config.Defaults
----@field is_dependency? boolean Internal: Whether currently importing as dependency
----@field parent? zpack.Spec Internal: The spec whose `dependencies` or `specs` is being imported
----@field _imported_functions table<function, { parents: table, specs: table? }> Internal: per-setup() record of function-form `import`
----@field early_plugins table<string, zpack.Plugin> Internal: plugins added while importing their specs, by name, until registered
----@field import_paths string[] Internal: where those plugins are, for later imports
----@field missing_owners table<zpack.Spec, true> Internal: specs importing from a plugin that isn't installed, this pass
----@field settled_owners table<zpack.Spec, 'added'|'removed'> Internal: what became of them
----@field missed_import? boolean Internal: an import found no module, this pass
----@field import_notes { msg: string, level: integer }[] Internal: what the last pass has to report
+---@field imported zpack.Imported Internal: what the import found
 
 ---@return zpack.ProcessContext
 local function create_context(opts)
@@ -32,12 +29,6 @@ local function create_context(opts)
     load = vim.v.vim_did_init == 1,
     confirm = opts.confirm,
     defaults = opts.defaults or {},
-    _imported_functions = {},
-    early_plugins = {},
-    import_paths = {},
-    missing_owners = {},
-    settled_owners = {},
-    import_notes = {},
   }
 end
 
@@ -58,10 +49,6 @@ end
 ---@class zpack.Config.Performance
 ---@field vim_loader? boolean
 
----@class zpack.Config.Profiling
----@field loader? boolean Gather stats about module loader (default: false)
----@field require? boolean Track each require in the module loader (default: false)
-
 ---lazy.nvim parity: `dev = true` on a spec rewrites its source to a local
 ---directory under `path` (e.g. `~/projects/<derived-name>`). `fallback = true`
 ---falls back to the remote source when the local directory does not exist.
@@ -70,18 +57,16 @@ end
 ---@field fallback? boolean Fall back to remote source if the local dir is missing (default: false)
 
 ---@class zpack.Config
----@field spec? zpack.Spec[]
+---@field spec? zpack.Spec[]|string A string is the module to import
 ---@field cmd_name? string Name of the single user command (default: 'ZPack')
 ---@field defaults? zpack.Config.Defaults
 ---@field performance? zpack.Config.Performance
----@field profiling? zpack.Config.Profiling
 ---@field dev? zpack.Config.Dev
 
 local config = {
   cmd_name = 'ZPack',
   defaults = { confirm = true },
   performance = { vim_loader = true },
-  profiling = { loader = false, require = false },
   dev = { path = '~/projects', fallback = false },
 }
 
@@ -92,18 +77,18 @@ local process_all = function(ctx)
 
   vim.api.nvim_clear_autocmds({ group = state.lazy_build_group })
   vim.api.nvim_clear_autocmds({ group = state.delete_group })
-  ctx.vim_packs = require('zpack.merge').resolve_all()
+  ctx.vim_packs = require('zpack.merge').resolve_all(ctx.imported.graph, ctx.imported.enabled_results)
   hooks.setup_delete_tracking()
   require('zpack.registration').register_all(ctx)
 
   -- Install module loader AFTER registration (when we know lazy plugins)
   -- but BEFORE startup processing (when configs may require lazy modules)
   local module_loader = require('zpack.module_loader')
-  module_loader.setup(config.profiling)
   module_loader.initialize_cache(ctx.registered_lazy_packs)
   module_loader.install()
 
   require('zpack.startup').process_all(ctx)
+  require('zpack.import').remove_import_paths(ctx.imported)
   -- Before the triggers: a proxy for what a build just loaded would outlive the load.
   hooks.run_pending_builds_on_startup()
   require('zpack.lazy').process_all(ctx)
@@ -111,7 +96,24 @@ local process_all = function(ctx)
   hooks.setup_lazy_build_tracking()
 end
 
----@param opts? zpack.Config
+---What's left of setup()'s table once its options are out, for specs written as
+---its array elements. `dev` is an option only as a table: `dev = true` belongs to a
+---spec written in place, as in `setup({ 'u/a', dev = true })`.
+---@param opts table
+---@return table
+local function specs_beside_options(opts)
+  local specs = {}
+  for key, value in pairs(opts) do
+    local is_option = key == 'dev' and type(value) == 'table'
+        or key == 'spec' or key == 'cmd_name' or key == 'defaults' or key == 'performance' or key == 'profiling'
+    if not is_option then
+      specs[key] = value
+    end
+  end
+  return specs
+end
+
+---@param opts? zpack.Config|string A string is the module to import
 M.setup = function(opts)
   if not check_version() then return end
 
@@ -121,18 +123,20 @@ M.setup = function(opts)
     return
   end
 
-  opts = opts or {}
+  opts = type(opts) == 'string' and { spec = opts } or opts or {}
 
   -- Report malformed options up front. Validation is advisory: setup
   -- continues, and the `type(...) == 'table'` guards on the section merges
   -- below ignore a bad field instead of crashing in `vim.tbl_extend`.
-  local config_errors = require('zpack.validate').validate_config(opts)
+  local validate = require('zpack.validate')
+  local config_errors = validate.validate_config(opts)
   if #config_errors > 0 then
     require('zpack.utils').schedule_notify(
       'zpack.setup: invalid options:\n  ' .. table.concat(config_errors, '\n  '),
       vim.log.levels.ERROR
     )
   end
+  opts = type(opts) == 'table' and opts or { spec = opts }
 
   state.is_setup = true
 
@@ -146,10 +150,6 @@ M.setup = function(opts)
 
   if type(opts.performance) == 'table' then
     config.performance = vim.tbl_extend('force', config.performance, opts.performance)
-  end
-
-  if type(opts.profiling) == 'table' then
-    config.profiling = vim.tbl_extend('force', config.profiling, opts.profiling)
   end
 
   if type(opts.dev) == 'table' then
@@ -167,14 +167,16 @@ M.setup = function(opts)
   end
 
   local ctx = create_context({ confirm = config.defaults.confirm, defaults = config.defaults })
-  local import = require('zpack.import')
+  local import_run = require('zpack.import_run')
 
   -- Before the imports: one that needs its plugin's modules can install it.
   require('zpack.hooks').setup_build_tracking()
 
-  local spec = (type(opts.spec) == 'table' and opts.spec) or (opts[1] and opts) or nil
-  import.import_all(spec or { import = 'plugins' }, ctx)
-
+  local spec = (type(opts.spec) == 'string' and opts.spec ~= '' and { import = opts.spec })
+      or (type(opts.spec) == 'table' and opts.spec)
+      or ((table.maxn(opts) > 0 or validate.has_source_field(opts)) and specs_beside_options(opts))
+      or nil
+  ctx.imported = import_run.import_all(spec, ctx)
   process_all(ctx)
 
   require('zpack.commands').setup(config.cmd_name)

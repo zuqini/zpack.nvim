@@ -1,6 +1,8 @@
+if jit then jit.off(true, true) end
+
 local state = require('zpack.state')
 local hooks = require('zpack.hooks')
-local keymap = require('zpack.keymap')
+local runtime = require('zpack.runtime')
 local util = require('zpack.utils')
 local loader = require('zpack.plugin_loader')
 
@@ -40,13 +42,7 @@ local function toposort_startup_packs(packs)
       if dep_pack then
         visit(dep_pack)
       elseif state.src_to_pack_spec[dep_src] then
-        local dep_entry = state.spec_registry[dep_src]
-        if dep_entry and dep_entry.cond_result == false then
-          util.schedule_notify(
-            ("%s has cond=false but is a dependency of %s and will be loaded anyway"):format(dep_src, pack.src),
-            vim.log.levels.WARN
-          )
-        end
+        loader.warn_if_cond_false(dep_src, pack.src)
         lazy_deps_map[pack.src] = lazy_deps_map[pack.src] or {}
         table.insert(lazy_deps_map[pack.src], dep_src)
       end
@@ -82,7 +78,7 @@ local function add_installed_to_rtp(packs)
     end
     paths[i] = path
   end
-  return util.add_packs_to_rtp(paths) and {} or packs
+  return runtime.add_packs_to_rtp(paths) and {} or packs
 end
 
 ---@param ctx zpack.ProcessContext
@@ -97,9 +93,8 @@ M.process_all = function(ctx)
 
   -- Batched plugins are already on 'runtimepath'. pcall packadd for the rest
   -- so one broken plugin doesn't strand every later one. Track failures so
-  -- later loops (run_config, apply_keys, finalization) skip them — otherwise
-  -- the failed plugin would be marked loaded and hidden from :ZPack load /
-  -- :checkhealth.
+  -- the config loop skips them — otherwise the failed plugin would be marked
+  -- loaded and hidden from :ZPack load / :checkhealth.
   local failed_packs = {}
   local to_add = sorted_packs
   if not ctx.load then
@@ -125,10 +120,14 @@ M.process_all = function(ctx)
           end
         end
       end
-      vim.cmd.packadd({ pack_spec.name, bang = not ctx.load })
       local entry = state.spec_registry[pack_spec.src]
-      if ctx.load and entry.plugin then
-        util.source_after_plugin_files(entry.plugin.path)
+      if ctx.load then
+        runtime.packadd_sourcing(pack_spec.name)
+        if entry.plugin then
+          runtime.source_after_plugin_files(entry.plugin.path)
+        end
+      else
+        vim.cmd.packadd({ pack_spec.name, bang = true })
       end
     end)
     if not ok then
@@ -137,59 +136,41 @@ M.process_all = function(ctx)
     end
   end
 
+  -- A lazy plugin loading here can list an eager one under its dependencies. That
+  -- runs the eager plugin's config and keys, so what it left loaded is finished,
+  -- and each plugin here is marked loaded before its config for the same reason.
+  local to_bind = {}
   for _, pack_spec in ipairs(sorted_packs) do
-    if not failed_packs[pack_spec.src] then
-      local lazy_deps = lazy_deps_map[pack_spec.src]
-      if lazy_deps then
-        for _, dep_src in ipairs(lazy_deps) do
-          local dep_pack = state.src_to_pack_spec[dep_src]
-          if dep_pack then
-            loader.try_process_spec(dep_pack, { bang = true })
-          end
+    local entry = state.spec_registry[pack_spec.src]
+    if not failed_packs[pack_spec.src] and entry.load_status ~= "loaded" then
+      for _, dep_src in ipairs(lazy_deps_map[pack_spec.src] or {}) do
+        local dep_pack = state.src_to_pack_spec[dep_src]
+        if dep_pack then
+          loader.try_process_spec(dep_pack, { bang = true })
         end
       end
 
-      local entry = state.spec_registry[pack_spec.src]
-      local spec = entry.merged_spec --[[@as zpack.Spec]]
-      if spec.config or entry.has_opts then
-        -- pcall: run_config executes user function-form opts raw via
-        -- merge.resolve_opts; a throw would strand later plugins.
-        local ok, err = pcall(loader.run_config, pack_spec.src, entry.plugin, spec)
-        if not ok then
-          failed_packs[pack_spec.src] = true
+      if entry.load_status ~= "loaded" then
+        local spec = entry.merged_spec --[[@as zpack.Spec]]
+        entry.load_status = "loaded"
+        local ok, err = true, nil
+        if spec.config or entry.has_opts then
+          -- pcall: run_config executes user function-form opts raw via
+          -- opts.resolve_opts; a throw would strand later plugins.
+          ok, err = pcall(loader.run_config, pack_spec.src, entry.plugin)
+        end
+        if ok then
+          to_bind[#to_bind + 1] = pack_spec
+        else
+          entry.load_status = "pending"
           util.schedule_notify(("Failed to run config for %s: %s"):format(pack_spec.name or pack_spec.src, tostring(err)), vim.log.levels.ERROR)
         end
       end
     end
   end
 
-  -- pcall apply_keys per plugin so a malformed key spec doesn't strand
-  -- later plugins. NOT added to failed_packs: packadd + run_config already
-  -- succeeded, so the plugin should still finalize as "loaded" — mirrors
-  -- the plugin_loader.process_spec ordering.
-  for _, pack_spec in ipairs(sorted_packs) do
-    if not failed_packs[pack_spec.src] then
-      local entry = state.spec_registry[pack_spec.src]
-      local spec = entry.merged_spec --[[@as zpack.Spec]]
-      local label = pack_spec.name or pack_spec.src
-      local keys = util.try_resolve_field(spec.keys, entry.plugin, label, 'keys')
-      if keys then
-        local ok, err = pcall(keymap.apply_keys, keys, label)
-        if not ok then
-          util.schedule_notify(
-            ("Failed to apply keys for %s: %s"):format(label, tostring(err)),
-            vim.log.levels.ERROR
-          )
-        end
-      end
-    end
-  end
-
-  for _, pack_spec in ipairs(sorted_packs) do
-    if not failed_packs[pack_spec.src] then
-      state.spec_registry[pack_spec.src].load_status = "loaded"
-      state.unloaded_plugin_names[pack_spec.name] = nil
-    end
+  for _, pack_spec in ipairs(to_bind) do
+    loader.bind_keys(state.spec_registry[pack_spec.src], pack_spec.name or pack_spec.src)
   end
 end
 

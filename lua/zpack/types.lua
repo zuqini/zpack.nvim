@@ -108,5 +108,7 @@
 ---@field enabled_result? boolean
 ---@field cond_result? boolean
 ---@field is_lazy_resolved? boolean
+---@field soft_version? vim.VersionRange The plugin's version, if it's a semver range written as a string, as in lazy.nvim, rather than a vim.VersionRange: with no tag to fit, it uses the default branch
+---@field triggers? { event: zpack.ParsedEvent?, cmd: zpack.ParsedCmd?, ft: zpack.ParsedFt?, keys: zpack.ParsedKeys? } Static triggers, parsed
 
 return {}

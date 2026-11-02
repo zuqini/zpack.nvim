@@ -22,8 +22,58 @@ local filter_completions = function(list, prefix)
   end, list)
 end
 
+---Whether a plugin registered this session and its `cond` lets it load.
+---@param entry zpack.RegistryEntry
+---@return boolean?
+local function is_active(entry)
+  return entry.plugin and entry.cond_result
+end
+
+---@param wanted fun(entry: zpack.RegistryEntry): any
+---@param names? string[] To start from
+---@return string[] names Sorted for tab completion
+local function active_names(wanted, names)
+  names = names or {}
+  for _, entry in pairs(state.spec_registry) do
+    if is_active(entry) and wanted(entry) then
+      names[#names + 1] = entry.plugin.spec.name
+    end
+  end
+  table.sort(names, function(a, b) return a:lower() < b:lower() end)
+  return names
+end
+
+---@return string[]
+M.registered_names = function()
+  return active_names(function() return true end, { 'zpack.nvim' })
+end
+
+---@return string[]
+M.names_with_build = function()
+  return active_names(function(entry) return entry.merged_spec.build end)
+end
+
+---@return string[]
+M.unloaded_names = function()
+  return active_names(function(entry) return entry.load_status ~= "loaded" end)
+end
+
+---Startup plugins, then lazy ones, each by priority.
+---@return vim.pack.Spec[]
+M.packs_in_load_order = function()
+  local eager, lazy = {}, {}
+  for src, entry in pairs(state.spec_registry) do
+    if is_active(entry) then
+      table.insert(entry.is_lazy_resolved and lazy or eager, state.src_to_pack_spec[src])
+    end
+  end
+  table.sort(eager, util.compare_priority)
+  table.sort(lazy, util.compare_priority)
+  return vim.list_extend(eager, lazy)
+end
+
 local is_registered_or_notify = function(plugin_name)
-  if not vim.tbl_contains(state.registered_plugin_names, plugin_name) then
+  if not vim.tbl_contains(M.registered_names(), plugin_name) then
     util.schedule_notify(('Plugin "%s" not found in spec'):format(plugin_name), vim.log.levels.ERROR)
     return false
   end
@@ -31,42 +81,26 @@ local is_registered_or_notify = function(plugin_name)
 end
 
 ---Build the explicit name list for `vim.pack.update` when any plugin is
----pinned. Seeded from vim.pack.get so pinning one plugin doesn't narrow
----the universe past zpack-managed plugins. Returns nil when nothing is
----pinned so callers take vim.pack.update's default "everything" path.
----@return string[]? names nil when nothing is pinned
+---pinned. Seeded from vim.pack.get so pinning one plugin doesn't narrow the
+---universe past zpack-managed plugins. Returns nil otherwise so callers take
+---vim.pack.update's default "everything" path.
+---@return string[]? names
 local function names_for_bulk_update()
   local pinned_names = {}
-  local zpack_pinned_by_user = false
-  local has_pin = false
   for src, entry in pairs(state.spec_registry) do
     if entry.merged_spec and entry.merged_spec.pin == true then
-      has_pin = true
-      local name = util.resolve_plugin_name(entry.merged_spec, src)
-      pinned_names[name] = true
-      if name == 'zpack.nvim' then
-        zpack_pinned_by_user = true
-      end
+      pinned_names[require('zpack.pack').resolve_plugin_name(entry.merged_spec, src)] = true
     end
   end
-  if not has_pin then
+  if next(pinned_names) == nil then
     return nil
   end
 
   local names = {}
-  local seen = {}
-  if not zpack_pinned_by_user then
-    table.insert(names, 'zpack.nvim')
-    seen['zpack.nvim'] = true
-  end
-  local installed_ok, installed = pcall(vim.pack.get, nil, { info = false })
-  if installed_ok and installed then
-    for _, pack in ipairs(installed) do
-      local name = pack.spec and pack.spec.name
-      if name and not pinned_names[name] and not seen[name] then
-        table.insert(names, name)
-        seen[name] = true
-      end
+  for _, pack in ipairs(vim.pack.get(nil, { info = false })) do
+    local name = pack.spec.name
+    if not pinned_names[name] then
+      table.insert(names, name)
     end
   end
   return names
@@ -79,26 +113,35 @@ local run_pack_update = function(plugin_name, update_opts, error_prefix)
   if plugin_name ~= '' then
     if not is_registered_or_notify(plugin_name) then return end
     names = { plugin_name }
-  else
-    -- lazy.nvim spec parity (`pin = true`): bulk update honors pin by
-    -- filtering pinned plugins out of the explicit name list. When nothing
-    -- is pinned, `names_for_bulk_update` returns nil and we fall back to
-    -- vim.pack.update's default "everything" path.
-    names = names_for_bulk_update()
   end
-  local ok, err
-  if names and update_opts then
-    ok, err = pcall(vim.pack.update, names, update_opts)
-  elseif names then
-    ok, err = pcall(vim.pack.update, names)
-  elseif update_opts then
-    ok, err = pcall(vim.pack.update, nil, update_opts)
-  else
-    ok, err = pcall(vim.pack.update)
-  end
+  local ok, err = pcall(function()
+    if plugin_name == '' then
+      -- lazy.nvim spec parity (`pin = true`): bulk update honors pin by
+      -- filtering pinned plugins out of the explicit name list. When nothing
+      -- is pinned, `names_for_bulk_update` returns nil and we fall back to
+      -- vim.pack.update's default "everything" path.
+      names = names_for_bulk_update()
+    end
+    if names and #names == 0 then
+      return
+    end
+    if names and update_opts then
+      vim.pack.update(names, update_opts)
+    elseif names then
+      vim.pack.update(names)
+    elseif update_opts then
+      vim.pack.update(nil, update_opts)
+    else
+      vim.pack.update()
+    end
+    if not (update_opts and update_opts.target) then
+      require('zpack.pack').notify_new_tags(names)
+    end
+  end)
   if not ok then
     util.schedule_notify(('%s: %s'):format(error_prefix, err), vim.log.levels.ERROR)
   end
+  return ok
 end
 
 local get_installed_or_notify = function(plugin_name)
@@ -112,14 +155,15 @@ end
 
 local own_root = debug.getinfo(1, 'S').source:sub(2):match('^(.*)/lua/zpack/commands%.lua$')
 
-M.clean_unused = function()
+---@param skip_prompt? boolean
+M.clean_unused = function(skip_prompt)
   local to_delete = {}
   local installed = vim.pack.get(nil, { info = false }) or {}
 
   for _, pack in ipairs(installed) do
     local src = pack.spec.src
-    if not state.spec_registry[src] and pack.path ~= own_root
-        and util.derive_name_from_src(src) ~= 'zpack.nvim' then
+    if not pack.active and not state.spec_registry[src] and pack.path ~= own_root
+        and require('zpack.pack').derive_name_from_src(src) ~= 'zpack.nvim' then
       table.insert(to_delete, pack.spec.name)
     end
   end
@@ -127,6 +171,19 @@ M.clean_unused = function()
   if #to_delete == 0 then
     util.schedule_notify("No unused plugins to clean", vim.log.levels.INFO)
     return
+  end
+
+  if not skip_prompt then
+    table.sort(to_delete)
+    -- Not in the confirm message: quitting its -- More -- pager can crash Neovim.
+    vim.api.nvim_echo({ { ('These plugins will be deleted:\n\n%s'):format(table.concat(to_delete, '\n')) } }, true, {})
+    local question = #to_delete == 1 and 'Delete this plugin?' or ('Delete these %d plugins?'):format(#to_delete)
+    local choice = vim.fn.confirm(question, '&Yes\n&No', 2, 'Question')
+    vim.cmd.redraw()
+    if choice ~= 1 then
+      util.notify('Nothing deleted', vim.log.levels.INFO)
+      return
+    end
   end
 
   util.schedule_notify(("Deleting %d unused plugin(s)..."):format(#to_delete), vim.log.levels.INFO)
@@ -150,7 +207,7 @@ Sub.update = {
     run_pack_update(ctx.arg, opts, 'Update failed')
   end,
   complete = function(arg_lead)
-    return filter_completions(state.registered_plugin_names, arg_lead)
+    return filter_completions(M.registered_names(), arg_lead)
   end,
 }
 
@@ -164,13 +221,14 @@ Sub.restore = {
     run_pack_update(ctx.arg, opts, ('Restore failed (have you run :%s update?)'):format(ctx.cmd_name))
   end,
   complete = function(arg_lead)
-    return filter_completions(state.registered_plugin_names, arg_lead)
+    return filter_completions(M.registered_names(), arg_lead)
   end,
 }
 
 Sub.clean = {
-  run = function()
-    M.clean_unused()
+  bang = true,
+  run = function(ctx)
+    M.clean_unused(ctx.bang)
   end,
 }
 
@@ -200,15 +258,13 @@ Sub.build = {
       return
     end
 
-    local pack_spec = state.src_to_pack_spec[pack.spec.src]
-    if pack_spec and not require('zpack.plugin_loader').try_process_spec(pack_spec, { bang = true }) then
+    if not hooks.load_and_build(pack.spec.src) then
       return
     end
-    hooks.execute_build(spec.build, registry_entry.plugin, pack.spec.src)
     util.schedule_notify(('Running build hook for %s'):format(plugin_name), vim.log.levels.INFO)
   end,
   complete = function(arg_lead)
-    return filter_completions(state.plugin_names_with_build, arg_lead)
+    return filter_completions(M.names_with_build(), arg_lead)
   end,
 }
 
@@ -222,13 +278,13 @@ Sub.load = {
         util.schedule_notify(('Use :%s! load to load all unloaded plugins'):format(ctx.cmd_name), vim.log.levels.WARN)
         return
       end
-      if vim.tbl_count(state.unloaded_plugin_names) == 0 then
+      if #M.unloaded_names() == 0 then
         util.schedule_notify('All plugins are already loaded', vim.log.levels.INFO)
         return
       end
       local loader = require('zpack.plugin_loader')
       local loaded = 0
-      for _, pack_spec in ipairs(state.registered_plugins) do
+      for _, pack_spec in ipairs(M.packs_in_load_order()) do
         local entry = state.spec_registry[pack_spec.src]
         if entry and entry.load_status ~= "loaded" then
           -- Post-check load_status rather than try_process_spec's ok return:
@@ -269,10 +325,7 @@ Sub.load = {
     end
   end,
   complete = function(arg_lead)
-    local names = vim.tbl_keys(state.unloaded_plugin_names)
-    -- sorted on each invocation; negligible for typical plugin counts
-    table.sort(names, function(a, b) return a:lower() < b:lower() end)
-    return filter_completions(names, arg_lead)
+    return filter_completions(M.unloaded_names(), arg_lead)
   end,
 }
 
@@ -286,16 +339,14 @@ Sub.delete = {
         util.schedule_notify(('Use :%s! delete to confirm deletion of all installed plugin(s)'):format(ctx.cmd_name), vim.log.levels.WARN)
         return
       end
-      -- Source names from vim.pack.get, not registered_plugins: the latter
-      -- omits plugins absent from registered_plugins (e.g. cond-disabled
-      -- ones), leaving their zpack state behind after the wipe.
+      -- Source names from vim.pack.get, not registered_names: the latter omits
+      -- cond-disabled plugins, leaving their zpack state behind after the wipe.
       local names = {}
       for _, pack in ipairs(vim.pack.get(nil, { info = false })) do
-        if state.spec_registry[pack.spec.src] then
+        if state.spec_registry[pack.spec.src] or pack.spec.name == 'zpack.nvim' then
           table.insert(names, pack.spec.name)
         end
       end
-      table.insert(names, 'zpack.nvim')
 
       util.schedule_notify(("Deleting all %d installed plugin(s)..."):format(#names), vim.log.levels.INFO)
       vim.pack.del(names, { force = true })
@@ -319,17 +370,19 @@ Sub.delete = {
     )
   end,
   complete = function(arg_lead)
-    return filter_completions(state.registered_plugin_names, arg_lead)
+    return filter_completions(M.registered_names(), arg_lead)
   end,
 }
 
 -- Always force-applies: vim.pack.update's confirm buffer returns immediately,
 -- so a no-force form would race clean_unused ahead of the user's response.
--- For a preview, use `:ZPack update` (no bang) first.
+-- For a preview, use `:ZPack update` (no bang) first. `!` only skips clean's prompt.
 Sub.sync = {
-  run = function()
-    run_pack_update('', { force = true }, 'Sync update failed')
-    M.clean_unused()
+  bang = true,
+  run = function(ctx)
+    if run_pack_update('', { force = true }, 'Sync update failed') then
+      M.clean_unused(ctx.bang)
+    end
   end,
 }
 
@@ -386,7 +439,7 @@ Sub.reload = {
     -- skipped when utils.resolve_main caches a not-found result.
     local lua_dir = plugin and plugin.path and (plugin.path .. '/lua') or nil
     if lua_dir then
-      local main = plugin and require('zpack.utils').resolve_main(plugin, spec) or nil
+      local main = plugin and util.resolve_main(plugin, spec) or nil
       local prefix = main and main ~= '' and (main .. '.') or nil
       for key in pairs(package.loaded) do
         if type(key) == 'string' then
@@ -414,7 +467,6 @@ Sub.reload = {
     -- Prefer src_to_pack_spec over pack.spec: process_spec keys on the
     -- former (the merged form), and pack.spec is the minimal vim.pack form.
     registry_entry.load_status = 'pending'
-    state.unloaded_plugin_names[pack.spec.name] = true
     local pack_spec = state.src_to_pack_spec[pack.spec.src] or pack.spec
     require('zpack.plugin_loader').try_process_spec(pack_spec, {})
     if registry_entry.load_status == 'loaded' then
@@ -422,7 +474,7 @@ Sub.reload = {
     end
   end,
   complete = function(arg_lead)
-    return filter_completions(state.registered_plugin_names, arg_lead)
+    return filter_completions(M.registered_names(), arg_lead)
   end,
 }
 

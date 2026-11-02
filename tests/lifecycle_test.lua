@@ -239,7 +239,7 @@ describe("Plugin Lifecycle Hooks", function()
     -- hiding packadd failures from :ZPack load and :checkhealth.
     assert.are_not.equal("loaded", state.spec_registry['https://github.com/test/plugin-a'].load_status,
       "plugin-a must not be marked loaded after its packadd threw")
-    assert.is_not_nil(state.unloaded_plugin_names['plugin-a'],
+    assert.is_not_nil(helpers.unloaded_plugin_names()['plugin-a'],
       "plugin-a must remain in unloaded_plugin_names so :ZPack load can retry it")
 
     local saw_packadd_notify = false
@@ -295,9 +295,47 @@ describe("Plugin Lifecycle Hooks", function()
   end)
 
   -- Regression: startup's run_config loop used to call loader.run_config raw.
-  -- merge.resolve_opts runs user-supplied function-form `opts` raw, so a throw
+  -- opts.resolve_opts runs user-supplied function-form `opts` raw, so a throw
   -- escapes run_config, aborts the loop, and strands every later plugin un-
   -- configured but still marked "loaded" by the finalization loop.
+  for order, priority in pairs({ before = 100, after = 10 }) do
+    it(("an eager plugin %s the parent of a lazy dependent configures and binds once"):format(order), function()
+      local configs, binds, statuses = 0, 0, {}
+      local keymap = require('zpack.keymap')
+      local apply_keys = keymap.apply_keys
+      keymap.apply_keys = function(keys, label)
+        binds = binds + (label == 'eager' and 1 or 0)
+        return apply_keys(keys, label)
+      end
+      require('zpack').setup({
+        spec = {
+          {
+            'test/eager',
+            priority = priority,
+            config = function() configs = configs + 1 end,
+            lazy = false,
+            keys = { { '<leader>zz', function() end } },
+          },
+          { 'test/lazy-dep', cmd = 'LazyDep', dependencies = { 'test/eager' } },
+          {
+            'test/parent',
+            priority = 50,
+            dependencies = { 'test/lazy-dep' },
+            config = function()
+              statuses.lazy_dep = require('zpack.state').spec_registry['https://github.com/test/lazy-dep'].load_status
+            end,
+          },
+        },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+
+      assert.are.equal(1, configs)
+      assert.are.equal(1, binds)
+      assert.are.equal('loaded', statuses.lazy_dep)
+    end)
+  end
+
   it("startup run_config loop continues after a function-form opts throws", function()
     local state = require('zpack.state')
 
@@ -326,7 +364,7 @@ describe("Plugin Lifecycle Hooks", function()
     -- plugin-a's run_config threw; it must not be silently marked "loaded".
     assert.are_not.equal("loaded", state.spec_registry['https://github.com/test/plugin-a'].load_status,
       "plugin-a must not be marked loaded after its run_config threw")
-    assert.is_not_nil(state.unloaded_plugin_names['plugin-a'],
+    assert.is_not_nil(helpers.unloaded_plugin_names()['plugin-a'],
       "plugin-a must remain in unloaded_plugin_names so :ZPack load can retry it")
 
     local saw_config_notify = false
@@ -533,8 +571,8 @@ describe("Plugin Lifecycle Hooks", function()
     helpers.flush_pending()
 
     -- plugin-b and plugin-d should still be registered as lazy and waiting
-    -- to be triggered. plugin-a / plugin-c, with broken resolvers, fall back
-    -- to non-lazy registration but must NOT abort setup() for the rest.
+    -- to be triggered. plugin-a / plugin-c, with broken resolvers, must NOT
+    -- abort setup() for the rest.
     assert.is_not_nil(state.spec_registry['https://github.com/test/plugin-b'],
       "plugin-b must be registered even though plugin-a's cmd resolver threw")
     assert.is_not_nil(state.spec_registry['https://github.com/test/plugin-d'],
@@ -658,15 +696,15 @@ describe("Plugin Lifecycle Hooks", function()
   end)
 
   -- Regression: a user-supplied `enabled = function() ... end` that throws
-  -- escaped check_enabled, aborted the merge.resolve_all loop, and bubbled
+  -- escaped spec_enabled, aborted the merge.resolve_all loop, and bubbled
   -- out of setup() entirely. Treat throwing-enabled as disabled and notify.
-  it("check_enabled treats a throwing enabled as disabled", function()
+  it("spec_enabled treats a throwing enabled as disabled", function()
     _G.test_state.notifications = {}
     local utils = require('zpack.utils')
 
-    local result = utils.check_enabled({
+    local result = utils.spec_enabled({
       enabled = function() error("simulated enabled failure", 0) end,
-    }, 'test/plugin-x')
+    }, 'test/plugin-x', {})
     helpers.flush_pending()
 
     assert.is_false(result, "throwing enabled should evaluate to false")

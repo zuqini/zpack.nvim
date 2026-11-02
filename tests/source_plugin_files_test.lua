@@ -19,7 +19,7 @@ describe("source_after_plugin_files", function()
     f:close()
 
     _G._test_source_after_ran = nil
-    utils.source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
 
     assert.is_truthy(_G._test_source_after_ran == true,
       "after/plugin/ lua file should be sourced")
@@ -40,7 +40,7 @@ describe("source_after_plugin_files", function()
     f:close()
 
     _G._test_nested_ran = nil
-    utils.source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
 
     assert.is_truthy(_G._test_nested_ran == true,
       "after/plugin/subdir/foo.lua should be sourced")
@@ -61,7 +61,7 @@ describe("source_after_plugin_files", function()
     f:close()
 
     _G._test_deep_ran = nil
-    utils.source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
 
     assert.is_truthy(_G._test_deep_ran == true,
       "after/plugin/a/b/c/deep.lua should be sourced")
@@ -87,7 +87,7 @@ describe("source_after_plugin_files", function()
 
     _G._test_top_ran = nil
     _G._test_sub_deep_ran = nil
-    utils.source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
 
     assert.is_truthy(_G._test_top_ran == true,
       "after/plugin/top.lua should be sourced")
@@ -111,8 +111,8 @@ describe("source_after_plugin_files", function()
     f:close()
 
     _G._test_source_count = nil
-    utils.source_after_plugin_files(tmpdir)
-    utils.source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
 
     assert.are.equal(1, _G._test_source_count)
 
@@ -125,7 +125,7 @@ describe("source_after_plugin_files", function()
     local tmpdir = vim.fn.tempname()
     vim.fn.mkdir(tmpdir, "p")
 
-    local ok, err = pcall(utils.source_after_plugin_files, tmpdir)
+    local ok, err = pcall(require('zpack.runtime').source_after_plugin_files, tmpdir)
     assert.is_truthy(ok, "should not error on missing directories: " .. tostring(err))
 
     vim.fn.delete(tmpdir, "rf")
@@ -150,7 +150,7 @@ describe("source_after_plugin_files", function()
     f:close()
 
     _G._test_b_ran = nil
-    utils.source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
     helpers.flush_pending()
 
     assert.is_true(_G._test_b_ran == true,
@@ -187,7 +187,7 @@ describe("source_after_plugin_files", function()
 
     _G._test_txt_sourced = nil
     _G._test_lua_sourced = nil
-    utils.source_after_plugin_files(tmpdir)
+    require('zpack.runtime').source_after_plugin_files(tmpdir)
 
     assert.is_nil(_G._test_txt_sourced, ".txt file should not be sourced")
     assert.is_truthy(_G._test_lua_sourced == true, ".lua file should be sourced")
@@ -213,7 +213,7 @@ describe("source_ftdetect_files", function()
     f:close()
 
     _G._test_ftdetect_ran = nil
-    utils.source_ftdetect_files(tmpdir)
+    require('zpack.runtime').source_ftdetect_files(tmpdir)
 
     assert.is_true(_G._test_ftdetect_ran == true,
       "ftdetect/ lua file should be sourced")
@@ -233,8 +233,8 @@ describe("source_ftdetect_files", function()
     f:close()
 
     _G._test_ftdetect_count = nil
-    utils.source_ftdetect_files(tmpdir)
-    utils.source_ftdetect_files(tmpdir)
+    require('zpack.runtime').source_ftdetect_files(tmpdir)
+    require('zpack.runtime').source_ftdetect_files(tmpdir)
 
     assert.are.equal(1, _G._test_ftdetect_count)
 
@@ -247,7 +247,7 @@ describe("source_ftdetect_files", function()
     local tmpdir = vim.fn.tempname()
     vim.fn.mkdir(tmpdir, "p")
 
-    local ok, err = pcall(utils.source_ftdetect_files, tmpdir)
+    local ok, err = pcall(require('zpack.runtime').source_ftdetect_files, tmpdir)
     assert.is_true(ok, "should not error on missing ftdetect/: " .. tostring(err))
 
     vim.fn.delete(tmpdir, "rf")
@@ -268,7 +268,7 @@ describe("source_ftdetect_files", function()
     f:close()
 
     _G._test_ftdetect_b_ran = nil
-    utils.source_ftdetect_files(tmpdir)
+    require('zpack.runtime').source_ftdetect_files(tmpdir)
     helpers.flush_pending()
 
     assert.is_true(_G._test_ftdetect_b_ran == true,
@@ -301,7 +301,7 @@ describe("source_ftdetect_files", function()
     f:write("error('intentional throw')\n")
     f:close()
 
-    utils.source_ftdetect_files(tmpdir)
+    require('zpack.runtime').source_ftdetect_files(tmpdir)
     helpers.flush_pending()
 
     -- Register a vimscript autocmd with no explicit group; if the augroup

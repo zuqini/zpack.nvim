@@ -44,8 +44,23 @@ describe("ZPack delete", function()
     local call = _G.test_state.vim_pack_del_calls[1]
     assert.is_not_nil(call.opts, "opts should be passed to vim.pack.del")
     assert.is_truthy(call.opts.force, "force option should be true")
-    assert.are.equal(4, #call.names)
-    assert.contains(call.names, 'zpack.nvim')
+    assert.are.equal(3, #call.names)
+    assert.is_false(vim.list_contains(call.names, 'zpack.nvim'))
+  end)
+
+  it("ZPack! delete includes a zpack.nvim vim.pack manages, and counts it", function()
+    require('zpack').setup({ spec = { { 'test/plugin-a' } }, defaults = { confirm = false } })
+    helpers.flush_pending()
+    _G.test_state.registered_pack_specs['zpack.nvim'] =
+      { src = 'https://github.com/zuqini/zpack.nvim', name = 'zpack.nvim' }
+
+    vim.cmd('ZPack! delete')
+    helpers.flush_pending()
+
+    local names = _G.test_state.vim_pack_del_calls[1].names
+    table.sort(names)
+    assert.are.same({ 'plugin-a', 'zpack.nvim' }, names)
+    assert.is_not_nil(helpers.find_notification({ 'Deleting all 2 installed' }))
   end)
 
   it("delete! clears state for every registered plugin", function()
@@ -61,12 +76,12 @@ describe("ZPack delete", function()
     helpers.flush_pending()
 
     local state = require('zpack.state')
-    assert.are.equal(3, #state.registered_plugins)
+    assert.are.equal(3, #helpers.registered_plugins())
 
     vim.cmd('ZPack! delete')
     helpers.flush_pending()
 
-    assert.are.equal(0, #state.registered_plugins)
+    assert.are.equal(0, #helpers.registered_plugins())
     assert.is_nil(next(state.spec_registry), "spec_registry should be empty after delete!")
     assert.is_nil(next(state.src_to_pack_spec), "src_to_pack_spec should be empty after delete!")
   end)
@@ -85,8 +100,8 @@ describe("ZPack delete", function()
     local state = require('zpack.state')
     local src_b = 'https://github.com/test/plugin-b'
     -- A cond-disabled plugin is installed and tracked in spec_registry, but
-    -- never reaches registered_plugins -- the set delete! used to wipe.
-    assert.are.equal(1, #state.registered_plugins)
+    -- is left out of the load list -- the set delete! used to wipe.
+    assert.are.equal(1, #helpers.registered_plugins())
     assert.is_not_nil(state.spec_registry[src_b], "cond-disabled plugin has a registry entry")
 
     vim.cmd('ZPack! delete')
@@ -186,7 +201,7 @@ describe("ZPack delete", function()
     local src_a = 'https://github.com/test/plugin-a'
     local src_b = 'https://github.com/test/plugin-b'
     assert.is_not_nil(state.spec_registry[src_a], "plugin-a should be registered")
-    assert.contains(state.registered_plugin_names, 'plugin-a')
+    assert.contains(helpers.registered_plugin_names(), 'plugin-a')
 
     -- Simulate :packdel / a direct vim.pack.del call, bypassing :ZPack delete.
     vim.pack.del({ 'plugin-a' })
@@ -196,7 +211,7 @@ describe("ZPack delete", function()
     assert.is_not_nil(state.spec_registry[src_b], "plugin-b should remain registered")
 
     local still_listed = false
-    for _, name in ipairs(state.registered_plugin_names) do
+    for _, name in ipairs(helpers.registered_plugin_names()) do
       if name == 'plugin-a' then
         still_listed = true
       end

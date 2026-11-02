@@ -72,11 +72,11 @@ zpack provides a single user command, `:ZPack`, with subcommands. Rename via [`c
 | --- | --- |
 | `:ZPack[!] update [plugin]` | Update all plugins, or one; `!` skips the confirm buffer |
 | `:ZPack[!] restore [plugin]` | Restore plugins to the lockfile state; `!` skips the confirm buffer |
-| `:ZPack clean` | Remove plugins no longer in your spec |
+| `:ZPack[!] clean` | Remove plugins no longer in your spec, after listing them and asking; `!` doesn't ask |
 | `:ZPack[!] build [plugin]` | Run a plugin's build hook; `!` runs every plugin's build hook |
 | `:ZPack[!] load [plugin]` | Load an unloaded plugin; `!` loads all unloaded plugins |
 | `:ZPack[!] delete [plugin]` | Remove a plugin; `!` removes all plugins |
-| `:ZPack sync` | Bulk update + clean (lazy.nvim parity) |
+| `:ZPack[!] sync` | Bulk update + clean (lazy.nvim parity); `!` doesn't ask before deleting |
 | `:ZPack reload {plugin}` | Re-source a plugin (lazy.nvim parity) |
 
 
@@ -108,7 +108,7 @@ Plugin-level settings always take precedence over `defaults`.
 require('zpack').setup()
 
 -- or import from a custom path `./lua/a/b/plugins.lua` or `./lua/a/b/plugins/`
-require('zpack').setup({ { import = 'a.b.plugins' } })
+require('zpack').setup('a.b.plugins') -- or setup({ spec = 'a.b.plugins' }), or a list with { import = 'a.b.plugins' }
 
 -- or add your specs inline in setup
 require('zpack').setup({
@@ -167,7 +167,7 @@ See **[Spec Reference](docs/spec.md)** for the full spec definition, including `
 
 ## Tips & Migration
 
-See **[Tips & Migration](docs/tips.md)** for lazy.nvim migration guide and compatibility notes for popular plugins (Snacks.nvim dashboard, noice.nvim, etc.).
+See **[Tips & Migration](docs/tips.md)** for lazy.nvim migration guide and compatibility notes for popular plugins (Snacks.nvim dashboard, noice.nvim, etc.). Coming from 2.x, read [Upgrading to 3.0](docs/tips.md#upgrading-to-30).
 
 ## Public API
 

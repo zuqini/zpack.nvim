@@ -24,6 +24,7 @@ describe("Module Loader", function()
   end)
 
   it("module = false excludes plugin from module loader index", function()
+    helpers.write_plugin_files('no-module-plugin', { 'nomoduleplugin.lua' })
     require('zpack').setup({
       spec = {
         { 'test/no-module-plugin', lazy = true, module = false, cmd = 'TestCmd' },
@@ -97,6 +98,7 @@ describe("Module Loader", function()
   end)
 
   it("loader triggers plugin load for pending lazy plugin", function()
+    helpers.write_plugin_files('trigger-plugin', { 'trigger-plugin.lua' })
     local loaded = false
 
     require('zpack').setup({
@@ -127,6 +129,7 @@ describe("Module Loader", function()
   end)
 
   it("self-require during loading does not cause circular dependency error", function()
+    helpers.write_plugin_files('self-require', { 'self-require.lua' })
     local config_called = false
     local no_error = true
 
@@ -161,6 +164,8 @@ describe("Module Loader", function()
   end)
 
   it("nested loading does not cause circular dependency error", function()
+    helpers.write_plugin_files('plugin-a', { 'plugin-a.lua' })
+    helpers.write_plugin_files('plugin-b', { 'plugin-b.lua' })
     local plugin_a_loaded = false
     local plugin_b_loaded = false
     local no_circular_error = true
@@ -205,6 +210,8 @@ describe("Module Loader", function()
   end)
 
   it("A requires B requires A chain is handled gracefully", function()
+    helpers.write_plugin_files('chain-a', { 'chain-a.lua' })
+    helpers.write_plugin_files('chain-b', { 'chain-b.lua' })
     local plugin_a_config_count = 0
     local plugin_b_config_count = 0
     local notifications = {}
@@ -263,7 +270,8 @@ describe("Module Loader", function()
     assert.is_falsy(has_circular_error, "Should not report circular dependency error")
   end)
 
-  it("explicit main is indexed in addition to plugin name", function()
+  it("a module named unlike its plugin loads it, with main set", function()
+    helpers.write_plugin_files('weird-name', { 'actual_module.lua' })
     local loaded = false
 
     require('zpack').setup({
@@ -291,6 +299,7 @@ describe("Module Loader", function()
   end)
 
   it("submodule require triggers parent plugin load", function()
+    helpers.write_plugin_files('parent-plugin', { 'parent-plugin/utils/helpers.lua' })
     local loaded = false
 
     require('zpack').setup({
@@ -335,6 +344,7 @@ describe("Module Loader", function()
   end)
 
   it("plugin with dots in name (mini.*) is matched correctly", function()
+    helpers.write_plugin_files('mini.extra', { 'mini/extra.lua' })
     local loaded = false
 
     require('zpack').setup({
@@ -361,6 +371,7 @@ describe("Module Loader", function()
   end)
 
   it("deeply nested module require matches plugin with dots", function()
+    helpers.write_plugin_files('mini.extra', { 'mini/extra/ai_spec.lua' })
     local loaded = false
 
     require('zpack').setup({
@@ -434,7 +445,7 @@ describe("Module Loader", function()
     helpers.cleanup_mock_plugin_dir(base_path)
   end)
 
-  it("filesystem scanning finds module with different name via normalization", function()
+  it("filesystem scanning finds module with a different name", function()
     local loaded = false
 
     local plugin_path, base_path = helpers.create_mock_plugin_dir('some-odd-plugin', { 'odd_module' })
@@ -476,7 +487,7 @@ describe("Module Loader", function()
     module_loader.loader('odd_module')
 
     helpers.flush_pending()
-    assert.is_truthy(loaded, "Plugin should load via filesystem scanning with normalized module name matching")
+    assert.is_truthy(loaded, "Plugin should load via filesystem scanning")
 
     vim.pack.add = original_vim_pack_add
     helpers.cleanup_mock_plugin_dir(base_path)
@@ -532,11 +543,54 @@ describe("Module Loader", function()
     helpers.cleanup_mock_plugin_dir(base_path)
   end)
 
-  -- Regression: a throw inside process_spec used to leave the loader's
-  -- per-source `currently_loading_sources` flag set, after which the
-  -- early-return at module_loader:288 silently no-op'd every subsequent
-  -- require of the plugin's modules.
-  it("loader clears currently_loading_sources when process_spec throws", function()
+  it("scans no other plugin when the first claimant holds the module", function()
+    local owner_path, owner_base = helpers.create_mock_plugin_dir('owner', { 'owned' })
+    local other_path, other_base = helpers.create_mock_plugin_dir('other', { 'unrelated' })
+
+    local original_vim_pack_add = vim.pack.add
+    vim.pack.add = function(specs, opts)
+      for _, pack_spec in ipairs(specs) do
+        pack_spec.name = pack_spec.src:match('[^/]+$')
+        _G.test_state.registered_pack_specs[pack_spec.name] = pack_spec
+        opts.load({ spec = pack_spec, name = pack_spec.name, path = pack_spec.name == 'owner' and owner_path or other_path })
+      end
+    end
+
+    require('zpack').setup({
+      spec = { { 'test/owner', lazy = true }, { 'test/other', lazy = true } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    -- Under `nvim -l` zpack's own requires reach this loader during setup and scan everything.
+    local state = require('zpack.state')
+    local module_loader = require('zpack.module_loader')
+    require('zpack.utils').reset_lsdir_cache()
+    module_loader.initialize_cache({
+      state.src_to_pack_spec['https://github.com/test/owner'],
+      state.src_to_pack_spec['https://github.com/test/other'],
+    })
+
+    local scanned = {}
+    local original_scandir = vim.uv.fs_scandir
+    vim.uv.fs_scandir = function(path)
+      scanned[#scanned + 1] = path
+      return original_scandir(path)
+    end
+    module_loader.loader('owned')
+    vim.uv.fs_scandir = original_scandir
+    vim.pack.add = original_vim_pack_add
+
+    assert.are.same({ owner_path .. '/lua' }, scanned)
+
+    helpers.cleanup_mock_plugin_dir(owner_base)
+    helpers.cleanup_mock_plugin_dir(other_base)
+  end)
+
+  -- Regression: a throw inside process_spec used to leave the loader wedged, so
+  -- it silently no-op'd every subsequent require of the plugin's modules.
+  it("loader retries after process_spec throws", function()
+    helpers.write_plugin_files('throw-plugin', { 'throw-plugin.lua' })
     local state = require('zpack.state')
 
     require('zpack').setup({
@@ -563,13 +617,70 @@ describe("Module Loader", function()
     assert.are.equal("pending", state.spec_registry[src].load_status,
       "process_spec must reset load_status (cross-checks the plugin_loader fix)")
 
-    -- Re-attempting the load must NOT silently no-op via the early-return at
-    -- `currently_loading_sources[src]`. A successful retry proves the flag was
-    -- cleared.
+    -- Re-attempting the load must NOT silently no-op.
     local loaded = false
     state.spec_registry[src].merged_spec.config = function() loaded = true end
     module_loader.loader('throw-plugin')
     helpers.flush_pending()
     assert.is_true(loaded, "second require must reach the loader body, not silently no-op")
+  end)
+
+  describe("a module's top-level name", function()
+    local function status(name)
+      return require('zpack.state').spec_registry['https://github.com/test/' .. name].load_status
+    end
+
+    local function setup(names)
+      local spec = {}
+      for _, name in ipairs(names) do
+        spec[#spec + 1] = { 'test/' .. name, lazy = true }
+      end
+      require('zpack').setup({ spec = spec, defaults = { confirm = false } })
+      helpers.flush_pending()
+    end
+
+    for label, names in pairs({
+      ['listed first'] = { 'nvim-dap', 'nvim-dap-ui' },
+      ['listed second'] = { 'nvim-dap-ui', 'nvim-dap' },
+    }) do
+      it("isn't a prefix that normalizes to another plugin's name, with it " .. label, function()
+        helpers.write_plugin_files('nvim-dap', { 'dap/init.lua', 'dap/ui/widgets.lua' })
+        helpers.write_plugin_files('nvim-dap-ui', { 'dapui/init.lua' })
+        setup(names)
+
+        local ok, widgets = pcall(require, 'dap.ui.widgets')
+        package.loaded['dap.ui.widgets'] = nil
+
+        assert.is_true(ok, widgets)
+        assert.are.equal('loaded', status('nvim-dap'))
+        assert.are.equal('pending', status('nvim-dap-ui'))
+      end)
+    end
+
+    it("doesn't load a plugin it only normalizes to the name of", function()
+      helpers.write_plugin_files('foo-bar.nvim', { 'fb/init.lua' })
+      setup({ 'foo-bar.nvim' })
+
+      assert.is_false((pcall(require, 'foobar')))
+      assert.are.equal('pending', status('foo-bar.nvim'))
+    end)
+
+    it("doesn't load a plugin named after it with no lua/", function()
+      setup({ 'plain.nvim' })
+
+      assert.is_false((pcall(require, 'plain.thing')))
+      assert.are.equal('pending', status('plain.nvim'))
+    end)
+
+    for _, file in ipairs({ 'compiled.so', 'compiled.dll' }) do
+      it("is claimed by a top-level " .. file, function()
+        helpers.write_plugin_files('native', { file })
+        setup({ 'native' })
+
+        require('zpack.module_loader').loader('compiled')
+
+        assert.are.equal('loaded', status('native'))
+      end)
+    end
   end)
 end)

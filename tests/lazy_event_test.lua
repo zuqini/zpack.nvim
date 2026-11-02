@@ -1,5 +1,27 @@
 local helpers = require('helpers')
 
+describe("a function-form event returning neither a string nor a table", function()
+  before_each(helpers.setup_test_env)
+  after_each(helpers.cleanup_test_env)
+
+  local function notes_for(fields)
+    require('zpack').setup({
+      spec = { vim.tbl_extend('error', { 'test/plugin', event = function() return 123 end }, fields) },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    return table.concat(vim.tbl_map(function(n) return n.msg end, _G.test_state.notifications), '\n')
+  end
+
+  it("reports it on a lazy plugin, as validate_spec can't", function()
+    assert.is_truthy(notes_for({ lazy = true }):find('Invalid event for plugin: expected string or table, got number', 1, true))
+  end)
+
+  it("reports it on a plugin it leaves eager", function()
+    assert.is_truthy(notes_for({}):find('plugin loads at startup: no such event: 123', 1, true))
+  end)
+end)
+
 describe("Lazy Loading - Events", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)

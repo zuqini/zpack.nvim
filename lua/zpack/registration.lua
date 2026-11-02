@@ -1,6 +1,9 @@
+if jit then jit.off(true, true) end
+
 local state = require('zpack.state')
 local lazy = require('zpack.lazy')
 local utils = require('zpack.utils')
+local pack = require('zpack.pack')
 
 local M = {}
 
@@ -12,18 +15,11 @@ local function classify(plugin, ctx)
   local registry_entry = state.spec_registry[pack_spec.src]
   local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
 
-  registry_entry.is_lazy_resolved = lazy.is_lazy(spec, plugin, pack_spec.src)
+  registry_entry.is_lazy_resolved = lazy.is_lazy(registry_entry, plugin, pack_spec.src)
 
   registry_entry.cond_result = utils.check_cond(spec, plugin, ctx.defaults.cond, pack_spec.src)
   if not registry_entry.cond_result then
     return
-  end
-
-  table.insert(state.registered_plugin_names, pack_spec.name)
-  state.unloaded_plugin_names[pack_spec.name] = true
-
-  if spec.build then
-    table.insert(state.plugin_names_with_build, pack_spec.name)
   end
 
   if spec.init then
@@ -34,17 +30,25 @@ local function classify(plugin, ctx)
     table.insert(ctx.registered_lazy_packs, pack_spec)
   else
     table.insert(ctx.registered_startup_packs, pack_spec)
-    lazy.warn_unusable_triggers(spec, plugin, pack_spec.name)
+    lazy.warn_unusable_triggers(registry_entry, pack_spec.name)
   end
 end
 
 ---@param ctx zpack.ProcessContext
 M.register_all = function(ctx)
+  -- From merged_spec alone, so the public API can report a stable `lazy` flag for
+  -- entries still mid-install. classify recomputes it with the live plugin, for
+  -- function-form triggers, once the parents' plugins fill has_lazy_parent's cache.
+  for src, entry in pairs(state.spec_registry) do
+    entry.is_lazy_resolved = lazy.is_lazy(entry, nil, src)
+  end
+  state.lazy_parent_cache = {}
+
   local added = {}
   local function on_load(plugin)
     ---@cast plugin zpack.Plugin
     local pack_spec = plugin.spec
-    ctx.early_plugins[pack_spec.name] = nil
+    ctx.imported.early_plugins[pack_spec.name] = nil
 
     local registry_entry = state.spec_registry[pack_spec.src]
 
@@ -70,7 +74,7 @@ M.register_all = function(ctx)
     if dep_set then
       local dep_names = {}
       for dep_src in pairs(dep_set) do
-        table.insert(dep_names, utils.resolve_plugin_name(state.spec_registry[dep_src].merged_spec, dep_src))
+        table.insert(dep_names, pack.resolve_plugin_name(state.spec_registry[dep_src].merged_spec, dep_src))
       end
       table.sort(dep_names)
       plugin.dependencies = dep_names
@@ -81,13 +85,13 @@ M.register_all = function(ctx)
     table.insert(added, plugin)
   end
 
-  local err = require('zpack.pack').add(ctx.vim_packs, { confirm = ctx.confirm, load = on_load })
+  local err = pack.add(ctx.vim_packs, { confirm = ctx.confirm, load = on_load })
   local ok = err == nil
 
   if not ok then
     local semver_like_specs = {}
     for _, pack_spec in ipairs(ctx.vim_packs) do
-      if pack_spec.version and utils.is_semver_like(pack_spec.version) then
+      if pack_spec.version and pack.is_semver_like(pack_spec.version) then
         table.insert(semver_like_specs, pack_spec)
       end
     end
@@ -106,7 +110,7 @@ M.register_all = function(ctx)
   end
 
   for _, pack_spec in ipairs(ctx.vim_packs) do
-    local early = ctx.early_plugins[pack_spec.name]
+    local early = ctx.imported.early_plugins[pack_spec.name]
     if early then
       on_load({ spec = pack_spec, path = early.path })
     end
@@ -126,11 +130,6 @@ M.register_all = function(ctx)
 
   table.sort(ctx.registered_startup_packs, utils.compare_priority)
   table.sort(ctx.registered_lazy_packs, utils.compare_priority)
-  table.sort(state.registered_plugin_names, function(a, b) return a:lower() < b:lower() end)
-  table.sort(state.plugin_names_with_build, function(a, b) return a:lower() < b:lower() end)
-
-  vim.list_extend(state.registered_plugins, ctx.registered_startup_packs)
-  vim.list_extend(state.registered_plugins, ctx.registered_lazy_packs)
 end
 
 return M

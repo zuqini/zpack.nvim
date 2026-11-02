@@ -10,6 +10,13 @@
 -- Usage (from the repo root):
 --   nvim -l tests/busted.lua
 
+-- Tests write fixtures under stdpath('data'): keep them out of the real vim.pack
+-- directory and away from other runs. Neovim removes its tempname dir on exit.
+vim.env.XDG_DATA_HOME = vim.fn.tempname()
+
+-- vim.loader reads stdpath('cache') as it loads: not under a test's mocked stdpath.
+require('vim.loader')
+
 local root = vim.fn.getcwd()
 local rocks = root .. '/.luarocks/share/lua/5.1'
 

@@ -1,3 +1,5 @@
+if jit then jit.off(true, true) end
+
 local util = require('zpack.utils')
 local state = require('zpack.state')
 local keymap = require('zpack.keymap')
@@ -126,15 +128,15 @@ local function register_key(key, pack_spec, src, key_to_info)
 
   -- Empty ft → no scope, so the autocmd doesn't register an
   -- unmatchable empty pattern list and silently drop the key.
-  local ft_patterns = util.normalize_ft_scope(key.ft)
+  local ft_patterns = keymap.normalize_ft_scope(key.ft)
 
   -- <Nop> rhs never needs the proxy: install as a real no-op so the
   -- key acts as a true no-op without loading the plugin. ft-scoped
   -- <Nop> installs buffer-locally on matching FileType so the
   -- suppression is scoped, matching lazy.nvim's ft-on-Nop behavior.
-  if util.is_nop_rhs(key[2]) then
+  if keymap.is_nop_rhs(key[2]) then
     if ft_patterns then
-      util.install_on_ft(ft_patterns, function(buf)
+      keymap.install_on_ft(ft_patterns, function(buf)
         install_nop(key, src, buf)
       end, { group = state.lazy_group })
     else
@@ -142,7 +144,7 @@ local function register_key(key, pack_spec, src, key_to_info)
     end
   else
     for _, m in ipairs(modes) do
-      local key_id = util.key_id(lhs, m, ft_patterns, key.buffer)
+      local key_id = keymap.key_id(lhs, m, ft_patterns, key.buffer)
       if not key_to_info[key_id] then
         key_to_info[key_id] = {
           split_mode = m,
@@ -162,12 +164,9 @@ M.setup = function(registered_pack_specs)
   local key_to_info = {}
   for _, pack_spec in ipairs(registered_pack_specs) do
     local registry_entry = state.spec_registry[pack_spec.src]
-    local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
-    local plugin = registry_entry.plugin
-
     local src = pack_spec.name or pack_spec.src
-    local keys_value = util.try_resolve_field(spec.keys, plugin, src, 'keys')
-    for _, key in ipairs(keys_value and util.resolve_keys(keys_value) or {}) do
+    local parsed = util.read_trigger(registry_entry, 'keys', keymap.parse, registry_entry.plugin, src)
+    for _, key in ipairs(parsed and parsed.keys or {}) do
       util.try_trigger_setup(src, 'keys', function()
         register_key(key, pack_spec, src, key_to_info)
       end)
@@ -180,10 +179,8 @@ M.setup = function(registered_pack_specs)
       if key_info.ft then
         -- Proxy self-deletes once every claiming plugin has loaded —
         -- apply_keys's own FileType autocmd takes over for future buffers.
-        -- During the sweep all packs are still `pending`, so the self-delete
-        -- branch never fires before `autocmd_id` is assigned.
         local autocmd_id
-        autocmd_id = util.install_on_ft(
+        autocmd_id = keymap.install_on_ft(
           key_info.ft,
           function(buf)
             if not any_pack_pending(key_info) then
@@ -197,7 +194,9 @@ M.setup = function(registered_pack_specs)
           end,
           { group = state.lazy_group }
         )
-      else
+      elseif any_pack_pending(key_info) then
+        -- A keys function can load its plugin by requiring its modules, and then the
+        -- real mapping is already there.
         install_proxy(key_info, key_info.src, nil)
       end
     end)
