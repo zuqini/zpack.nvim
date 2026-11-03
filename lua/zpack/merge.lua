@@ -47,7 +47,6 @@ function M.resolve_all(graph, enabled_results, notify)
 
   for src, entry in pairs(state.spec_registry) do
     fields.resolve_enabled(enabled_results, entry, src)
-    entry.has_opts = fields.contributes_opts(entry)
     -- cond_result is intentionally left nil here. It is written later by
     -- registration.register_all's vim.pack.add load callback (which needs
     -- the live plugin arg for function-form conds). Readers must treat

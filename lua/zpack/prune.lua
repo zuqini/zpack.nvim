@@ -77,7 +77,6 @@ local function refresh_entry(prune, src, entry)
     fields.merge_entry(entry)
     entry.merged_spec.name = name
     fields.resolve_enabled(prune.enabled_results, entry, src)
-    entry.has_opts = fields.contributes_opts(entry)
   end
 end
 
