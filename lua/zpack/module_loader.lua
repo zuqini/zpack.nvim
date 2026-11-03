@@ -40,7 +40,7 @@ end
 ---@param modname string
 ---@return string? src plugin source if found
 local function find_src_by_scanning(modname)
-  local topmod = modname:match("^[^.]+")
+  local topmod = modname:match("^[^.]*")
 
   for _, pack_spec in ipairs(lazy_pack_specs) do
     local src = pack_spec.src
@@ -100,6 +100,7 @@ end
 ---@param modname string
 ---@return function|string|nil
 function M.loader(modname)
+  modname = modname:gsub("/", "."):gsub("^%.+", "")
   local src = find_src_for_module(modname)
   if not src then
     return nil

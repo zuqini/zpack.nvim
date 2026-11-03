@@ -1507,6 +1507,22 @@ describe("sessions over one data directory", function()
       end)
     end
 
+    for label, name in pairs({ ["a slash-form name, as require('lspconfig/util')"] = 'mine/sub', ['a leading dot'] = '.mine.sub' }) do
+      it("loads for " .. label, function()
+        make_repo('aa', { ['lua/mine/sub.lua'] = { "return { from = 'aa' }" } })
+        local result = session(setup_args("{ url = aa, name = 'aa', lazy = true }"), report(name))
+        assert.are.equal('aa', result.log[#result.log])
+      end)
+    end
+
+    for _, name in ipairs({ '', '/' }) do
+      it(("reports %q as not found"):format(name), function()
+        make_repo('aa', { ['lua/mine.lua'] = { "return { from = 'aa' }" } })
+        local result = session(setup_args("{ url = aa, name = 'aa', lazy = true }"), report(name))
+        assert.are.equal(1, (result.log[#result.log]:find(("module '%s' not found:"):format(name), 1, true)), result.log[#result.log])
+      end)
+    end
+
     it("comes from the plugin it loaded, ahead of a dependency holding the same one", function()
       make_repo('parent', { ['lua/same.lua'] = { "return { from = 'parent' }" } })
       make_repo('dep', { ['lua/same.lua'] = { "return { from = 'dep' }" } })
