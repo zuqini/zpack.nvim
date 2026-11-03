@@ -1569,6 +1569,23 @@ describe("sessions over one data directory", function()
       assert.is_truthy(result.log[#result.log]:find('aa/lua/mine.lua', 1, true), result.log[#result.log])
     end)
 
+    it("raises its error when its own auto-setup's require of it threw", function()
+      make_repo('aa', { ['lua/mine/init.lua'] = { "error('boom in mine')" } })
+      local probe = "local ok, mod = pcall(require, 'mine'); table.insert(_G.LOG, tostring(ok) .. ' ' .. tostring(mod))"
+      local result = session(setup_args("{ url = aa, name = 'aa', main = 'mine', lazy = true, opts = {} }"), probe .. '; ' .. probe)
+      assert.is_truthy(result.log[#result.log - 1]:find('boom in mine', 1, true), result.log[#result.log - 1])
+      assert.is_truthy(result.log[#result.log]:find("loop or previous error loading module 'mine'", 1, true), result.log[#result.log])
+    end)
+
+    it("is what its config required, run once, when it returns no table", function()
+      make_repo('aa', { ['lua/mine.lua'] = { "table.insert(_G.LOG, 'mine.run')", 'return function() end' } })
+      local result = session(
+        setup_args("{ url = aa, name = 'aa', lazy = true, config = function() _G.FROM_CONFIG = require('mine') end }"),
+        "table.insert(_G.LOG, tostring(require('mine') == _G.FROM_CONFIG))")
+      assert.are.same({ 'mine.run', 'true' }, vim.list_slice(result.log, #result.log - 1))
+      assert.are.equal(1, #vim.tbl_filter(function(l) return l == 'mine.run' end, result.log))
+    end)
+
     for _, vim_loader in ipairs({ true, false }) do
       it("opens a compiled one with vim_loader = " .. tostring(vim_loader), function()
         make_repo('aa', { ['lua/nat/compiled.so'] = { "not a real library" } })

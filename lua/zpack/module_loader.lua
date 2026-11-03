@@ -11,6 +11,9 @@ local module_lookup_cache = {}
 ---@type vim.pack.Spec[]
 local lazy_pack_specs = {}
 
+---What require leaves in package.loaded while a module loads, and keeps there if the load throws.
+local LOADING = package.loaded[...]
+
 ---@param path string A plugin's directory
 ---@param modname string
 ---@return string? file
@@ -128,7 +131,7 @@ function M.loader(modname)
   require('zpack.plugin_loader').process_spec(pack_spec, { bang = true })
 
   local mod = package.loaded[modname]
-  if mod ~= nil then
+  if mod ~= nil and mod ~= LOADING then
     return function()
       return mod
     end
