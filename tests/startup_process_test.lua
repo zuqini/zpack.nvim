@@ -1547,10 +1547,12 @@ describe("sessions over one data directory", function()
     end
 
     for _, name in ipairs({ '', '/' }) do
-      it(("reports %q as not found"):format(name), function()
+      it(("leaves %q to Lua's own searchers"):format(name), function()
         make_repo('aa', { ['lua/mine.lua'] = { "return { from = 'aa' }" } })
         local result = session(setup_args("{ url = aa, name = 'aa', lazy = true }"), report(name))
-        assert.are.equal(1, (result.log[#result.log]:find(("module '%s' not found:"):format(name), 1, true)), result.log[#result.log])
+        local msg = result.log[#result.log]
+        assert.is_string(msg)
+        assert.is_falsy(msg:find('/lua/zpack/', 1, true), msg)
       end)
     end
 
