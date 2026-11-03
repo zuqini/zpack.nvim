@@ -35,22 +35,31 @@ local function claims_topmod(path, topmod)
   return false
 end
 
----Find the pending plugin to load for a module: the first claimant of the top-level
----name holding its file
+---Find the pending plugin to load for a module: of the claimants of the top-level name
+---holding its file, the one named like that name as in lazy.nvim, else the first.
+---Once the first is found, only plugins named like it are scanned.
 ---@param modname string
 ---@return string? src plugin source if found
 local function find_src_by_scanning(modname)
   local topmod = modname:match("^[^.]*")
+  local norm = util.normalize_name(topmod)
+  local first
 
   for _, pack_spec in ipairs(lazy_pack_specs) do
     local src = pack_spec.src
     local registry_entry = state.spec_registry[src]
     local plugin = registry_entry and registry_entry.plugin
-    if plugin and registry_entry.load_status == "pending" and registry_entry.merged_spec.module ~= false
-        and claims_topmod(plugin.path, topmod) and module_file(plugin.path, modname) then
-      return src
+    if plugin and registry_entry.load_status == "pending" and registry_entry.merged_spec.module ~= false then
+      local named = util.normalize_name(plugin.spec.name) == norm
+      if (named or not first) and claims_topmod(plugin.path, topmod) and module_file(plugin.path, modname) then
+        if named then
+          return src
+        end
+        first = src
+      end
     end
   end
+  return first
 end
 
 ---Initialize module loader with lazy plugins

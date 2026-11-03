@@ -1399,6 +1399,37 @@ describe("sessions over one data directory", function()
       assert.is_false(loads(result, 'bb'))
     end)
 
+    describe("when both hold the file", function()
+      local names = { mininvim = 'mini.nvim', miniai = 'mini.ai' }
+      local function both_args(order)
+        return ("{ spec = { { url = %s, name = '%s', lazy = true }, { url = %s, name = '%s', lazy = true } }, defaults = { confirm = false } }")
+          :format(order[1], names[order[1]], order[2], names[order[2]])
+      end
+
+      before_each(function()
+        for repo, plugin in pairs(names) do
+          make_repo(repo, {
+            ['lua/mini/ai.lua'] = { ("return { from = '%s' }"):format(plugin) },
+            ['lua/other/x.lua'] = { ("return { from = '%s' }"):format(plugin) },
+          })
+        end
+      end)
+
+      for name, order in pairs({ ['listed first'] = { 'mininvim', 'miniai' }, ['listed second'] = { 'miniai', 'mininvim' } }) do
+        it("loads the one named like the top-level module when it's " .. name, function()
+          local result = session(both_args(order), report('mini.ai'))
+          assert.is_true(vim.list_contains(result.log, 'true=mini.nvim'), vim.inspect(result.log))
+          assert.is_false(loads(result, 'miniai'))
+        end)
+
+        it("loads the first listed when neither is named like it, with " .. names[order[1]] .. ' first', function()
+          local result = session(both_args(order), report('other.x'))
+          assert.is_true(vim.list_contains(result.log, 'true=' .. names[order[1]]), vim.inspect(result.log))
+          assert.is_false(loads(result, order[2]))
+        end)
+      end
+    end)
+
     it("loads neither for a module neither holds, and a later require still works", function()
       local result = session(setup_args('aa', 'bb'), report('shared.nope') .. report('shared.nope') .. report('shared.inb'))
       assert.is_true(vim.list_contains(result.log, 'false=false'))

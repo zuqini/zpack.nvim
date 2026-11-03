@@ -1048,11 +1048,15 @@ module          (boolean, optional)
                 loaded when its modules are `require()`d.
 
                 zpack automatically loads lazy plugins when their modules are
-                required: the first pending plugin holding the module's file
-                under `/lua` (`.lua`, `/init.lua`, or a compiled `.so` or
-                `.dll`), as in lazy.nvim. A plugin that has only the module's
-                top-level name, such as `mini.pairs` for a `require` of
-                `mini.icons`, stays lazy, and the `require` fails as usual.
+                required: a pending plugin holding the module's file under
+                `/lua` (`.lua`, `/init.lua`, or a compiled `.so` or `.dll`).
+                Of several such plugins, the one named like the top-level
+                module loads, as in lazy.nvim, so `require('mini.ai')` loads
+                `mini.nvim` rather than a standalone `mini.ai`. Otherwise the
+                first listed loads, higher `priority` first. A plugin that has
+                only the module's top-level name, such as `mini.pairs` for a
+                `require` of `mini.icons`, stays lazy, and the `require` fails
+                as usual.
 
                 Default: true (module loading enabled)
 
