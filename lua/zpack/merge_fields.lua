@@ -159,21 +159,19 @@ function M.merge_spec_array(specs)
   return result
 end
 
+---`opts` is deliberately not stored on merged_spec; `has_opts` lets
+---plugin_loader / startup answer "does any spec contribute opts?" without
+---re-scanning.
 function M.merge_entry(entry)
   entry.sorted_specs = M.sort_specs(entry.specs)
   entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
-end
-
----`opts` is deliberately not stored on merged_spec; this boolean lets
----plugin_loader / startup answer "does any spec contribute opts?" without
----re-scanning.
-function M.contributes_opts(entry)
+  entry.has_opts = false
   for _, s in ipairs(entry.sorted_specs) do
     if s.opts ~= nil then
-      return true
+      entry.has_opts = true
+      break
     end
   end
-  return false
 end
 
 ---lazy.nvim parity: the last spec to set `enabled`, in merge order, decides, so

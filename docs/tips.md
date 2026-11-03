@@ -170,9 +170,9 @@ A dependency whose function-form `opts` throws used to stop a lazy plugin listin
 { 'u/p', enabled = false, dependencies = { 'u/d' } }
 ```
 
-### A disabled plugin's `dependencies` and `specs` no longer count
+### A disabled or `optional` plugin's `dependencies` and `specs` no longer count
 
-`opts` in a disabled plugin's `dependencies` spec used to reach that dependency when another spec kept it. Now that spec goes with the plugin listing it. Move what should stay to a spec that stays:
+`opts` in a `dependencies` spec of a plugin that is disabled, or left out as `optional`, used to reach that dependency when another spec kept it. Now that spec goes with the plugin listing it. LazyVim's lang extras have this shape but lose nothing: an `optional` nvim-lint or nvim-dap carrying `{ 'mason-org/mason.nvim', opts = { ensure_installed = ... } }` never added to mason's list in 2.x, which ignored `opts_extend`, so LazyVim's own mason spec replaced the list. 3.0 adds it when another spec lists that plugin without `optional`. Move what should stay to a spec that stays:
 
 ```lua
 -- 2.x: u/d gets { a = 1, b = 2 }. 3.0: only { b = 2 }
@@ -272,10 +272,10 @@ A helper in an imported directory, such as `lua/plugins/util.lua` returning `{ o
 - `lua/plugins/*.lua` import by sorted module name, where it used to be file system order, and later specs win: `foo` comes before `foo-extra`, so `foo-extra`'s `opts` now override `foo`'s.
 - A table listed both at the top level and under a lazy plugin's `dependencies` used to stay lazy. Now it's a plugin of its own and loads at startup, in `local d = { 'u/d' }` with `{ d, { 'u/p', cmd = 'P', dependencies = { d } } }`. `lazy = true` on the table keeps it lazy.
 - A `nil` in a spec list used to end the list. `{ { 'u/x' }, flag and { 'u/y' } or nil, { 'u/d' } }` now installs `u/d` when `flag` is false.
-- A function-form `event`, `cmd`, `ft` or `keys` that throws used to leave the plugin loading at startup. The error is still reported, but the plugin now stays lazy, and only a `require` of its modules loads it.
+- A function-form `event`, `cmd`, `ft` or `keys` that throws used to leave the plugin loading at startup. The error is still reported, but the plugin now stays lazy, and only its other triggers or a `require` of its modules load it.
 - `opts_extend` used to be ignored. Now it applies, so lists that used to replace each other are joined: `{ 'u/x', opts_extend = { 'l' }, opts = { l = { 'a' } } }` beside `{ 'u/x', opts = { l = { 'b' } } }` gave `{ 'b' }` and now gives `{ 'a', 'b' }`.
 - A bare string in a spec list used to be reported as an invalid spec and skipped. `{ 'u/a', { 'u/b' } }` now installs both. A string without an owner, as in a module returning `{ 'lua_ls', 'rust_analyzer' }`, is still skipped with a warning.
-- A `require` used to load a lazy plugin whose name or `main` looked like the module's name, even with no such module. As in lazy.nvim, it now takes that top-level name under the plugin's `lua/`.
+- A `require` used to load a lazy plugin whose name or `main` looked like the module's name, or whose `lua/` had only the module's top-level name. So an optional `pcall(require, 'mini.icons')` at startup loaded and configured a lazy `mini.pairs`, and `pcall(require, 'nvim-treesitter.configs')` loaded nvim-treesitter's main branch, which has no such module. As in lazy.nvim, a `require` now loads only the plugin holding the module's file under `lua/`, and fails as usual when none does. When two do, the one named like the top-level module loads, so `require('mini.ai')` loads `mini.nvim`, not a standalone `mini.ai` listed beside it. A plugin that makes a module at load time, from `plugin/` or `package.preload`, needs a trigger of its own.
 - `setup({ profiling = ... })` is ignored without a word, and `print_profile` and `get_profile` are gone from `zpack.module_loader`.
 
 ## Upgrading from 1.x to 2.0

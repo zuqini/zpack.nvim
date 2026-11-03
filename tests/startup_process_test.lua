@@ -1399,6 +1399,37 @@ describe("sessions over one data directory", function()
       assert.is_false(loads(result, 'bb'))
     end)
 
+    describe("when both hold the file", function()
+      local names = { mininvim = 'mini.nvim', miniai = 'mini.ai' }
+      local function both_args(order)
+        return ("{ spec = { { url = %s, name = '%s', lazy = true }, { url = %s, name = '%s', lazy = true } }, defaults = { confirm = false } }")
+          :format(order[1], names[order[1]], order[2], names[order[2]])
+      end
+
+      before_each(function()
+        for repo, plugin in pairs(names) do
+          make_repo(repo, {
+            ['lua/mini/ai.lua'] = { ("return { from = '%s' }"):format(plugin) },
+            ['lua/other/x.lua'] = { ("return { from = '%s' }"):format(plugin) },
+          })
+        end
+      end)
+
+      for name, order in pairs({ ['listed first'] = { 'mininvim', 'miniai' }, ['listed second'] = { 'miniai', 'mininvim' } }) do
+        it("loads the one named like the top-level module when it's " .. name, function()
+          local result = session(both_args(order), report('mini.ai'))
+          assert.is_true(vim.list_contains(result.log, 'true=mini.nvim'), vim.inspect(result.log))
+          assert.is_false(loads(result, 'miniai'))
+        end)
+
+        it("loads the first listed when neither is named like it, with " .. names[order[1]] .. ' first', function()
+          local result = session(both_args(order), report('other.x'))
+          assert.is_true(vim.list_contains(result.log, 'true=' .. names[order[1]]), vim.inspect(result.log))
+          assert.is_false(loads(result, order[2]))
+        end)
+      end
+    end)
+
     it("loads neither for a module neither holds, and a later require still works", function()
       local result = session(setup_args('aa', 'bb'), report('shared.nope') .. report('shared.nope') .. report('shared.inb'))
       assert.is_true(vim.list_contains(result.log, 'false=false'))
@@ -1416,17 +1447,77 @@ describe("sessions over one data directory", function()
       assert.is_false(loads(result, 'cc'))
     end)
 
-    it("loads what's left once another trigger has loaded the other claimant", function()
-      local result = session(setup_args('aa', 'bb'), report('shared.nope') .. "vim.cmd('ZPack load bb'); " .. report('shared.nope2'))
-      assert.is_true(loads(result, 'aa'))
+    it("loads neither for such a module once another trigger has loaded the other claimant", function()
+      local result = session(setup_args('aa', 'bb'), report('shared.nope') .. "vim.cmd('ZPack load bb'); "
+        .. report('shared.nope2') .. "table.insert(_G.LOG, 'aa=' .. require('zpack.api').get_plugin('aa').status); "
+        .. report('shared.ina'))
+      assert.are.same({ 'false=false', 'false=false', 'aa=pending', 'true=aa' }, vim.tbl_filter(function(entry)
+        return entry:find('=', 1, true) ~= nil
+      end, result.log))
+    end)
+  end)
+
+  describe("a module no lazy plugin holds, required at startup", function()
+    local probe = "config = function() local ok, err = pcall(require, %q); table.insert(_G.LOG, 'probe=' .. tostring(ok)); table.insert(_G.LOG, tostring(err)) end"
+    local status = "table.insert(_G.LOG, 'status=' .. require('zpack.api').get_plugin(%q).status); "
+
+    local function setup_args(lazy_spec, module)
+      return ("{ spec = { %s, { url = ee, name = 'ee', %s } }, defaults = { confirm = false } }"):format(lazy_spec, probe:format(module))
+    end
+
+    local function assert_not_found(result, module)
+      assert.is_true(vim.list_contains(result.log, 'probe=false'), vim.inspect(result.log))
+      local err = result.log[vim.fn.index(result.log, 'probe=false') + 2]
+      assert.are.equal(1, (err:find(("module '%s' not found:"):format(module), 1, true)), err)
+    end
+
+    before_each(function()
+      make_repo('ee')
+      make_repo('pairs', { ['lua/mini/pairs.lua'] = { "return { setup = function() table.insert(_G.LOG, 'pairs.setup') end }" } })
+      make_repo('ts', {
+        ['lua/nvim-treesitter/init.lua'] = { 'return {}' },
+        ['lua/nvim-treesitter/config.lua'] = { 'return {}' },
+      })
     end)
 
-    it("still loads a sole claimant for a submodule it doesn't hold", function()
+    it("leaves a plugin sharing its namespace lazy, as mini.pairs beside a require of mini.icons", function()
       local result = session(
-        "{ spec = { { url = bb, name = 'bb', lazy = true } }, defaults = { confirm = false } }",
-        report('only_bb.nope')
+        setup_args("{ url = pairs, name = 'mini.pairs', event = 'InsertEnter', opts = {} }", 'mini.icons'),
+        status:format('mini.pairs') .. "vim.api.nvim_exec_autocmds('InsertEnter', {}); " .. status:format('mini.pairs')
       )
-      assert.is_true(loads(result, 'bb'))
+      assert_not_found(result, 'mini.icons')
+      assert.are.same({ 'status=pending', 'pairs.plugin', 'pairs.setup', 'status=loaded' },
+        vim.list_slice(result.log, #result.log - 3))
+    end)
+
+    it("leaves a plugin lazy whose old submodule is gone, as nvim-treesitter's main branch without configs", function()
+      local result = session(
+        setup_args("{ url = ts, name = 'nvim-treesitter', event = 'BufReadPost' }", 'nvim-treesitter.configs'),
+        status:format('nvim-treesitter')
+      )
+      assert_not_found(result, 'nvim-treesitter.configs')
+      assert.is_false(vim.list_contains(result.log, 'ts.plugin'))
+      assert.are.equal('status=pending', result.log[#result.log])
+    end)
+
+    for label, module in pairs({ ['its file'] = 'mini.pairs', ['a directory with init.lua'] = 'nvim-treesitter' }) do
+      it("still loads the plugin holding " .. label, function()
+        local result = session(("{ spec = { %s, %s, { url = ee, name = 'ee', %s } }, defaults = { confirm = false } }"):format(
+          "{ url = pairs, name = 'mini.pairs', event = 'InsertEnter', opts = {} }",
+          "{ url = ts, name = 'nvim-treesitter', event = 'BufReadPost' }",
+          probe:format(module)
+        ))
+        assert.is_true(vim.list_contains(result.log, 'probe=true'), vim.inspect(result.log))
+        assert.are.equal(module == 'mini.pairs', vim.list_contains(result.log, 'pairs.setup'))
+        assert.are.equal(module == 'mini.pairs', vim.list_contains(result.log, 'pairs.plugin'))
+        assert.are.equal(module ~= 'mini.pairs', vim.list_contains(result.log, 'ts.plugin'))
+      end)
+    end
+
+    it("still loads the plugin holding a submodule", function()
+      local result = session(setup_args("{ url = ts, name = 'nvim-treesitter', event = 'BufReadPost' }", 'nvim-treesitter.config'))
+      assert.is_true(vim.list_contains(result.log, 'probe=true'), vim.inspect(result.log))
+      assert.is_true(vim.list_contains(result.log, 'ts.plugin'))
     end)
   end)
 
@@ -1447,6 +1538,24 @@ describe("sessions over one data directory", function()
       end)
     end
 
+    for label, name in pairs({ ["a slash-form name, as require('lspconfig/util')"] = 'mine/sub', ['a leading dot'] = '.mine.sub' }) do
+      it("loads for " .. label, function()
+        make_repo('aa', { ['lua/mine/sub.lua'] = { "return { from = 'aa' }" } })
+        local result = session(setup_args("{ url = aa, name = 'aa', lazy = true }"), report(name))
+        assert.are.equal('aa', result.log[#result.log])
+      end)
+    end
+
+    for _, name in ipairs({ '', '/' }) do
+      it(("leaves %q to Lua's own searchers"):format(name), function()
+        make_repo('aa', { ['lua/mine.lua'] = { "return { from = 'aa' }" } })
+        local result = session(setup_args("{ url = aa, name = 'aa', lazy = true }"), report(name))
+        local msg = result.log[#result.log]
+        assert.is_string(msg)
+        assert.is_falsy(msg:find('/lua/zpack/', 1, true), msg)
+      end)
+    end
+
     it("comes from the plugin it loaded, ahead of a dependency holding the same one", function()
       make_repo('parent', { ['lua/same.lua'] = { "return { from = 'parent' }" } })
       make_repo('dep', { ['lua/same.lua'] = { "return { from = 'dep' }" } })
@@ -1460,6 +1569,23 @@ describe("sessions over one data directory", function()
       make_repo('aa', { ['lua/mine.lua'] = { "return {" } })
       local result = session(setup_args("{ url = aa, name = 'aa', lazy = true }"), report('mine'))
       assert.is_truthy(result.log[#result.log]:find('aa/lua/mine.lua', 1, true), result.log[#result.log])
+    end)
+
+    it("raises its error when its own auto-setup's require of it threw", function()
+      make_repo('aa', { ['lua/mine/init.lua'] = { "error('boom in mine')" } })
+      local probe = "local ok, mod = pcall(require, 'mine'); table.insert(_G.LOG, tostring(ok) .. ' ' .. tostring(mod))"
+      local result = session(setup_args("{ url = aa, name = 'aa', main = 'mine', lazy = true, opts = {} }"), probe .. '; ' .. probe)
+      assert.is_truthy(result.log[#result.log - 1]:find('boom in mine', 1, true), result.log[#result.log - 1])
+      assert.is_truthy(result.log[#result.log]:find("loop or previous error loading module 'mine'", 1, true), result.log[#result.log])
+    end)
+
+    it("is what its config required, run once, when it returns no table", function()
+      make_repo('aa', { ['lua/mine.lua'] = { "table.insert(_G.LOG, 'mine.run')", 'return function() end' } })
+      local result = session(
+        setup_args("{ url = aa, name = 'aa', lazy = true, config = function() _G.FROM_CONFIG = require('mine') end }"),
+        "table.insert(_G.LOG, tostring(require('mine') == _G.FROM_CONFIG))")
+      assert.are.same({ 'mine.run', 'true' }, vim.list_slice(result.log, #result.log - 1))
+      assert.are.equal(1, #vim.tbl_filter(function(l) return l == 'mine.run' end, result.log))
     end)
 
     for _, vim_loader in ipairs({ true, false }) do

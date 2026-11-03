@@ -11,6 +11,9 @@ local module_lookup_cache = {}
 ---@type vim.pack.Spec[]
 local lazy_pack_specs = {}
 
+---What require leaves in package.loaded while a module loads, and keeps there if the load throws.
+local LOADING = package.loaded[...]
+
 ---@param path string A plugin's directory
 ---@param modname string
 ---@return string? file
@@ -35,29 +38,31 @@ local function claims_topmod(path, topmod)
   return false
 end
 
----Find the pending plugin to load for a module: the first claimant of the top-level
----name holding its file, or failing that a sole pending claimant
+---Find the pending plugin to load for a module: of the claimants of the top-level name
+---holding its file, the one named like that name as in lazy.nvim, else the first.
+---Once the first is found, only plugins named like it are scanned.
 ---@param modname string
 ---@return string? src plugin source if found
 local function find_src_by_scanning(modname)
-  local topmod = modname:match("^[^.]+")
-  local first_pending, pending_count = nil, 0
+  local topmod = modname:match("^[^.]*")
+  local norm = util.normalize_name(topmod)
+  local first
 
   for _, pack_spec in ipairs(lazy_pack_specs) do
     local src = pack_spec.src
     local registry_entry = state.spec_registry[src]
     local plugin = registry_entry and registry_entry.plugin
-    if plugin and registry_entry.load_status == "pending" and registry_entry.merged_spec.module ~= false
-        and claims_topmod(plugin.path, topmod) then
-      if module_file(plugin.path, modname) then
-        return src
+    if plugin and registry_entry.load_status == "pending" and registry_entry.merged_spec.module ~= false then
+      local named = util.normalize_name(plugin.spec.name) == norm
+      if (named or not first) and claims_topmod(plugin.path, topmod) and module_file(plugin.path, modname) then
+        if named then
+          return src
+        end
+        first = src
       end
-      first_pending = first_pending or src
-      pending_count = pending_count + 1
     end
   end
-
-  return pending_count == 1 and first_pending or nil
+  return first
 end
 
 ---Initialize module loader with lazy plugins
@@ -107,6 +112,7 @@ end
 ---@param modname string
 ---@return function|string|nil
 function M.loader(modname)
+  modname = modname:gsub("/", "."):gsub("^%.+", "")
   local src = find_src_for_module(modname)
   if not src then
     return nil
@@ -125,7 +131,7 @@ function M.loader(modname)
   require('zpack.plugin_loader').process_spec(pack_spec, { bang = true })
 
   local mod = package.loaded[modname]
-  if mod ~= nil then
+  if mod ~= nil and mod ~= LOADING then
     return function()
       return mod
     end
