@@ -477,6 +477,22 @@ describe("Lazy Loading - Commands", function()
       assert.is_nil(vim.api.nvim_get_commands({}).TestShared)
     end)
 
+    it("loads both when one of them names it in a function", function()
+      require('zpack').setup({
+        spec = {
+          { 'test/ext', cmd = 'TestShared' },
+          { 'test/owner', cmd = function() return { 'TestShared' } end },
+        },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+
+      pcall(vim.cmd, 'TestShared')
+      local state = require('zpack.state')
+      assert.are.equal('loaded', state.spec_registry[state.name_to_src.ext].load_status)
+      assert.are.equal('loaded', state.spec_registry[state.name_to_src.owner].load_status)
+    end)
+
     it("leaves the real command that replaced it", function()
       setup_shared()
 

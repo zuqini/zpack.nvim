@@ -139,7 +139,7 @@ describe("Spec Merging", function()
     assert.are.equal(true, received_accumulated.base)
   end)
 
-  it("standalone specs have priority over dependency specs", function()
+  it("a later top-level spec's opts win over an earlier spec under dependencies", function()
     local received_opts = nil
 
     require('zpack').setup({
@@ -279,21 +279,6 @@ describe("Merge Module Unit Tests", function()
     local result = fields.merge_specs(base, incoming)
 
     assert.are.equal(true, result.cond)
-  end)
-
-  it("sort_specs puts dependencies before standalone", function()
-    local fields = require('zpack.merge_fields')
-
-    local specs = {
-      { _is_dependency = true, _import_order = 0 },
-      { _is_dependency = false, _import_order = 1 },
-      { _is_dependency = true, _import_order = 2 },
-    }
-    local sorted = fields.sort_specs(specs)
-
-    assert.is_truthy(sorted[1]._is_dependency, "first should be dependency")
-    assert.is_truthy(sorted[2]._is_dependency, "second should be dependency")
-    assert.is_falsy(sorted[3]._is_dependency, "last should be standalone (wins)")
   end)
 
   it("resolve_opts accumulates through function opts", function()

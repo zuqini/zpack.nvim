@@ -32,13 +32,16 @@ local function derive_status(entry)
   -- loaded if it is pulled in as a required dependency or force-loaded via
   -- `:ZPack! load`. Reporting "disabled" for an actually-loaded plugin would
   -- break UIs that key off status.
-  if entry.load_status == 'loaded' or entry.load_status == 'loading' then
-    return entry.load_status
+  if entry.load_status == 'loaded' then
+    return 'loaded'
+  end
+  if entry.load_status == 'loading' or entry.load_status == 'sourced' then
+    return 'loading'
   end
   if entry.cond_result == false then
     return 'disabled'
   end
-  return entry.load_status or 'pending'
+  return 'pending'
 end
 
 ---Project a registry entry onto the public PluginInfo shape, or nil if the

@@ -56,11 +56,25 @@ local function split_patterns(pattern)
   return patterns
 end
 
+---Plugins whose ftdetect/ waits until the eager plugins have loaded.
+---@type string[]
+local ftdetect_after_startup = {}
+
 ---Later plugins start new groups, so they run after an autocmd registered now.
 ---An `event = 'FileType'` plugin keeps its priority slot between ft plugins, at the
 ---cost of a re-fire for each group it splits, which ft-only configs never pay.
 M.close_groups = function()
   open_groups = {}
+end
+
+M.source_ftdetect_after_startup = function()
+  for _, src in ipairs(ftdetect_after_startup) do
+    local entry = state.spec_registry[src]
+    if entry and entry.load_status == "pending" and entry.plugin then
+      runtime.source_ftdetect_files(entry.plugin.path)
+    end
+  end
+  ftdetect_after_startup = {}
 end
 
 ---@class zpack.ParsedFt
@@ -112,9 +126,13 @@ M.setup = function(pack_spec, parsed)
   -- before any file is opened. Without this, `ft = '<custom>'` for a plugin
   -- that ships its own filetype detection (e.g. `ftdetect/rust.vim`) silently
   -- never triggers, because vim.pack defers the rules behind `:packadd`.
+  -- Before filetype detection is on, native startup sources it for a plugin that
+  -- loads first, so it waits for the eager plugins and goes to those still pending.
   local registry_entry = state.spec_registry[pack_spec.src]
   local plugin_path = registry_entry and registry_entry.plugin and registry_entry.plugin.path
-  if plugin_path then
+  if plugin_path and vim.v.vim_did_init == 0 and not vim.g.did_load_filetypes then
+    table.insert(ftdetect_after_startup, pack_spec.src)
+  elseif plugin_path then
     runtime.source_ftdetect_files(plugin_path)
   end
 

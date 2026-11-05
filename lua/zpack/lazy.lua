@@ -142,12 +142,8 @@ M.warn_unusable_triggers = function(registry_entry, label)
 end
 
 ---@param ctx zpack.ProcessContext
-M.process_all = function(ctx)
-  local pending = vim.tbl_filter(function(pack_spec)
-    local registry_entry = state.spec_registry[pack_spec.src]
-    return registry_entry ~= nil and registry_entry.load_status ~= 'loaded'
-  end, ctx.registered_lazy_packs)
-  for _, pack_spec in ipairs(pending) do
+M.setup_triggers = function(ctx)
+  for _, pack_spec in ipairs(ctx.registered_lazy_packs) do
     local registry_entry = state.spec_registry[pack_spec.src]
     if registry_entry and registry_entry.merged_spec then
       local plugin = registry_entry.plugin
@@ -167,11 +163,8 @@ M.process_all = function(ctx)
       end)
     end
   end
-  cmd_handler.setup(pending)
-  keys_handler.setup(pending)
-  -- Producer of the User VeryLazy emit lives next to its per-plugin VeryLazy
-  -- consumer (event_handler) so the synthetic-event protocol stays in one file.
-  event_handler.fire_very_lazy()
+  cmd_handler.setup(ctx.registered_lazy_packs)
+  keys_handler.setup(ctx.registered_lazy_packs)
 end
 
 return M

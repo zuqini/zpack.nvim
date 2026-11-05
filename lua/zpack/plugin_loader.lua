@@ -6,6 +6,7 @@ local runtime = require('zpack.runtime')
 local utils = require('zpack.utils')
 local spec_opts = require('zpack.opts')
 local cmd_proxy = require('zpack.cmd_proxy')
+local key_proxy = require('zpack.key_proxy')
 
 local M = {}
 
@@ -41,15 +42,20 @@ end
 function M.run_config(src, plugin)
   local registry_entry = state.spec_registry[src]
   local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
+  local label = (plugin and plugin.spec and plugin.spec.name) or src
   -- resolve_opts is the single authoritative path for opts; it walks
   -- sorted_specs fresh so function-form opts compose correctly.
-  local resolved_opts = spec_opts.resolve_opts(
+  local opts_ok, resolved_opts = pcall(
+    spec_opts.resolve_opts,
     registry_entry.sorted_specs or {},
     plugin,
     spec.opts_extend
   )
+  if not opts_ok then
+    utils.schedule_notify(("Failed to run config for %s: %s"):format(label, tostring(resolved_opts)), vim.log.levels.ERROR)
+    return
+  end
   local main = utils.resolve_main(plugin, spec)
-  local label = (plugin and plugin.spec and plugin.spec.name) or src
 
   if type(spec.config) == "function" then
     local config_fn = spec.config --[[@as fun(plugin: zpack.Plugin, opts: table)]]
@@ -88,7 +94,7 @@ end
 M.bind_keys = function(registry_entry, label)
   local parsed = utils.read_trigger(registry_entry, 'keys', keymap.parse, registry_entry.plugin, label)
   if parsed then
-    local ok, err = pcall(keymap.apply_keys, parsed.keys, label)
+    local ok, err = pcall(keymap.apply_keys, key_proxy.unclaimed(parsed.keys), label)
     if not ok then
       utils.schedule_notify(
         ("Failed to apply keys for %s: %s"):format(label, tostring(err)),
@@ -137,10 +143,12 @@ M.process_spec = function(pack_spec, opts)
   -- `bang` asks to leave sourcing to native startup, which only does it for what
   -- reaches 'runtimepath' before v:vim_did_init.
   local bang = opts.bang and vim.v.vim_did_init == 0
+  local sourced = registry_entry.load_status == "sourced"
 
   registry_entry.load_status = "loading"
   -- lazy.nvim parity: a plugin's own `:command Foo` fails while a proxy holds the name.
   cmd_proxy.release(pack_spec.src)
+  key_proxy.release(pack_spec.src)
 
   -- On throw, reset load_status to "pending" so a retry doesn't hit the
   -- "Circular dependency" branch above; re-raise to preserve the existing
@@ -149,11 +157,18 @@ M.process_spec = function(pack_spec, opts)
   -- roll back into a retry that double-runs run_config.
   local ok, err = pcall(function()
     local deps = utils.sorted_dependencies(pack_spec.src)
+    -- Native startup sources ftdetect/ only for what's on 'runtimepath' as filetype detection comes on.
+    -- What's on it already got its ftdetect/ then, or from startup's eager pass.
+    local ftdetect = bang and vim.g.did_load_filetypes and plugin.path
+        and not (',' .. vim.o.runtimepath .. ','):find(',' .. plugin.path .. ',', 1, true)
 
     -- lazy.nvim parity: on 'runtimepath' first, since a dependency's scripts can
     -- require its parent, but sourced after its dependencies.
     if bang or #deps > 0 then
       vim.cmd.packadd({ name, bang = true })
+    end
+    if ftdetect then
+      runtime.source_ftdetect_files(plugin.path)
     end
 
     for _, dep_src in ipairs(deps) do
@@ -173,12 +188,8 @@ M.process_spec = function(pack_spec, opts)
       end
     end
 
-    if not bang then
-      runtime.packadd_sourcing(name)
-      -- :packadd sources plugin/ but never after/plugin/. Source them explicitly.
-      if plugin.path then
-        runtime.source_after_plugin_files(plugin.path)
-      end
+    if not bang and not sourced then
+      runtime.packadd_sourcing(name, plugin.path)
     end
 
     if spec.config or registry_entry.has_opts then

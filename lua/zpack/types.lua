@@ -83,9 +83,13 @@
 ---  `pending` — next trigger will start a load.
 ---  `loading` — process_spec body mid-flight; observed only from
 ---              synchronous re-entry (e.g. plugin/ files firing autocmds).
----  `loaded`  — committed after run_config succeeds; apply_keys runs after
----              this transition so a key-spec throw can't trigger a retry.
----@alias zpack.LoadStatus "pending" | "loading" | "loaded"
+---  `sourced` — a late setup()'s startup pass has sourced (or is sourcing)
+---              its scripts, and its config is still to run; process_spec
+---              runs only the config.
+---  `loaded`  — set once it has loaded, or as startup is about to run its
+---              config; apply_keys runs after this transition so a key-spec
+---              throw can't trigger a retry.
+---@alias zpack.LoadStatus "pending" | "loading" | "sourced" | "loaded"
 
 ---@alias zpack.PluginStatus "pending" | "loading" | "loaded" | "disabled" | "installing"
 
@@ -99,8 +103,8 @@
 ---@field path? string Absolute plugin directory; nil while `status == "installing"`
 
 ---@class zpack.RegistryEntry
----@field specs zpack.Spec[]
----@field sorted_specs? zpack.Spec[]
+---@field specs zpack.Spec[] In import order, the order they merge in
+---@field sorted_specs? zpack.Spec[] The specs merged_spec was built from
 ---@field merged_spec? zpack.Spec
 ---@field has_opts? boolean Whether any spec in this entry contributes opts; authoritative existence check
 ---@field plugin zpack.Plugin?

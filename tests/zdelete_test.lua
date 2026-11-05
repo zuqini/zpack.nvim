@@ -219,7 +219,7 @@ describe("ZPack delete", function()
     assert.is_falsy(still_listed, "plugin-a should no longer be in registered names")
   end)
 
-  it("firing a deleted lazy plugin's trigger does not error or load it", function()
+  it("deleting a lazy plugin drops its command proxy without loading it", function()
     local loaded = false
 
     require('zpack').setup({
@@ -242,15 +242,80 @@ describe("ZPack delete", function()
       "lazy cmd trigger should be registered before deletion"
     )
 
-    -- Remove the plugin while its lazy trigger is still live.
     vim.pack.del({ 'plugin-a' })
     helpers.flush_pending()
 
-    local ok = pcall(vim.cmd, 'TestCommand')
+    assert.is_nil(vim.api.nvim_get_commands({}).TestCommand)
+    local ok, err = pcall(vim.cmd, 'TestCommand')
     helpers.flush_pending()
 
-    assert.is_truthy(ok, "firing a deleted lazy plugin's command should not error")
-    assert.is_falsy(loaded, "deleted lazy plugin should not load when its trigger fires")
+    assert.is_falsy(ok)
+    assert.matches('E492', tostring(err))
+    assert.is_falsy(loaded, "deleted lazy plugin should not load")
+    assert.is_nil(helpers.find_notification({ 'TestCommand' }))
+  end)
+
+  for label, key in pairs({ ['with an rhs'] = { '<leader>td', function() end }, ['lhs-only'] = { '<leader>td' } }) do
+    it(("deleting a lazy plugin drops its key proxy %s without loading it"):format(label), function()
+      local loaded = false
+
+      require('zpack').setup({
+        spec = {
+          {
+            'test/plugin-a',
+            keys = { key },
+            config = function()
+              loaded = true
+            end,
+          },
+        },
+        defaults = { confirm = false },
+      })
+
+      helpers.flush_pending()
+      assert.are_not.equal('', vim.fn.maparg(' td', 'n'), "lazy key trigger should be mapped before deletion")
+
+      vim.pack.del({ 'plugin-a' })
+      helpers.flush_pending()
+
+      assert.are.equal('', vim.fn.maparg(' td', 'n'))
+      vim.api.nvim_feedkeys(' td', 'mx', false)
+      helpers.flush_pending()
+      assert.is_falsy(loaded, "deleted lazy plugin should not load")
+    end)
+  end
+
+  it("deleting one of two plugins sharing a command lets the other define it", function()
+    local ran
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin-a',
+          cmd = 'TestShared',
+          event = 'User TestLoadA',
+          config = function()
+            vim.cmd('command TestShared lua _G.test_shared_ran = true')
+            ran = true
+          end,
+        },
+        { 'test/plugin-b', cmd = 'TestShared' },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+
+    vim.pack.del({ 'plugin-b' })
+    helpers.flush_pending()
+    vim.api.nvim_exec_autocmds('User', { pattern = 'TestLoadA' })
+    helpers.flush_pending()
+
+    assert.is_true(ran)
+    vim.cmd('TestShared')
+    assert.is_true(_G.test_shared_ran)
+    _G.test_shared_ran = nil
+    pcall(vim.api.nvim_del_user_command, 'TestShared')
   end)
 
   it("delete non-existent plugin does not call vim.pack.del", function()

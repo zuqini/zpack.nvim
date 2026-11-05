@@ -6,7 +6,10 @@ describe("a real startup", function()
     local repo = repos .. '/' .. name
     vim.fn.mkdir(repo .. '/plugin', 'p')
     vim.fn.mkdir(repo .. '/after/plugin', 'p')
-    vim.fn.writefile({ ("table.insert(_G.LOG, '%s.plugin')"):format(name) }, repo .. '/plugin/' .. name .. '.lua')
+    vim.fn.writefile(
+      { ("table.insert(_G.LOG, '%s.plugin' .. (vim.g.%s_flag and '+flag' or ''))"):format(name, name) },
+      repo .. '/plugin/' .. name .. '.lua'
+    )
     vim.fn.writefile({ ("table.insert(_G.LOG, '%s.after')"):format(name) }, repo .. '/after/plugin/' .. name .. '.lua')
     vim.fn.mkdir(repo .. '/lua', 'p')
     vim.fn.writefile({ 'return {}' }, repo .. '/lua/' .. name .. '.lua')
@@ -22,15 +25,22 @@ describe("a real startup", function()
   end
 
   ---@param spec_body string Lua for the spec list, with `aa`, `bb` and `cc` as repo URLs
-  ---@param opts? { after_setup?: string, late?: boolean, noplugin?: boolean } Lua to run in init.lua after setup(), setup() at VimEnter, or --noplugin
+  ---@param opts? { before_setup?: string, after_setup?: string, at_vim_enter?: string, late?: boolean, noplugin?: boolean, in_plugin?: boolean, home?: string } Lua to run in init.lua before and after setup(), Lua to run at VimEnter after a late setup(), setup() at VimEnter, --noplugin, setup() in the config's plugin/, or the name of the dir holding the XDG dirs
   ---@return string[] log what ran by the time VimEnter's autocmds finished
   local function start(spec_body, opts)
     opts = opts or {}
-    local home = root .. '/home'
+    local home = root .. '/' .. (opts.home or 'home')
     vim.fn.delete(home, 'rf')
     vim.fn.mkdir(home .. '/config/nvim', 'p')
     local out = root .. '/log.json'
     local init = home .. '/config/nvim/init.lua'
+    if opts.in_plugin then
+      vim.fn.mkdir(home .. '/config/nvim/plugin', 'p')
+      vim.fn.writefile({
+        "table.insert(_G.LOG, 'vim_did_init=' .. vim.v.vim_did_init)",
+        '_G.ZPACK_SETUP()',
+      }, home .. '/config/nvim/plugin/zpack.lua')
+    end
     vim.fn.writefile({
       '_G.LOG = {}',
       ("vim.opt.rtp:prepend(%q)"):format(vim.fn.getcwd()),
@@ -38,10 +48,13 @@ describe("a real startup", function()
       "local function setup()",
       ("  require('zpack').setup({ spec = %s, defaults = { confirm = false } })"):format((spec_body:gsub('\n', ' '))),
       "end",
-      opts.late and '' or 'setup()',
+      '_G.ZPACK_SETUP = setup',
+      opts.before_setup or '',
+      (opts.late or opts.in_plugin) and '' or 'setup()',
       opts.after_setup or '',
       "vim.api.nvim_create_autocmd('VimEnter', { callback = function()",
       opts.late and '  setup()' or '',
+      opts.at_vim_enter or '',
       ("  vim.fn.writefile({ vim.json.encode(_G.LOG) }, %q)"):format(out),
       "  vim.cmd('qa!')",
       "end })",
@@ -61,6 +74,10 @@ describe("a real startup", function()
     ):wait()
     assert.are.equal(0, result.code, result.stderr)
     return vim.json.decode(vim.fn.readfile(out)[1])
+  end
+
+  local function count(log, wanted)
+    return #vim.tbl_filter(function(entry) return entry == wanted end, log)
   end
 
   before_each(function()
@@ -107,10 +124,6 @@ describe("a real startup", function()
       config = function() table.insert(_G.LOG, 'aa.config') end }]]
     local lazy_bb = [[{ url = bb, name = 'bb', cmd = 'Foo', dependencies = { { url = aa, name = 'aa' } },
       config = function() table.insert(_G.LOG, 'bb.config') end }]]
-
-    local function count(log, wanted)
-      return #vim.tbl_filter(function(entry) return entry == wanted end, log)
-    end
 
     local function assert_ran_once(log)
       assert.are.equal(1, count(log, 'aa.config'))
@@ -170,6 +183,539 @@ describe("a real startup", function()
     it("are on 'runtimepath' after startup if it's eager", function()
       local log = start(own, { after_setup = require_aa })
       assert.is_true(vim.list_contains(log, 'require:true'))
+    end)
+  end)
+
+  describe("an init that requires an eager plugin's module", function()
+    local require_aa = "table.insert(_G.LOG, 'require:' .. tostring(pcall(require, 'aa')))"
+    local aa = "{ url = aa, name = 'aa', priority = %d, config = function() table.insert(_G.LOG, 'aa.config') end }"
+    local bb = ("{ url = bb, name = 'bb', init = function() %s end }"):format(require_aa)
+
+    ---aa loaded during the init, before the require returned, and only then.
+    ---@param once? string[] what ran once, by default its config, plugin/ and after/plugin
+    local function assert_loaded_early(log, once)
+      assert.is_true(vim.list_contains(log, 'require:true'))
+      for _, entry in ipairs(once or { 'aa.config', 'aa.plugin', 'aa.after' }) do
+        assert.are.equal(1, count(log, entry), entry)
+      end
+      assert.is_true(vim.fn.index(log, 'aa.config') < vim.fn.index(log, 'require:true'))
+    end
+
+    for _, priority in ipairs({ 50, 1000, 10000 }) do
+      it(("loads it during the init, once, at priority %d"):format(priority), function()
+        assert_loaded_early(start(('{ %s, %s }'):format(aa:format(priority), bb)))
+      end)
+    end
+
+    it("loads it once when it's the plugin's own init", function()
+      local log = start(([[{ { url = aa, name = 'aa', init = function() %s end,
+        config = function() table.insert(_G.LOG, 'aa.config') end } }]]):format(require_aa))
+      assert_loaded_early(log)
+    end)
+
+    it("loads it, and not the lazy plugin whose init it is (AstroNvim's mason-tool-installer)", function()
+      local log = start(([[{
+        { url = aa, name = 'aa', lazy = false, priority = 10000, config = function() table.insert(_G.LOG, 'aa.config') end },
+        { url = bb, name = 'bb', cmd = 'BbCmd', init = function() %s end,
+          dependencies = { { url = aa, name = 'aa', opts = function(_, opts) opts.x = 1 end } } },
+      }]]):format(require_aa))
+      assert_loaded_early(log)
+      assert.is_false(vim.list_contains(log, 'bb.plugin'))
+    end)
+
+    for mode, label in pairs({ late = 'at VimEnter', in_plugin = 'in load_plugins' }) do
+      it(("loads it once when setup() runs %s"):format(label), function()
+        local log = start(('{ %s, %s }'):format(aa:format(50), bb), { [mode] = true })
+        if mode == 'in_plugin' then
+          assert.are.equal('vim_did_init=1', log[1])
+          -- Native load_plugins sources after/plugin again, as for any eager plugin (zpack_nvim-53p).
+          assert_loaded_early(log, { 'aa.config', 'aa.plugin' })
+        else
+          assert_loaded_early(log)
+        end
+      end)
+    end
+
+    it("loads it once from a script sourced before it when setup() runs at VimEnter", function()
+      local log = start(([[{
+        { url = cc, name = 'cc', priority = 100, dependencies = { { url = bb, name = 'bb', cmd = 'BbCmd',
+          config = function() %s end } } },
+        %s,
+      }]]):format(require_aa, aa:format(50)), { late = true })
+      assert_loaded_early(log)
+    end)
+
+    for mode, label in pairs({ late = 'at VimEnter', in_plugin = 'in load_plugins' }) do
+      it(("sources it once when its lazy dependency's config loads it through a plugin listing it, setup() %s"):format(label), function()
+        local log = start([[{
+          { url = aa, name = 'aa', priority = 100, config = function() table.insert(_G.LOG, 'aa.config') end,
+            dependencies = { { url = bb, name = 'bb', cmd = 'BbCmd', config = function() pcall(require, 'cc') end } } },
+          { url = cc, name = 'cc', priority = 10, dependencies = { { url = aa, name = 'aa' } } },
+        }]], { [mode] = true })
+        assert.are.equal(1, count(log, 'aa.plugin'), vim.inspect(log))
+        assert.are.equal(1, count(log, 'aa.config'), vim.inspect(log))
+      end)
+    end
+
+    it("loads the other eager plugins in priority order", function()
+      local log = start(([[{
+        { url = cc, name = 'cc', priority = 100, config = function() table.insert(_G.LOG, 'cc.config') end },
+        %s,
+        { url = bb, name = 'bb', priority = 10, init = function() %s end,
+          config = function() table.insert(_G.LOG, 'bb.config') end },
+      }]]):format(aa:format(50), require_aa))
+      assert_loaded_early(log)
+      assert.is_true(vim.fn.index(log, 'cc.config') < vim.fn.index(log, 'bb.config'))
+      assert.is_true(vim.fn.index(log, 'aa.config') < vim.fn.index(log, 'cc.config'))
+      for _, entry in ipairs({ 'plugin', 'after' }) do
+        assert.is_true(vim.fn.index(log, 'cc.' .. entry) < vim.fn.index(log, 'aa.' .. entry), entry)
+        assert.is_true(vim.fn.index(log, 'aa.' .. entry) < vim.fn.index(log, 'bb.' .. entry), entry)
+      end
+    end)
+
+    it("sources its plugin/ before a plugin listing it as a dependency", function()
+      local log = start(([[{
+        { url = cc, name = 'cc', priority = 100, dependencies = { { url = aa, name = 'aa' } } },
+        { url = bb, name = 'bb', priority = 10, init = function() %s end },
+      }]]):format(require_aa))
+      assert.is_true(vim.list_contains(log, 'require:true'))
+      assert.are.same({ 'aa.plugin', 'cc.plugin', 'bb.plugin' }, vim.tbl_filter(function(entry)
+        return entry:find('%.plugin$') ~= nil
+      end, log))
+    end)
+
+    it("leaves every plugin/ to see the vim.g the inits set, its own init's too", function()
+      local log = start(([[{
+        { url = cc, name = 'cc', priority = 100, init = function() %s end },
+        { url = aa, name = 'aa', init = function() vim.g.aa_flag = 1 end },
+        { url = bb, name = 'bb', priority = 10, init = function() vim.g.bb_flag = 1 end },
+      }]]):format(require_aa))
+      assert.is_true(vim.list_contains(log, 'require:true'))
+      assert.is_true(vim.list_contains(log, 'aa.plugin+flag'))
+      assert.is_true(vim.list_contains(log, 'bb.plugin+flag'))
+    end)
+
+    -- The lazy one stays where the init's :packadd! put it, behind every eager plugin,
+    -- as for any lazy plugin an init loads.
+    local plugin_order = {
+      lazy = { 'cc.plugin', 'aa.plugin', 'bb.plugin' },
+      eager = { 'cc.plugin', 'bb.plugin', 'aa.plugin' },
+    }
+    for kind, trigger in pairs({ lazy = "cmd = 'BbCmd', ", eager = '' }) do
+      it(("loads its %s dependency first, once"):format(kind), function()
+        local log = start(([[{
+          { url = cc, name = 'cc', priority = 100, init = function() %s end },
+          { url = aa, name = 'aa', config = function() table.insert(_G.LOG, 'aa.config') end,
+            dependencies = { { url = bb, name = 'bb', %sconfig = function() table.insert(_G.LOG, 'bb.config') end } } },
+        }]]):format(require_aa, trigger))
+        assert_loaded_early(log)
+        for _, entry in ipairs({ 'bb.config', 'bb.plugin', 'bb.after' }) do
+          assert.are.equal(1, count(log, entry), entry)
+        end
+        assert.is_true(vim.fn.index(log, 'bb.config') < vim.fn.index(log, 'aa.config'))
+        assert.are.same(plugin_order[kind], vim.tbl_filter(function(entry)
+          return entry:find('%.plugin$') ~= nil
+        end, log))
+      end)
+    end
+
+    describe("whose function-form opts throw", function()
+      local throwing = "{ url = aa, name = 'aa', priority = 90, opts = function() table.insert(_G.LOG, 'aa.opts') error('boom') end }"
+
+      for mode, label in pairs({ init = 'in init.lua', late = 'at VimEnter' }) do
+        it(("runs them once and finishes loading it, setup() %s"):format(label), function()
+          local log = start(('{ %s, %s }'):format(throwing, bb), { late = mode == 'late' })
+          assert.is_true(vim.list_contains(log, 'require:true'), vim.inspect(log))
+          for _, entry in ipairs({ 'aa.opts', 'aa.plugin', 'aa.after' }) do
+            assert.are.equal(1, count(log, entry), entry)
+          end
+        end)
+      end
+
+      it("sources its plugin/ in its place among the eager plugins", function()
+        local log = start(([[{
+          { url = cc, name = 'cc', priority = 100, init = function() pcall(require, 'aa') end },
+          %s,
+          { url = bb, name = 'bb', priority = 10 },
+        }]]):format(throwing))
+        assert.are.same({ 'aa.opts', 'cc.plugin', 'aa.plugin', 'bb.plugin' }, vim.tbl_filter(function(entry)
+          return entry:find('%.plugin$') ~= nil or entry == 'aa.opts'
+        end, log))
+      end)
+    end)
+  end)
+
+  describe("a function-form trigger that requires a plugin's module", function()
+    local function flagged(name, fields)
+      return ("{ url = %s, name = '%s', %s init = function() table.insert(_G.LOG, '%s.init'); vim.g.%s_flag = 1 end,"
+        .. " config = function() table.insert(_G.LOG, '%s.config flag=' .. tostring(vim.g.%s_flag)) end }")
+        :format(name, name, fields, name, name, name, name)
+    end
+    local function keys_requiring(module)
+      return ("keys = function() table.insert(_G.LOG, 'require:' .. tostring(pcall(require, '%s')));"
+        .. " return { { 'zx', function() end } } end,"):format(module)
+    end
+
+    local function assert_loaded_before_inits(log, name)
+      assert.is_true(vim.list_contains(log, 'require:true'), vim.inspect(log))
+      assert.are.equal(1, count(log, name .. '.config flag=nil'), vim.inspect(log))
+      assert.are.equal(1, count(log, name .. '.plugin') + count(log, name .. '.plugin+flag'), vim.inspect(log))
+      assert.is_true(vim.fn.index(log, name .. '.config flag=nil') < vim.fn.index(log, 'cc.init'), vim.inspect(log))
+    end
+
+    for mode, label in pairs({ init = 'in init.lua', late = 'at VimEnter' }) do
+      it(("loads an eager plugin there, before the inits and the higher-priority configs, setup() %s"):format(label), function()
+        local log = start(('{ %s, %s, { url = bb, name = \'bb\', %s } }'):format(
+          flagged('cc', 'priority = 1000,'), flagged('aa', 'priority = 100,'), keys_requiring('aa')), { late = mode == 'late' })
+        assert_loaded_before_inits(log, 'aa')
+        assert.is_true(vim.fn.index(log, 'aa.config flag=nil') < vim.fn.index(log, 'cc.config flag=1'), vim.inspect(log))
+      end)
+
+      it(("loads its own lazy plugin there, before the inits, setup() %s"):format(label), function()
+        local log = start(('{ %s, %s }'):format(flagged('bb', keys_requiring('bb')), flagged('cc', 'priority = 100,')),
+          { late = mode == 'late' })
+        assert_loaded_before_inits(log, 'bb')
+      end)
+
+      for _, priority in ipairs({ 10, 50, 100 }) do
+        it(("lets an eager config at priority %d that requires that lazy plugin's module get it configured, setup() %s"):format(priority, label), function()
+          local log = start(("{ { url = bb, name = 'bb', %s config = function() _G.BB_CFG = 'user' end },"
+            .. " { url = cc, name = 'cc', priority = %d, config = function() require('bb'); table.insert(_G.LOG, 'cc.config bb=' .. tostring(_G.BB_CFG)) end } }")
+            :format(keys_requiring('bb'), priority), { late = mode == 'late' })
+          assert.are.equal(1, count(log, 'cc.config bb=user'), vim.inspect(log))
+          assert.are.equal(1, count(log, 'bb.plugin'), vim.inspect(log))
+        end)
+      end
+
+      it(("finishes setup() when an init removes that plugin, setup() %s"):format(label), function()
+        local log = start(("{ { url = cc, name = 'cc', priority = 100, init = function() vim.pack.del({ 'bb' }, { force = true }) end,"
+          .. " config = function() table.insert(_G.LOG, 'cc.config') end }, { url = bb, name = 'bb', %s } }")
+          :format(keys_requiring('bb')), { late = mode == 'late', at_vim_enter = "table.insert(_G.LOG, 'zpack_cmd=' .. vim.fn.exists(':ZPack'))" })
+        assert.is_true(vim.list_contains(log, 'require:true'), vim.inspect(log))
+        assert.are.same({ 1, 1 }, { count(log, 'cc.config'), count(log, 'zpack_cmd=2') }, vim.inspect(log))
+      end)
+    end
+  end)
+
+  describe("a lazy plugin an init removes", function()
+    local remover = "{ url = cc, name = 'cc', priority = 100, init = function() vim.pack.del({ 'bb' }, { force = true }) end }"
+
+    for label, late in pairs({ ['in init.lua'] = false, ['at VimEnter'] = true }) do
+      it(("doesn't fire its event again, setup() %s"):format(label), function()
+        local log = start(("{ %s, { url = bb, name = 'bb', event = 'FileType' } }"):format(remover), {
+          late = late,
+          before_setup = "vim.api.nvim_create_autocmd('FileType', { callback = function() table.insert(_G.LOG, 'FT') end })",
+          at_vim_enter = "vim.cmd.enew(); vim.bo.filetype = 'lua'",
+        })
+        assert.are.equal(2, count(log, 'FT'), vim.inspect(log))
+      end)
+
+      it(("finishes setup() when the plugin has an init of its own, setup() %s"):format(label), function()
+        local log = start(("{ %s, { url = bb, name = 'bb', event = 'User Never', init = function() end } }"):format(remover), {
+          late = late,
+          at_vim_enter = "table.insert(_G.LOG, 'zpack_cmd=' .. vim.fn.exists(':ZPack'))",
+        })
+        assert.is_true(vim.list_contains(log, 'zpack_cmd=2'), vim.inspect(log))
+      end)
+
+      it(("leaves no command proxy, setup() %s"):format(label), function()
+        local log = start(("{ %s, { url = bb, name = 'bb', cmd = 'BbCmd', config = function() table.insert(_G.LOG, 'bb.config') end } }")
+          :format(remover), {
+          late = late,
+          before_setup = "vim.notify = function(msg) table.insert(_G.LOG, 'note: ' .. tostring(msg)) end",
+          at_vim_enter = "table.insert(_G.LOG, 'exists=' .. vim.fn.exists(':BbCmd')) "
+            .. "local _, err = pcall(vim.cmd, 'BbCmd') "
+            .. "table.insert(_G.LOG, 'err=' .. tostring(tostring(err):match('E%d+'))) "
+            .. "vim.wait(50)",
+        })
+        assert.is_true(vim.list_contains(log, 'exists=0'), vim.inspect(log))
+        assert.is_true(vim.list_contains(log, 'err=E492'), vim.inspect(log))
+        assert.is_false(vim.list_contains(log, 'bb.config'), vim.inspect(log))
+        for _, entry in ipairs(log) do
+          assert.is_nil(entry:find('BbCmd', 1, true), vim.inspect(log))
+        end
+      end)
+
+      for kind, key in pairs({ ['with an rhs'] = "{ 'x', function() table.insert(_G.LOG, 'rhs') end }", ['lhs-only'] = "{ 'x' }" }) do
+        it(("leaves no key proxy %s, setup() %s"):format(kind, label), function()
+          local log = start(("{ %s, { url = bb, name = 'bb', keys = { %s }, config = function() table.insert(_G.LOG, 'bb.config') end } }")
+            :format(remover, key), {
+            late = late,
+            at_vim_enter = "table.insert(_G.LOG, 'map=' .. vim.fn.maparg('x', 'n')) "
+              .. "vim.cmd.enew() vim.api.nvim_buf_set_lines(0, 0, -1, false, { 'abc' }) "
+              .. "vim.api.nvim_feedkeys('x', 'xt', false) "
+              .. "table.insert(_G.LOG, 'line=' .. vim.api.nvim_get_current_line())",
+          })
+          assert.are.same({ 'map=', 'line=bc' }, vim.tbl_filter(function(entry)
+            return entry:find('^map=') or entry:find('^line=') or entry == 'rhs' or entry == 'bb.config'
+          end, log))
+        end)
+      end
+    end
+  end)
+
+  describe("an eager plugin setup() sources late, listed under another's dependencies", function()
+    local cc = "{ url = cc, name = 'cc', priority = 100, config = function() table.insert(_G.LOG, 'cc.config') end }"
+
+    local function assert_sourced_once(log)
+      for _, entry in ipairs({ 'cc.plugin', 'cc.after', 'cc.config' }) do
+        assert.are.equal(1, count(log, entry), entry .. ': ' .. vim.inspect(log))
+      end
+    end
+
+    it("is sourced once when a lazy plugin listing it loads later in the pass", function()
+      local log = start(([[{
+        %s,
+        { url = aa, name = 'aa', priority = 10, dependencies = { { url = bb, name = 'bb', cmd = 'BbCmd',
+          dependencies = { { url = cc, name = 'cc' } }, config = function() table.insert(_G.LOG, 'bb.config') end } } },
+      }]]):format(cc), { late = true })
+      assert_sourced_once(log)
+      assert.is_true(vim.fn.index(log, 'cc.config') < vim.fn.index(log, 'bb.config'), vim.inspect(log))
+    end)
+
+    it("is sourced once when its plugin/ requires a plugin listing it", function()
+      vim.fn.mkdir(repos .. '/cc/plugin', 'p')
+      vim.fn.writefile({ "table.insert(_G.LOG, 'require:' .. tostring(pcall(require, 'aa')))" }, repos .. '/cc/plugin/req.lua')
+      local log = start(([[{
+        %s,
+        { url = aa, name = 'aa', priority = 10, dependencies = { { url = cc, name = 'cc' } },
+          config = function() table.insert(_G.LOG, 'aa.config') end },
+      }]]):format(cc), { late = true })
+      assert_sourced_once(log)
+      assert.are.equal(1, count(log, 'aa.plugin'), vim.inspect(log))
+      assert.is_true(vim.list_contains(log, 'require:true'), vim.inspect(log))
+    end)
+  end)
+
+  describe("a lazy plugin whose ftdetect/ sets the filetype", function()
+    -- :edit in the non-nested VimEnter skips BufReadPost; since neovim/neovim@4f9ccb1 it runs filetypedetect itself.
+    local open_two = [[
+      vim.api.nvim_create_autocmd('FileType', { pattern = 'bbft', callback = function(ev) table.insert(_G.LOG, 'FT' .. ev.buf) end })
+      for _ = 1, 2 do
+        local file = vim.fn.tempname() .. '.bbft'
+        vim.fn.writefile({ 'x' }, file)
+        vim.cmd.edit(file)
+        if vim.bo.filetype == '' then vim.cmd('filetype detect') end
+        table.insert(_G.LOG, 'opened' .. vim.api.nvim_get_current_buf())
+      end
+    ]]
+    local bb = "{ url = bb, name = 'bb', ft = 'bbft' }"
+
+    ---@return integer[] fired how often FileType fired for each file opened
+    local function start_and_open(spec_body, opts)
+      vim.fn.mkdir(repos .. '/bb/ftdetect', 'p')
+      vim.fn.writefile({
+        "lua table.insert(_G.LOG, 'bb.ftdetect')",
+        'au BufRead,BufNewFile *.bbft set filetype=bbft',
+      }, repos .. '/bb/ftdetect/bbft.vim')
+      vim.fn.mkdir(repos .. '/bb/plugin', 'p')
+      vim.fn.writefile({ "lua table.insert(_G.LOG, 'bb.vim')" }, repos .. '/bb/plugin/bb.vim')
+      opts = opts or {}
+      local log = start(spec_body, vim.tbl_extend('force', opts, { at_vim_enter = open_two:gsub('\n', ' ') .. (opts.at_vim_enter or '') }))
+      assert.are.equal(1, count(log, 'bb.ftdetect'), vim.inspect(log))
+      local fired = {}
+      for _, entry in ipairs(log) do
+        local buf = entry:match('^opened(%d+)$')
+        if buf then
+          fired[#fired + 1] = count(log, 'FT' .. buf)
+        end
+      end
+      return fired, log
+    end
+
+    for late, label in pairs({ [false] = 'from init.lua', [true] = 'at VimEnter' }) do
+      it(("fires FileType once per file when an eager plugin lists it, setup() %s"):format(label), function()
+        assert.are.same({ 1, 1 }, start_and_open(("{ { url = aa, name = 'aa', dependencies = { %s } } }"):format(bb), { late = late }))
+      end)
+
+      it(("fires FileType once for a later file when it loads on its filetype, setup() %s"):format(label), function()
+        assert.are.equal(1, (start_and_open(('{ %s }'):format(bb), { late = late }))[2])
+      end)
+
+      it(("sources an eager plugin's ftdetect/ once without filetype detection on first, setup() %s"):format(label), function()
+        assert.are.same({ 1, 1 }, start_and_open("{ { url = bb, name = 'bb', lazy = false } }", { late = late }))
+      end)
+    end
+
+    it("sources its plugin/ as :packadd does when it loads on its filetype, .vim before .lua, whatever 'wildignore'", function()
+      local _, log = start_and_open(('{ %s }'):format(bb), { before_setup = "vim.o.wildignore = '*.lua'" })
+      assert.are.equal(1, count(log, 'bb.plugin'), vim.inspect(log))
+      assert.is_true(vim.fn.index(log, 'bb.vim') >= 0 and vim.fn.index(log, 'bb.vim') < vim.fn.index(log, 'bb.plugin'), vim.inspect(log))
+    end)
+
+    it("fires FileType once for a later file when its build loads it on first install", function()
+      assert.are.equal(1, (start_and_open("{ { url = bb, name = 'bb', ft = 'bbft', build = function() end } }"))[2])
+    end)
+
+    for hook, label in pairs({ init = 'an init turns filetype detection on before it loads', config = 'an eager config turns filetype detection on after it loads' }) do
+      it(("fires FileType once per file when %s"):format(label), function()
+        local spec = "{ { url = aa, name = 'aa', %s = function() vim.cmd('filetype on') end, dependencies = { %s } } }"
+        assert.are.same({ 1, 1 }, start_and_open(spec:format(hook, bb)))
+      end)
+    end
+
+    it("fires FileType once per file when its own dependency's config turns filetype detection on", function()
+      local spec = [[{ { url = aa, name = 'aa', dependencies = { { url = bb, name = 'bb', lazy = true, dependencies = {
+        { url = cc, name = 'cc', lazy = true, config = function() vim.cmd('syntax enable') end },
+      } } } } }]]
+      assert.are.same({ 1, 1 }, start_and_open(spec))
+    end)
+
+    for label, spec in pairs({
+      ["an eager plugin, with filetype detection on first"] = { "{ { url = bb, name = 'bb', lazy = false } }", "vim.cmd('filetype on')", { 1, 1 } },
+      ["a lazy plugin that loads on its filetype"] = { ('{ %s }'):format(bb), '', { 2, 1 } },
+    }) do
+      it(("sources the ftdetect/ of %s under a data path with # and %% in it"):format(label), function()
+        local fired, log = start_and_open(spec[1], {
+          home = 'h#o%me',
+          before_setup = "vim.notify = function(msg) table.insert(_G.LOG, 'note: ' .. tostring(msg)) end " .. spec[2],
+          at_vim_enter = 'vim.wait(10)',
+        })
+        assert.are.same(spec[3], fired)
+        assert.are.same({}, vim.tbl_filter(function(entry) return vim.startswith(entry, 'note: ') end, log))
+      end)
+    end
+
+    it("sources an eager plugin's ftdetect/ once when an init requires it and turns filetype detection on", function()
+      local spec = "{ { url = bb, name = 'bb', lazy = false }, { url = aa, name = 'aa', init = function() require('bb') vim.cmd('filetype on') end } }"
+      assert.are.same({ 1, 1 }, start_and_open(spec))
+    end)
+
+    local eager_bb = "{ url = bb, name = 'bb', lazy = false }"
+    local lists_bb = "{ url = cc, name = 'cc', lazy = true, dependencies = { %s } }"
+    for label, case in pairs({
+      ["sets the scheme it holds"] = { 'bb', "vim.cmd.colorscheme('zcs')", eager_bb },
+      ["sets the scheme of a lazy plugin listing it"] = { 'cc', "vim.cmd.colorscheme('zcs')", lists_bb:format(eager_bb) },
+      ["requires a lazy plugin listing it"] = { nil, "require('cc')", lists_bb:format(eager_bb) },
+    }) do
+      it(("sources an eager plugin's ftdetect/ once when a config turns filetype detection on and %s"):format(label), function()
+        if case[1] then
+          vim.fn.mkdir(repos .. '/' .. case[1] .. '/colors', 'p')
+          vim.fn.writefile({ "let g:colors_name = 'zcs'" }, repos .. '/' .. case[1] .. '/colors/zcs.vim')
+        end
+        local spec = "{ { url = aa, name = 'aa', priority = 10000, config = function() vim.cmd('filetype on') %s end }, %s }"
+        assert.are.same({ 1, 1 }, start_and_open(spec:format(case[2], case[3])))
+      end)
+    end
+
+    describe("with filetype detection on before setup()", function()
+      local fton = { before_setup = "vim.cmd('filetype on')" }
+
+      it("fires FileType once per file when an eager plugin lists it", function()
+        assert.are.same({ 1, 1 }, start_and_open(("{ { url = aa, name = 'aa', dependencies = { %s } } }"):format(bb), fton))
+      end)
+
+      it("finishes setup() when an init removes an eager plugin", function()
+        local log = start([[{ { url = cc, name = 'cc', priority = 100, init = function() vim.pack.del({ 'bb' }, { force = true }) end,
+          config = function() table.insert(_G.LOG, 'cc.config') end }, { url = bb, name = 'bb' } }]], fton)
+        assert.are.equal(1, count(log, 'cc.config'), vim.inspect(log))
+      end)
+
+      it("sources its ftdetect/ before the inits", function()
+        local spec = "{ %s, { url = aa, name = 'aa', init = function() table.insert(_G.LOG, 'aa.init') end } }"
+        local fired, log = start_and_open(spec:format(bb), fton)
+        assert.are.equal(1, fired[2])
+        assert.is_true(vim.fn.index(log, 'bb.ftdetect') < vim.fn.index(log, 'aa.init'), vim.inspect(log))
+      end)
+
+      for label, spec in pairs({
+        ["it's eager"] = "{ { url = bb, name = 'bb', lazy = false } }",
+        ["an eager plugin lists it without lazy = true"] = "{ { url = aa, name = 'aa', dependencies = { { url = bb, name = 'bb' } } } }",
+      }) do
+        it(("sources an eager plugin's ftdetect/ once when %s, after filetype plugin indent on (vimtex)"):format(label), function()
+          assert.are.same({ 1, 1 }, start_and_open(spec, { before_setup = "vim.cmd('filetype plugin indent on')" }))
+        end)
+      end
+
+      local lazy_bb = "{ url = bb, name = 'bb', lazy = true }"
+      for label, spec in pairs({
+        ["an eager plugin lists it with lazy = true"] = ("{ { url = aa, name = 'aa', dependencies = { %s } } }"):format(lazy_bb),
+        ["an init requires it"] = ("{ %s, { url = aa, name = 'aa', init = function() require('bb') end } }"):format(lazy_bb),
+      }) do
+        it(("fires FileType once per file without an ft trigger when %s"):format(label), function()
+          assert.are.same({ 1, 1 }, start_and_open(spec, { before_setup = "vim.cmd('filetype plugin indent on')" }))
+        end)
+      end
+    end)
+  end)
+
+  describe("an eager plugin's compiled module required while setup() sources it late", function()
+    local aa = "{ url = aa, name = 'aa', config = function() table.insert(_G.LOG, 'aa.config') end%s }"
+
+    local function compiled(from_plugin)
+      vim.fn.mkdir(repos .. '/aa/lua', 'p')
+      vim.fn.writefile({ 'not a real library' }, repos .. '/aa/lua/aa_c.so')
+      if from_plugin then
+        vim.fn.mkdir(repos .. '/aa/plugin', 'p')
+        vim.fn.writefile({ "pcall(require, 'aa_c')" }, repos .. '/aa/plugin/aa_c.lua')
+      end
+    end
+
+    local function assert_loaded_once(log)
+      assert.are.equal(1, count(log, 'aa.plugin'), vim.inspect(log))
+      assert.are.equal(1, count(log, 'aa.config'), vim.inspect(log))
+    end
+
+    for mode, label in pairs({ late = 'at VimEnter', in_plugin = 'in load_plugins' }) do
+      it(("doesn't load it again from its own plugin/ %s"):format(label), function()
+        compiled(true)
+        assert_loaded_once(start(('{ %s }'):format(aa:format('')), { [mode] = true }))
+      end)
+    end
+
+    it("doesn't load it again from its lazy dependency's config", function()
+      compiled(false)
+      local log = start(('{ %s }'):format(aa:format(
+        ", dependencies = { { url = bb, name = 'bb', cmd = 'BbCmd', config = function() pcall(require, 'aa_c'); table.insert(_G.LOG, 'bb.config') end } }"
+      )), { late = true })
+      assert_loaded_once(log)
+      assert.are.equal(1, count(log, 'bb.config'), vim.inspect(log))
+      assert.is_true(vim.fn.index(log, 'bb.config') < vim.fn.index(log, 'aa.plugin'), vim.inspect(log))
+    end)
+  end)
+
+  describe("a plugin's specs, one of them under dependencies", function()
+    local log_opts = "config = function(_, opts) table.insert(_G.LOG, 'aa.opts=' .. vim.inspect(opts, { newline = '', indent = '' })) end"
+
+    it("merge in import order, so function opts under dependencies see the top-level opts (AstroNvim's mason-tool-installer)", function()
+      local log = start(([[{
+        { url = aa, name = 'aa', lazy = false, priority = 10000, opts = function(_, opts) opts.mappings = { n = {} } end, %s },
+        { url = bb, name = 'bb', cmd = 'BbCmd', init = function() require('aa') end,
+          dependencies = { { url = aa, name = 'aa', opts = function(_, opts) opts.mappings.n.x = 1 end } } },
+      }]]):format(log_opts))
+      assert.are.same({ 'aa.opts={mappings = {n = {x = 1}}}', 'aa.plugin', 'aa.after' }, log)
+    end)
+
+    it("let a later one under dependencies override a top-level key", function()
+      local log = start([[{
+        { url = aa, name = 'aa', keys = { { '<F5>', 'x', desc = 'top' } } },
+        { url = bb, name = 'bb', dependencies = { { url = aa, name = 'aa', keys = { { '<F5>', 'x', desc = 'dep' } } } } },
+      }]], { after_setup = "table.insert(_G.LOG, 'desc=' .. vim.fn.maparg('<F5>', 'n', false, true).desc)" })
+      assert.is_true(vim.list_contains(log, 'desc=dep'), vim.inspect(log))
+    end)
+
+    it("let a later one under dependencies clear a top-level trigger", function()
+      local log = start([[{
+        { url = aa, name = 'aa', cmd = 'AaCmd' },
+        { url = bb, name = 'bb', cmd = 'BbCmd', dependencies = { { url = aa, name = 'aa', cmd = false } } },
+      }]])
+      assert.are.same({ 'aa.plugin', 'aa.after' }, log)
+    end)
+
+    it("let a later one under dependencies disable a top-level plugin", function()
+      local log = start([[{
+        { url = aa, name = 'aa', enabled = true },
+        { url = bb, name = 'bb', dependencies = { { url = aa, name = 'aa', enabled = false } } },
+      }]])
+      assert.are.same({ 'bb.plugin', 'bb.after' }, log)
+    end)
+
+    it("let a later top-level one override an earlier one under dependencies", function()
+      local log = start(([[{
+        { url = bb, name = 'bb', dependencies = { { url = aa, name = 'aa', cmd = 'AaCmd', opts = { v = 'dep' } } } },
+        { url = aa, name = 'aa', cmd = false, opts = { v = 'top' }, %s },
+      }]]):format(log_opts))
+      assert.are.equal(1, count(log, "aa.opts={v = \"top\"}"), vim.inspect(log))
     end)
   end)
 
@@ -1786,6 +2332,107 @@ describe("sessions over one data directory", function()
     end)
   end)
 
+  describe("a lazy plugin's trigger an init runs", function()
+    local triggers = {
+      cmd = { "cmd = 'BbCmd'", "vim.cmd('BbCmd')", 'BbCmd ran' },
+      event = { "event = 'User BbGo'", "vim.api.nvim_exec_autocmds('User', { pattern = 'BbGo' })" },
+      ft = { "ft = 'bbft'", "vim.cmd('setfiletype bbft')" },
+      keys = { "keys = { { 'zx', function() table.insert(_G.LOG, 'zx ran') end } }", "vim.cmd('normal zx')", 'zx ran' },
+      ['cmd beside function-form keys'] = { "cmd = 'BbCmd', keys = function() return { { 'zy', function() end } } end", "vim.cmd('BbCmd')", 'BbCmd ran' },
+    }
+    for kind, trigger in pairs(triggers) do
+      for mode, opts in pairs({ ['in init.lua'] = {}, ['at VimEnter'] = { late = true } }) do
+        it(("loads it before the init goes on, by its %s, setup() %s"):format(kind, mode), function()
+          make_repo('aa')
+          make_repo('bb', { ['plugin/cmd.lua'] = { "vim.api.nvim_create_user_command('BbCmd', function() table.insert(_G.LOG, 'BbCmd ran') end, {})" } })
+          local result = session(([[{ spec = {
+            { url = aa, name = 'aa', init = function()
+              table.insert(_G.LOG, 'init ok=' .. tostring(pcall(function() %s end))) end },
+            { url = bb, name = 'bb', %s, config = function() table.insert(_G.LOG, 'bb.config') end },
+          }, defaults = { confirm = false } }]]):format(trigger[2], trigger[1]), nil, nil, opts)
+          local log = result.log
+          local done = vim.fn.index(log, 'init ok=true')
+          for _, entry in ipairs({ 'bb.config', trigger[3] }) do
+            local at = vim.fn.index(log, entry)
+            assert.is_true(at >= 0 and at < done, vim.inspect(log))
+          end
+        end)
+      end
+    end
+
+    it("leaves a VeryLazy plugin until what the eager configs scheduled has run, setup() at VimEnter", function()
+      make_repo('aa')
+      make_repo('bb')
+      local result = session([[{ spec = {
+        { url = aa, name = 'aa', config = function() vim.schedule(function() table.insert(_G.LOG, 'aa.scheduled') end) end },
+        { url = bb, name = 'bb', event = 'VeryLazy', config = function() table.insert(_G.LOG, 'bb.config') end },
+      }, defaults = { confirm = false } }]], nil, nil, { late = true })
+      assert.is_true(vim.list_contains(result.log, 'bb.config'), vim.inspect(result.log))
+      assert.is_true(vim.fn.index(result.log, 'aa.scheduled') < vim.fn.index(result.log, 'bb.config'), vim.inspect(result.log))
+    end)
+  end)
+
+  describe("a :colorscheme of a pending plugin's Vim colors file that calls its autoload/", function()
+    local function colors_repo(files)
+      make_repo('aa')
+      make_repo('vc', vim.tbl_extend('force', {
+        ['colors/vc.vim'] = { 'call vc#load()' },
+        ['autoload/vc.vim'] = { 'function! vc#load()', "  let g:colors_name = 'vc'", 'endfunction' },
+      }, files or {}))
+    end
+    local function set(name)
+      return ("local ok, err = pcall(vim.cmd.colorscheme, %q); table.insert(_G.LOG, 'cs=' .. (ok and tostring(vim.g.colors_name) or tostring(err):match('E%%d+'))); ")
+          :format(name)
+    end
+    local status = "table.insert(_G.LOG, 'vc=' .. require('zpack').get_plugin('vc').status)"
+
+    for mode, opts in pairs({ ['in init.lua'] = {}, ['at VimEnter'] = { late = true } }) do
+      it(("loads it first, from its own init, setup() %s"):format(mode), function()
+        colors_repo()
+        local result = session(([[{ spec = {
+          { url = vc, name = 'vc', priority = 1000, init = function() %s end },
+        }, defaults = { confirm = false } }]]):format(set('vc')), nil, nil, opts)
+        assert.is_true(vim.list_contains(result.log, 'cs=vc'), vim.inspect(result.log))
+      end)
+
+      it(("loads a lazy one first, from another plugin's init, setup() %s"):format(mode), function()
+        colors_repo()
+        local result = session(([[{ spec = {
+          { url = aa, name = 'aa', init = function() %s end },
+          { url = vc, name = 'vc', lazy = true },
+        }, defaults = { confirm = false } }]]):format(set('vc')), status, nil, opts)
+        assert.is_true(vim.list_contains(result.log, 'cs=vc'), vim.inspect(result.log))
+        assert.is_true(vim.list_contains(result.log, 'vc=loaded'), vim.inspect(result.log))
+      end)
+    end
+
+    it("loads an eager one first, with its config, from a higher-priority plugin's config", function()
+      colors_repo({ ['colors/vc.vim'] = { "lua table.insert(_G.LOG, 'vc.colors cfg=' .. tostring(vim.g.vc_cfg))", 'call vc#load()' } })
+      local result = session(([[{ spec = {
+        { url = aa, name = 'aa', priority = 10000, config = function() %s end },
+        { url = vc, name = 'vc', priority = 1000, config = function() vim.g.vc_cfg = 1 end },
+      }, defaults = { confirm = false } }]]):format(set('vc')))
+      assert.is_true(vim.list_contains(result.log, 'vc.colors cfg=1'), vim.inspect(result.log))
+      assert.is_true(vim.list_contains(result.log, 'cs=vc'), vim.inspect(result.log))
+    end)
+
+    it("loads a lazy one first after startup", function()
+      colors_repo()
+      local result = session([[{ spec = {
+        { url = vc, name = 'vc', keys = { { 'zx', function() end } } },
+      }, defaults = { confirm = false } }]], set('vc') .. status)
+      assert.are.same({ 'vc.plugin', 'cs=vc', 'vc=loaded' }, result.log)
+    end)
+
+    it("leaves it pending for a name its colors/ doesn't hold, or one 'runtimepath' holds", function()
+      colors_repo({ ['colors/blue.vim'] = { "let g:colors_name = 'vc.blue'" } })
+      local result = session([[{ spec = {
+        { url = vc, name = 'vc', lazy = true },
+      }, defaults = { confirm = false } }]], set('nope') .. set('blue') .. status)
+      assert.are.same({ 'cs=E185', 'cs=blue', 'vc=pending' }, result.log)
+    end)
+  end)
+
   it("a lazy command's first use gets what the real command called directly gets", function()
     local define = {
       "local function define(name, opts)",
@@ -1839,5 +2486,44 @@ describe("sessions over one data directory", function()
     assert.is_true(vim.list_contains(result.log, 'aa.config'))
     assert.is_true(vim.list_contains(result.log, 'aa=loaded'))
     assert.is_truthy(table.concat(result.notes, '\n'):find('E174', 1, true))
+  end)
+
+  describe("a lazy plugin's key proxies", function()
+    local free_zy = "config = function() if vim.fn.maparg('zy', 'n') == '' then"
+        .. " vim.keymap.set('n', 'zy', function() table.insert(_G.LOG, 'bb.zy') end) end end"
+
+    for mode, opts in pairs({ ['in init.lua'] = {}, ['at VimEnter'] = { late = true } }) do
+      it("stay on an lhs an eager plugin's keys share, and load the lazy plugin, setup() " .. mode, function()
+        make_repo('aa')
+        make_repo('bb')
+        local result = session([[{ spec = {
+          { url = aa, name = 'aa', priority = 100, lazy = false,
+            keys = { { 'zx', function() table.insert(_G.LOG, 'aa.zx') end } } },
+          { url = bb, name = 'bb', keys = { { 'zx', function() table.insert(_G.LOG, 'bb.zx') end } },
+            config = function() table.insert(_G.LOG, 'bb.config') end },
+        }, defaults = { confirm = false } }]], "vim.cmd('normal zx')", nil, opts)
+        assert.are.same({ 'bb.config', 'bb.zx' }, vim.tbl_filter(function(entry)
+          return entry:find('^%l%l%.') and not entry:find('plugin$') and not entry:find('after$')
+        end, result.log))
+      end)
+
+      it("go before a plugin loaded by a require runs, setup() " .. mode, function()
+        make_repo('aa')
+        make_repo('bb', { ['lua/bb.lua'] = { 'return {}' } })
+        local result = session(([[{ spec = {
+          { url = aa, name = 'aa', config = function() require('bb') end },
+          { url = bb, name = 'bb', keys = { 'zy' }, %s },
+        }, defaults = { confirm = false } }]]):format(free_zy), "vim.cmd('normal zy')", nil, opts)
+        assert.is_true(vim.list_contains(result.log, 'bb.zy'), vim.inspect(result.log))
+      end)
+
+      it("all go before a plugin loaded by one of them runs, setup() " .. mode, function()
+        make_repo('bb')
+        local result = session(([[{ spec = {
+          { url = bb, name = 'bb', keys = { 'zx', 'zy' }, %s },
+        }, defaults = { confirm = false } }]]):format(free_zy), "vim.cmd('normal zx'); vim.cmd('normal zy')", nil, opts)
+        assert.is_true(vim.list_contains(result.log, 'bb.zy'), vim.inspect(result.log))
+      end)
+    end
   end)
 end)

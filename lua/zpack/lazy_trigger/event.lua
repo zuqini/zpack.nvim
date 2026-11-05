@@ -146,12 +146,20 @@ local function on_ui_enter_or_now(cb)
   end
 end
 
----Fire `User VeryLazy` once on UIEnter (or immediately if vim has already
----entered). Matches lazy.nvim's contract so user autocmds keyed on
----`User VeryLazy` work in configs ported from lazy.nvim. Called from
----lazy.process_all AFTER per-plugin UIEnter handlers register so VeryLazy
----plugins are loaded by the time User VeryLazy fires.
+---@type vim.pack.Spec[]
+local very_lazy_packs = {}
+
+---Load the VeryLazy plugins, then fire `User VeryLazy`, once on UIEnter (or
+---immediately if vim has already entered). Matches lazy.nvim's contract so user
+---autocmds keyed on `User VeryLazy` work in configs ported from lazy.nvim.
+---Called once the eager plugins are loaded, where lazy.nvim waits for them too.
 M.fire_very_lazy = function()
+  for _, pack_spec in ipairs(very_lazy_packs) do
+    on_ui_enter_or_now(function()
+      loader.try_process_spec(pack_spec)
+    end)
+  end
+  very_lazy_packs = {}
   on_ui_enter_or_now(function()
     vim.api.nvim_exec_autocmds('User', { pattern = 'VeryLazy', modeline = false })
   end)
@@ -173,13 +181,7 @@ M.setup = function(pack_spec, parsed)
 
     if has_very_lazy then
       -- VeryLazy is synthetic (UIEnter-only); no real event to re-fire.
-      -- When setup() runs after UIEnter (`:luafile`, config reload), the
-      -- UIEnter autocmd would never fire — schedule the load directly so
-      -- the plugin still loads before fire_very_lazy's User VeryLazy
-      -- emit (which also fast-paths on vim_did_enter).
-      on_ui_enter_or_now(function()
-        loader.try_process_spec(pack_spec)
-      end)
+      very_lazy_packs[#very_lazy_packs + 1] = pack_spec
     end
 
     if #other_events > 0 then
@@ -192,7 +194,7 @@ M.setup = function(pack_spec, parsed)
       -- event/ft already loaded, plugin/ files re-entering synchronously).
       local callback = util.latch_first_call(function(ev)
         local entry = state.spec_registry[pack_spec.src]
-        if entry and entry.load_status ~= "pending" then
+        if not entry or entry.load_status ~= "pending" then
           return
         end
         local snap = refire.snapshot(ev.event)

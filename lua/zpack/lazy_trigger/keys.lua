@@ -4,6 +4,7 @@ local util = require('zpack.utils')
 local state = require('zpack.state')
 local keymap = require('zpack.keymap')
 local loader = require('zpack.plugin_loader')
+local key_proxy = require('zpack.key_proxy')
 
 local M = {}
 
@@ -22,23 +23,20 @@ local mapping_present = function(lhs, mode)
   return vim.fn.maparg(lhs, mode) ~= ''
 end
 
----Install a (buffer-local when `buf` is non-nil) proxy that lazy-loads the
----plugins claiming this lhs on first press.
+---The function behind a key's proxies, one per key so key_proxy can tell them apart.
 ---@param key_info table
----@param src string
----@param buf? integer
-local install_proxy = function(key_info, src, buf)
+---@param key_id string
+---@return function
+local function proxy_for(key_info, key_id)
   local lhs = key_info.key_spec[1]
-  local key_spec = key_info.key_spec
-  -- ft path forces buffer-local in `buf`; otherwise honor the user's
-  -- `key_spec.buffer` (lazy.nvim parity for unscoped buffer-local keys).
-  local proxy_buffer = buf or key_spec.buffer
-  keymap.try_map(lhs, function()
+  local buffer_local = key_info.ft or key_info.key_spec.buffer
+  return function()
+    key_proxy.drop(key_id)
     -- Mirror the install scope: a global proxy must delete the global
     -- mapping; a buffer-local proxy must delete the buffer-local one
     -- (otherwise vim.keymap.del finds nothing and the stale buffer-local
     -- proxy fires forever on the re-fed lhs).
-    if proxy_buffer then
+    if buffer_local then
       pcall(vim.keymap.del, key_info.split_mode, lhs, { buffer = 0 })
     else
       pcall(vim.keymap.del, key_info.split_mode, lhs)
@@ -69,7 +67,21 @@ local install_proxy = function(key_info, src, buf)
     -- still run after the re-fed lhs. <Ignore> bridges the expr/typeahead
     -- boundary without disturbing operator-pending state.
     vim.api.nvim_feedkeys(vim.keycode('<Ignore>' .. feed_lhs), 'i', false)
-  end, {
+  end
+end
+
+---Install a (buffer-local when `buf` is non-nil) proxy that lazy-loads the
+---plugins claiming this lhs on first press.
+---@param key_info table
+---@param src string
+---@param buf? integer
+local install_proxy = function(key_info, src, buf)
+  local lhs = key_info.key_spec[1]
+  local key_spec = key_info.key_spec
+  -- ft path forces buffer-local in `buf`; otherwise honor the user's
+  -- `key_spec.buffer` (lazy.nvim parity for unscoped buffer-local keys).
+  local proxy_buffer = buf or key_spec.buffer
+  local ok = keymap.try_map(lhs, key_info.proxy, {
     desc = key_spec.desc,
     mode = key_info.split_mode,
     -- expr is forced on regardless of key_spec.expr so the proxy preserves
@@ -85,17 +97,11 @@ local install_proxy = function(key_info, src, buf)
     noremap = key_spec.noremap,
     buffer = proxy_buffer,
   }, src)
-end
-
----@param key_info table
-local function any_pack_pending(key_info)
-  for _, pack_spec in ipairs(key_info.pack_specs) do
-    local entry = state.spec_registry[pack_spec.src]
-    if entry and entry.load_status == 'pending' then
-      return true
-    end
+  if ok and proxy_buffer then
+    key_info.bufs[(proxy_buffer == true or proxy_buffer == 0) and vim.api.nvim_get_current_buf() or proxy_buffer] = true
+  elseif ok then
+    key_info.global = true
   end
-  return false
 end
 
 ---Install a (buffer-local when `buf` is non-nil) real `<Nop>` keymap.
@@ -152,6 +158,7 @@ local function register_key(key, pack_spec, src, key_to_info)
           key_spec = key,
           src = src,
           ft = ft_patterns,
+          bufs = {},
         }
       end
       table.insert(key_to_info[key_id].pack_specs, pack_spec)
@@ -174,16 +181,18 @@ M.setup = function(registered_pack_specs)
   end
 
   -- Create keymaps
-  for _, key_info in pairs(key_to_info) do
+  for key_id, key_info in pairs(key_to_info) do
     util.try_trigger_setup(key_info.src, 'keys', function()
+      key_info.proxy = proxy_for(key_info, key_id)
       if key_info.ft then
+        key_proxy.claim(key_id, key_info)
         -- Proxy self-deletes once every claiming plugin has loaded —
         -- apply_keys's own FileType autocmd takes over for future buffers.
         local autocmd_id
         autocmd_id = keymap.install_on_ft(
           key_info.ft,
           function(buf)
-            if not any_pack_pending(key_info) then
+            if not key_proxy.pending(key_info) then
               if autocmd_id then
                 pcall(vim.api.nvim_del_autocmd, autocmd_id)
                 autocmd_id = nil
@@ -194,9 +203,10 @@ M.setup = function(registered_pack_specs)
           end,
           { group = state.lazy_group }
         )
-      elseif any_pack_pending(key_info) then
+      elseif key_proxy.pending(key_info) then
         -- A keys function can load its plugin by requiring its modules, and then the
         -- real mapping is already there.
+        key_proxy.claim(key_id, key_info)
         install_proxy(key_info, key_info.src, nil)
       end
     end)

@@ -671,7 +671,7 @@ describe("specs declared under a removed plugin's dependencies", function()
       'test/dap',
       dependencies = { { 'test/mason', opts = { ensure_installed = { 'delve' } } } },
     })
-    assert.are.same({ 'delve', 'stylua' }, opts.ensure_installed)
+    assert.are.same({ 'stylua', 'delve' }, opts.ensure_installed)
   end)
 end)
 
@@ -698,7 +698,7 @@ describe("a spec table listed in several places", function()
     helpers.flush_pending()
     local state = require('zpack.state')
     assert.are.equal(2, #state.spec_registry['https://github.com/test/mason'].specs)
-    assert.are.same({ 'delve', 'stylua' }, received.ensure_installed)
+    assert.are.same({ 'stylua', 'delve' }, received.ensure_installed)
     assert.is_true(state.dependency_graph['https://github.com/test/dap']['https://github.com/test/mason'])
     assert.is_true(state.dependency_graph['https://github.com/test/lsp']['https://github.com/test/mason'])
   end)
@@ -1503,12 +1503,20 @@ describe("merged keys", function()
     assert.are.same({ { '<F21>', 'second' } }, entry.merged_spec.keys)
   end)
 
-  it("a standalone spec's key beats a dependency's", function()
+  it("a later spec under dependencies replaces a top-level spec's key", function()
     local entry = resolved({
-      { 'test/a', keys = { { '<F21>', 'standalone' } } },
+      { 'test/a', keys = { { '<F21>', 'top' } } },
       { 'test/p', dependencies = { { 'test/a', keys = { { '<F21>', 'dep' } } } } },
     })
-    assert.are.same({ { '<F21>', 'standalone' } }, entry.merged_spec.keys)
+    assert.are.same({ { '<F21>', 'dep' } }, entry.merged_spec.keys)
+  end)
+
+  it("a later top-level spec replaces the key of a spec under dependencies", function()
+    local entry = resolved({
+      { 'test/p', dependencies = { { 'test/a', keys = { { '<F21>', 'dep' } } } } },
+      { 'test/a', keys = { { '<F21>', 'top' } } },
+    })
+    assert.are.same({ { '<F21>', 'top' } }, entry.merged_spec.keys)
   end)
 
   for name, rhs in pairs({ ['false'] = false, ['vim.NIL'] = vim.NIL }) do
@@ -1697,6 +1705,16 @@ describe("function-form triggers across specs", function()
       assert.is_true(require('zpack.state').is_setup)
     end)
 
+    it(field .. ": a later false under dependencies clears a top-level value", function()
+      local one = field == 'keys' and { { '<F21>', 'x' } } or (field == 'ft' and 'lua' or (field == 'cmd' and 'ZpackFalse' or 'BufRead'))
+      local entry = resolved({
+        { 'test/a', [field] = one },
+        { 'test/p', dependencies = { { 'test/a', [field] = false } } },
+      })
+      assert.is_false(entry.is_lazy_resolved)
+      assert.is_true(require('zpack.state').is_setup)
+    end)
+
     it(field .. ": a value after false counts alone", function()
       local one = field == 'keys' and { { '<F21>', 'x' } } or (field == 'ft' and 'lua' or (field == 'cmd' and 'ZpackFalse' or 'BufRead'))
       local entry = resolved({ { 'test/a', [field] = false }, { 'test/a', [field] = one } })
@@ -1752,6 +1770,33 @@ describe("function-form triggers across specs", function()
     assert.are.equal('loaded', registry['https://github.com/test/b'].load_status)
     pcall(vim.keymap.del, 'n', '<C-F21>')
   end)
+
+  for _, ft in ipairs({ false, true }) do
+    it(("two plugins claiming one key, one of them in a function, both load on it%s"):format(ft and ', ft-scoped' or ''), function()
+      require('zpack').setup({
+        spec = {
+          { 'test/a', keys = { { '<F23>', 'x', ft = ft and 'zpft' or nil } } },
+          { 'test/b', keys = function() return { { '<F23>', 'y', ft = ft and 'zpft' or nil } } end },
+        },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+      local buf = vim.api.nvim_create_buf(true, true)
+      vim.api.nvim_set_current_buf(buf)
+      finally(function()
+        pcall(vim.keymap.del, 'n', '<F23>')
+        vim.api.nvim_buf_delete(buf, { force = true })
+      end)
+      if ft then
+        vim.cmd('setfiletype zpft')
+      end
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<F23>', true, true, true), 'x', false)
+      helpers.flush_pending()
+      local registry = require('zpack.state').spec_registry
+      assert.are.equal('loaded', registry['https://github.com/test/a'].load_status)
+      assert.are.equal('loaded', registry['https://github.com/test/b'].load_status)
+    end)
+  end
 
   it("an empty ft on a plugin with lazy = true does not abort setup()", function()
     resolved({ { 'test/a', lazy = true, ft = {} }, { 'test/after' } })
@@ -2612,12 +2657,13 @@ describe("enabled and cond across specs", function()
     assert.is_not_nil(state.spec_registry[GH .. 'u/d'])
   end)
 
-  it("give a top-level spec the last word over a later spec under dependencies", function()
+  it("let a later spec under dependencies disable a top-level plugin", function()
     local state = setup_spec({
       { 'u/d', enabled = true },
       { 'u/p', dependencies = { { 'u/d', enabled = false } } },
     })
-    assert.is_not_nil(state.spec_registry[GH .. 'u/d'])
+    assert.is_nil(state.spec_registry[GH .. 'u/d'])
+    assert.is_not_nil(state.spec_registry[GH .. 'u/p'])
   end)
 
   it("fall back to the earlier enabled when the deciding spec is dropped", function()
@@ -3275,6 +3321,13 @@ describe("the fourth xhigh review of the parity follow-up", function()
       pcall(vim.api.nvim_del_user_command, 'ZpackPp')
     end)
 
+    it("loads a lazy ft plugin without ftdetect/ files with :packadd", function()
+      local state = setup({ { 'u/ftonly', ft = 'zpackftonly' } })
+      log = {}
+      require('zpack.plugin_loader').process_spec(state.src_to_pack_spec[GH .. 'u/ftonly'])
+      assert.are.same({ 'ftonly' }, log)
+    end)
+
     it("adds a lazy plugin without dependencies once", function()
       local state = setup({ { 'u/solo', cmd = 'ZpackSolo' } })
       log = {}
@@ -3642,17 +3695,31 @@ describe("the fifth xhigh review of the parity follow-up", function()
         'u/parent',
         cmd = 'ZpackParentCmd',
         config = function() configured = true end,
-        dependencies = {
-          { 'u/dep', opts = function() error('boom') end, main = 'x' },
-        },
+        dependencies = { 'u/dep' },
       },
     })
     log = {}
+    local packadd = vim.cmd.packadd
+    vim.cmd.packadd = function(args)
+      if args[1] == 'dep' then
+        error('boom')
+      end
+      packadd(args)
+    end
     assert.is_true(require('zpack.plugin_loader').try_process_spec(state.src_to_pack_spec[GH .. 'u/parent']))
     assert.is_true(configured)
     assert.are.equal('loaded', state.spec_registry[GH .. 'u/parent'].load_status)
     assert.is_truthy(log[#log].name == 'parent' and not log[#log].bang)
     assert.is_truthy(warnings():find('Failed to load dep', 1, true))
+  end)
+
+  it("a dependency whose function-form opts throw loads, reported once", function()
+    local state = setup({
+      { 'u/parent', cmd = 'ZpackParentCmd', dependencies = { { 'u/dep', opts = function() error('boom', 0) end, main = 'x' } } },
+    })
+    assert.is_true(require('zpack.plugin_loader').try_process_spec(state.src_to_pack_spec[GH .. 'u/parent']))
+    assert.are.equal('loaded', state.spec_registry[GH .. 'u/dep'].load_status)
+    assert.are.equal('[zpack.nvim] Failed to run config for dep: boom', warnings())
   end)
 
   describe("after/plugin", function()

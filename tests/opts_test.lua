@@ -131,7 +131,7 @@ describe("Plugin opts and auto-setup", function()
     assert.are.same({ 'bash', 'c', 'diff', 'rust', 'ron' }, received_opts.ensure_installed)
   end)
 
-  it("opts_extend appends lists from dependencies specs before top-level ones", function()
+  it("opts_extend appends lists in import order, dependencies specs included", function()
     local received_opts = nil
 
     require('zpack').setup({
@@ -152,7 +152,7 @@ describe("Plugin opts and auto-setup", function()
 
     helpers.flush_pending()
     assert.is_not_nil(received_opts, "config should receive opts")
-    assert.are.same({ 'dep', 'top1', 'top2' }, received_opts.ensure_installed)
+    assert.are.same({ 'top1', 'dep', 'top2' }, received_opts.ensure_installed)
   end)
 
   it("config function receives resolved opts from function", function()
