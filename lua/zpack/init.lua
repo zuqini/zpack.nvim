@@ -81,17 +81,20 @@ local process_all = function(ctx)
   hooks.setup_delete_tracking()
   require('zpack.registration').register_all(ctx)
 
-  -- Install module loader AFTER registration (when we know lazy plugins)
-  -- but BEFORE startup processing (when configs may require lazy modules)
+  -- Install module loader BEFORE startup processing (when inits and configs may require plugins)
   local module_loader = require('zpack.module_loader')
-  module_loader.initialize_cache(ctx.registered_lazy_packs)
   module_loader.install()
+  -- Eager plugins too until they're on 'runtimepath', for an init or a trigger function that requires one's module.
+  module_loader.initialize_cache(vim.list_extend(vim.list_extend({}, ctx.registered_lazy_packs), ctx.registered_startup_packs))
+  -- lazy.nvim parity: before the inits, which can run a lazy plugin's command, event, filetype or key.
+  require('zpack.lazy').setup_triggers(ctx)
+  require('zpack.lazy_trigger.colorscheme').setup(ctx.registered_startup_packs, ctx.registered_lazy_packs)
 
   require('zpack.startup').process_all(ctx)
   require('zpack.import').remove_import_paths(ctx.imported)
-  -- Before the triggers: a proxy for what a build just loaded would outlive the load.
   hooks.run_pending_builds_on_startup()
-  require('zpack.lazy').process_all(ctx)
+  require('zpack.lazy_trigger.ft').source_ftdetect_after_startup()
+  require('zpack.lazy_trigger.event').fire_very_lazy()
   vim.api.nvim_clear_autocmds({ group = state.startup_group })
   hooks.setup_lazy_build_tracking()
 end

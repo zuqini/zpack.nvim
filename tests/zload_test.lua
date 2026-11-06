@@ -188,12 +188,21 @@ describe("ZPack load", function()
     local order = {}
     local function log(name) return function() order[#order + 1] = name end end
     local status = {}
+    local packadd = vim.cmd.packadd
+    local fail_once = { ['eager-bad'] = true, ['eager-bad2'] = true }
+    vim.cmd.packadd = function(args)
+      if fail_once[args[1]] then
+        fail_once[args[1]] = nil
+        error('once', 0)
+      end
+      return packadd(args)
+    end
     require('zpack').setup({
       spec = {
         { 'test/lazy-low', lazy = true, priority = 10, config = log('lazy-low') },
         { 'test/lazy-high', lazy = true, priority = 90, config = log('lazy-high') },
-        { 'test/eager-bad', lazy = false, priority = 90, opts = function() error('once', 0) end, config = log('eager-bad') },
-        { 'test/eager-bad2', lazy = false, priority = 10, opts = function() error('once', 0) end, config = log('eager-bad2') },
+        { 'test/eager-bad', lazy = false, priority = 90, config = log('eager-bad') },
+        { 'test/eager-bad2', lazy = false, priority = 10, config = log('eager-bad2') },
         { 'test/off', lazy = true, cond = false, config = log('off') },
       },
       defaults = { confirm = false },
@@ -211,7 +220,7 @@ describe("ZPack load", function()
 
     vim.cmd('ZPack! load')
     helpers.flush_pending()
-    assert.are.same({ 'lazy-high', 'lazy-low' }, order)
+    assert.are.same({ 'eager-bad', 'eager-bad2', 'lazy-high', 'lazy-low' }, order)
   end)
 
   it("completes names from what's registered, with zpack.nvim, without cond = false", function()

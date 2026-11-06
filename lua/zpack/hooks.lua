@@ -2,6 +2,8 @@ if jit then jit.off(true, true) end
 
 local util = require('zpack.utils')
 local state = require('zpack.state')
+local cmd_proxy = require('zpack.cmd_proxy')
+local key_proxy = require('zpack.key_proxy')
 
 local M = {}
 
@@ -10,6 +12,9 @@ local M = {}
 ---@return boolean
 M.try_call_hook = function(src, hook_name)
   local registry_entry = state.spec_registry[src]
+  if not registry_entry then
+    return false
+  end
   -- merged_spec is always populated post-resolve_all, when hooks run.
   local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
 
@@ -179,6 +184,8 @@ M.setup_delete_tracking = function()
     -- a name with a managed one would otherwise desync state.
     if spec and spec.name and spec.src and state.spec_registry[spec.src] then
       state.remove_plugin(spec.name, spec.src)
+      cmd_proxy.release(spec.src)
+      key_proxy.release(spec.src)
     end
   end, { group = state.delete_group })
 end

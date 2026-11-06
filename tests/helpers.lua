@@ -265,33 +265,11 @@ function M.cleanup_test_env()
   delete_test_keymaps()
 
   -- Force reload all zpack modules to reset state
-  package.loaded['zpack.state'] = nil
-  package.loaded['zpack'] = nil
-  package.loaded['zpack.import'] = nil
-  package.loaded['zpack.import_run'] = nil
-  package.loaded['zpack.registration'] = nil
-  package.loaded['zpack.startup'] = nil
-  package.loaded['zpack.lazy'] = nil
-  package.loaded['zpack.hooks'] = nil
-  package.loaded['zpack.plugin_loader'] = nil
-  package.loaded['zpack.cmd_proxy'] = nil
-  package.loaded['zpack.lazy_trigger.event'] = nil
-  package.loaded['zpack.lazy_trigger.ft'] = nil
-  package.loaded['zpack.lazy_trigger.refire'] = nil
-  package.loaded['zpack.lazy_trigger.cmd'] = nil
-  package.loaded['zpack.lazy_trigger.keys'] = nil
-  package.loaded['zpack.keymap'] = nil
-  package.loaded['zpack.utils'] = nil
-  package.loaded['zpack.commands'] = nil
-  package.loaded['zpack.merge'] = nil
-  package.loaded['zpack.merge_fields'] = nil
-  package.loaded['zpack.fold'] = nil
-  package.loaded['zpack.prune'] = nil
-  package.loaded['zpack.opts'] = nil
-  package.loaded['zpack.runtime'] = nil
-  package.loaded['zpack.module_loader'] = nil
-  package.loaded['zpack.api'] = nil
-  package.loaded['zpack.pack'] = nil
+  for name in pairs(package.loaded) do
+    if name == 'zpack' or name:find('^zpack%.') then
+      package.loaded[name] = nil
+    end
+  end
 
   -- Remove our module loader from package.loaders if present
   for i = #package.loaders, 1, -1 do

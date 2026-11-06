@@ -5,6 +5,7 @@ local hooks = require('zpack.hooks')
 local runtime = require('zpack.runtime')
 local util = require('zpack.utils')
 local loader = require('zpack.plugin_loader')
+local module_loader = require('zpack.module_loader')
 
 local M = {}
 
@@ -104,14 +105,22 @@ M.process_all = function(ctx)
     local reversed = {}
     for i = #sorted_packs, 1, -1 do
       reversed[#reversed + 1] = sorted_packs[i]
+      -- An init that required its module has put it on 'runtimepath' already.
+      -- Off again, so it comes back in its place.
+      local entry = state.spec_registry[sorted_packs[i].src]
+      if entry and entry.load_status == "loaded" and entry.plugin then
+        vim.opt.rtp:remove(entry.plugin.path)
+        vim.opt.rtp:remove(entry.plugin.path .. '/after')
+      end
     end
     to_add = add_installed_to_rtp(reversed)
   end
   for _, pack_spec in ipairs(to_add) do
+    local entry = state.spec_registry[pack_spec.src]
     local ok, err = pcall(function()
       -- Sourcing now, so lazy dependencies have to come first too. On
       -- 'runtimepath' before them, as in plugin_loader.process_spec.
-      if ctx.load and lazy_deps_map[pack_spec.src] then
+      if ctx.load and lazy_deps_map[pack_spec.src] and entry.load_status ~= "loaded" then
         vim.cmd.packadd({ pack_spec.name, bang = true })
         for _, dep_src in ipairs(lazy_deps_map[pack_spec.src]) do
           local dep_pack = state.src_to_pack_spec[dep_src]
@@ -120,21 +129,39 @@ M.process_all = function(ctx)
           end
         end
       end
-      local entry = state.spec_registry[pack_spec.src]
+      -- Sourced already if an init, a script sourced before it, or one of its lazy
+      -- dependencies required its module.
+      if ctx.load and entry.load_status == "loaded" then
+        return
+      end
       if ctx.load then
-        runtime.packadd_sourcing(pack_spec.name)
-        if entry.plugin then
-          runtime.source_after_plugin_files(entry.plugin.path)
-        end
+        -- What its scripts load meanwhile, listing it as a dependency, finds it sourced.
+        entry.load_status = "sourced"
+        runtime.packadd_sourcing(pack_spec.name, entry.plugin.path)
       else
         vim.cmd.packadd({ pack_spec.name, bang = true })
       end
     end)
     if not ok then
+      if entry and entry.load_status == "sourced" then
+        entry.load_status = "pending"
+      end
       failed_packs[pack_spec.src] = true
       util.schedule_notify(("Failed to packadd %s: %s"):format(pack_spec.name or pack_spec.src, tostring(err)), vim.log.levels.ERROR)
     end
   end
+  -- Once filetype detection is on, Neovim sources no eager plugin's ftdetect/.
+  if not ctx.load and vim.g.did_load_filetypes then
+    for _, pack_spec in ipairs(sorted_packs) do
+      local entry = state.spec_registry[pack_spec.src]
+      -- One an init loaded got its ftdetect/ then, from zpack or Neovim's `filetype on`.
+      if not failed_packs[pack_spec.src] and entry.load_status ~= "loaded" then
+        runtime.source_ftdetect_files(entry.plugin.path)
+      end
+    end
+  end
+  -- On 'runtimepath' now, where require finds their modules first.
+  module_loader.initialize_cache(ctx.registered_lazy_packs)
 
   -- A lazy plugin loading here can list an eager one under its dependencies. That
   -- runs the eager plugin's config and keys, so what it left loaded is finished,
@@ -153,18 +180,10 @@ M.process_all = function(ctx)
       if entry.load_status ~= "loaded" then
         local spec = entry.merged_spec --[[@as zpack.Spec]]
         entry.load_status = "loaded"
-        local ok, err = true, nil
         if spec.config or entry.has_opts then
-          -- pcall: run_config executes user function-form opts raw via
-          -- opts.resolve_opts; a throw would strand later plugins.
-          ok, err = pcall(loader.run_config, pack_spec.src, entry.plugin)
+          loader.run_config(pack_spec.src, entry.plugin)
         end
-        if ok then
-          to_bind[#to_bind + 1] = pack_spec
-        else
-          entry.load_status = "pending"
-          util.schedule_notify(("Failed to run config for %s: %s"):format(pack_spec.name or pack_spec.src, tostring(err)), vim.log.levels.ERROR)
-        end
+        to_bind[#to_bind + 1] = pack_spec
       end
     end
   end

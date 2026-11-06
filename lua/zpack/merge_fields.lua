@@ -123,25 +123,6 @@ function M.merge_specs(base, incoming)
   return result
 end
 
----Sort specs: dependencies first, then standalone (so standalone wins on conflict)
----@param specs zpack.Spec[]
----@return zpack.Spec[]
-function M.sort_specs(specs)
-  if not specs or #specs == 0 then
-    return {}
-  end
-  local sorted = vim.list_slice(specs)
-  table.sort(sorted, function(a, b)
-    local a_dep = a._is_dependency and 1 or 0
-    local b_dep = b._is_dependency and 1 or 0
-    if a_dep ~= b_dep then
-      return a_dep > b_dep
-    end
-    return (a._import_order or 0) < (b._import_order or 0)
-  end)
-  return sorted
-end
-
 ---Merge an array of specs in order (lowest priority first).
 ---Always returns a fresh table (never a reference to any input spec), and
 ---`opts` is always absent from the result — it is resolved at load time via
@@ -163,7 +144,7 @@ end
 ---plugin_loader / startup answer "does any spec contribute opts?" without
 ---re-scanning.
 function M.merge_entry(entry)
-  entry.sorted_specs = M.sort_specs(entry.specs)
+  entry.sorted_specs = vim.list_slice(entry.specs)
   entry.merged_spec = M.merge_spec_array(entry.sorted_specs)
   entry.has_opts = false
   for _, s in ipairs(entry.sorted_specs) do

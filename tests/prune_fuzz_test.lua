@@ -3,7 +3,7 @@ local fuzz = require('prune_fuzz_helpers')
 
 local SEEDS = 1000
 -- A deliberate change to what resolve_all decides updates it.
-local DIGEST = '4a65e97ad1a9d47fb90f15e87c533f6fa6380643f287024a2dc131d2ae0a618a'
+local DIGEST = 'd8d660bdbcf8f8240ed9f8db073a2111ce5b38fc053849962aa1201e2a7ccc3f'
 
 describe('resolve_all on random specs', function()
   local root

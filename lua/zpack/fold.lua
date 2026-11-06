@@ -22,12 +22,12 @@ end
 ---its own `[1]` wins outright — dev outranks the whole explicit
 ---chain in normalize_source, independent of import order. Below that, an
 ---explicit-source fragment beats a bare one, and among bare entries a
----top-level fragment beats a dependency-only one — the same
----standalone-over-dep rule sort_specs applies to field merging. A name
----reference names no repo, so it ranks below all of them. Within a
----tier the latest-imported wins. lazy.nvim itself is pure
----later-fragment-wins; the tiers are a deliberate divergence so the winner
----does not depend on the order lua/plugins/*.lua files are imported.
+---top-level fragment beats a dependency-only one. A name reference names no
+---repo, so it ranks below all of them. Within a tier the latest-imported
+---wins. lazy.nvim itself is pure later-fragment-wins; the tiers are a
+---deliberate divergence so the source does not depend on the order
+---lua/plugins/*.lua files are imported. They pick only the source: fields
+---still merge in import order (entry.specs).
 local function fold_rank(graph, entry)
   local explicit, top, dep, reference = -1, -1, -1, -1
   for _, spec in ipairs(entry.specs) do

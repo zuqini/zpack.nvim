@@ -742,7 +742,10 @@ dependencies    (string|string[]|zpack.Spec|zpack.Spec[], optional)
                 Can be a string (a `[1]` value, see |zpack-Spec|), array
                 of strings, inline spec, or array of specs. Dependency
                 specs can have their own configuration (opts, config, etc.)
-                and nested dependencies. A dependency whose
+                and nested dependencies. A plugin's specs merge in import
+                order, a dependency spec right after the spec listing it,
+                as in lazy.nvim, so a later one wins whether it is listed
+                under `dependencies` or at the top level. A dependency whose
                 specs are all `optional` is skipped like any other plugin
                 (lazy.nvim parity). A disabled dependency doesn't disable the
                 plugin listing it (lazy.nvim parity). When the parent is
@@ -768,8 +771,8 @@ enabled         (boolean|function, optional)
                 Enable or disable the plugin. Can be a function that returns
                 a boolean. Across specs, the last one to set it wins (lazy.nvim
                 parity), so `enabled = true` undoes an earlier `enabled = false`,
-                and only that spec's function runs. Specs under `dependencies`
-                merge first, so a top-level spec has the last word.
+                and only that spec's function runs. That includes a spec
+                under `dependencies` (see |zpack-Spec.dependencies|).
 
                                                             *zpack-Spec.cond*
 cond            (boolean|function(plugin), optional)
@@ -784,6 +787,18 @@ lazy            (boolean, optional)
                 Set to `false` to force eager loading (load at startup) even
                 when lazy-loading triggers are present. Auto-detected if not
                 set based on the presence of lazy-loading triggers.
+
+                `:colorscheme x` first loads the plugin holding
+                `colors/x.vim` or `colors/x.lua` if it hasn't loaded yet, as
+                in lazy.nvim. So a lazy colorscheme plugin loads when its
+                scheme is set, and a colors file can use its plugin's
+                `autoload/` and modules, also from an `init`. An eager one
+                set from an earlier plugin's `config` (a higher `priority`,
+                or the same one listed first), as themery.nvim restores its
+                saved scheme, loads there, before its turn. With `setup()`
+                at |VimEnter| or from a `plugin/` script its scripts have
+                run by then, so it gets only its colors file until its
+                turn: give it the higher `priority`.
 
                                                         *zpack-Spec.priority*
 priority        (number, optional)
@@ -805,7 +820,8 @@ opts            (table|function(plugin, opts), optional)
                 |zpack.Plugin| and accumulated opts table, and returns a table.
                 The accumulated opts is useful when multiple specs for the same
                 plugin are merged - each opts function receives the result from
-                previous specs.
+                previous specs. If one throws, the error is reported and the
+                plugin loads without `config` or `setup()`, as in lazy.nvim.
 
                 Set a key to `vim.NIL` to remove it, as in lazy.nvim. It is
                 removed only where specs merge: at the top level of opts
@@ -842,8 +858,8 @@ opts_extend     (string|string[], optional)
                 it only needs to be set on one of them, and no spec can
                 turn it off. To replace an extended list, use function-form
                 opts, e.g. `function(_, o) o.ensure_installed = { 'x' } end`.
-                Lists are appended in merge order: specs pulled in as
-                `dependencies` first, then top-level specs in import order.
+                Lists are appended in merge order, which is import order
+                (see |zpack-Spec.dependencies|).
                 Specs listed under the `dependencies` or `specs` of a
                 plugin that is disabled or skipped as `optional` are left
                 out, as in lazy.nvim. lazy.nvim differs:
@@ -855,8 +871,6 @@ opts_extend     (string|string[], optional)
                 - It keeps only the list entries of a table at that path,
                   so named keys are dropped and a dict there becomes an
                   empty list.
-                - It appends in import order, without putting
-                  `dependencies` specs first.
 >lua
                 -- plugins/treesitter.lua
                 { 'nvim-treesitter/nvim-treesitter',
@@ -870,7 +884,26 @@ opts_extend     (string|string[], optional)
 
                                                             *zpack-Spec.init*
 init            (function(plugin), optional)
-                Runs before the plugin loads. Receives |zpack.Plugin|.
+                Runs before the plugin loads, unless an earlier `init`
+                loaded it. Receives |zpack.Plugin|.
+
+                Inits run in `setup()`, highest `priority` first, before the
+                eager plugins load. A `require` of an eager plugin's module
+                from an `init` loads that plugin then, as in lazy.nvim: its
+                dependencies first, then its `config`. When `setup()` runs
+                from `init.lua`, its `plugin/` scripts still run in their
+                usual order, after every `init`, where lazy.nvim sources them
+                during the `init`. A lazy dependency it loads sources after
+                the eager plugins. A lazy plugin's `cmd`, `event`, `ft` and
+                `keys` are set up before the inits, as in lazy.nvim, so an
+                `init` that runs one loads that plugin. A function-form one
+                is called then too, so it doesn't see what the inits set,
+                and a `require` in it loads the plugin holding the module
+                right there, before every `init`, its own included.
+                lazy.nvim loads that plugin after the inits. Require inside
+                the key's or command's function instead. An `event` or `ft`
+                function has no such place: return a static list, and use
+                the module in the plugin's `config` or an autocmd's callback.
 
                                                           *zpack-Spec.config*
 config          (function(plugin, opts)|true, optional)
@@ -897,9 +930,11 @@ event           (string|string[]|EventSpec|(string|EventSpec)[]|fn(plugin, list)
                 returns any of these types or edits the list. Patterns can
                 be specified inline:
                 "BufReadPre *.lua". See |zpack.EventSpec|. Auto-sets
-                `lazy=true`. `false` clears the events of earlier specs; specs
-                under `dependencies` count as earlier than top-level ones,
-                here and for `cmd`, `keys` and `ft`.
+                `lazy=true`. `false` clears the events of earlier specs,
+                in import order (see |zpack-Spec.dependencies|), here and
+                for `cmd`, `keys` and `ft`. A function in any of the four is
+                called before the inits: see |zpack-Spec.init| for what a
+                `require` in it does.
 
                 Note: zpack emits `User VeryLazy` once on UIEnter (or
                 immediately after setup when vim has already entered), so
@@ -922,7 +957,8 @@ cmd             (string|string[]|function(plugin, list)|false, optional)
                 Auto-sets `lazy=true`. `false` clears the commands of earlier
                 specs. Tab-completion on the command also
                 triggers the load so the real command's completer can
-                answer on the first press.
+                answer on the first press. A function is called before the
+                inits: see |zpack-Spec.init| for what a `require` in it does.
 
                                                             *zpack-Spec.keys*
 keys            (string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, keys)|false,
@@ -937,19 +973,26 @@ keys            (string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, 
                 `{ lhs, "rhs" }` such as `{ "<leader>d", "dd" }` one key, or
                 nest it. Auto-sets
                 `lazy=true`. `false` clears the keys of earlier specs.
-                See |zpack.KeySpec|.
+                See |zpack.KeySpec|. A function is called before the inits:
+                see |zpack-Spec.init| for what a `require` in it does.
                 Across specs, a later key replaces an earlier one with the
                 same lhs, mode, ft and buffer, and a `false` or |vim.NIL| rhs
                 disables it (lazy.nvim parity). The plugin stays lazy if
-                every key is disabled. Specs under `dependencies` merge first
-                whatever the import order, so one can't replace or disable a
-                key that a top-level spec sets; lazy.nvim goes by import order.
+                every key is disabled. Specs merge in import order, including
+                those under `dependencies` (see |zpack-Spec.dependencies|).
+                As in lazy.nvim, a plugin drops the proxies of its keys that
+                no other pending plugin lists as it starts to load, however it
+                loads, so its `plugin/` and `config` find them free.
+                A key a pending plugin lists keeps its proxy until that
+                plugin loads, so another plugin's key on the same lhs, mode,
+                ft and buffer, eager or lazy, isn't mapped over it.
 
                                                               *zpack-Spec.ft*
 ft              (string|string[]|function(plugin, ft)|false, optional)
                 FileType(s) to lazy load on. Can be a function receiving
                 |zpack.Plugin| and the list so far, which returns the value
-                or edits the list. Automatically
+                or edits the list, called before the inits (see
+                |zpack-Spec.init|). Automatically
                 re-triggers BufReadPre, BufReadPost, and FileType events
                 after loading to ensure LSP clients and Treesitter attach
                 properly. Plugins sharing a filetype load together in
@@ -1027,7 +1070,8 @@ name            (string, optional)
                 top-level spec over a dependency, latest-imported within a
                 tier; zpack warns unless the specs name a repo in common (a
                 shared [1], or a `src`/`url` equal to the other's [1]).
-                Fields merge as usual, so `enabled = false` on one fragment
+                That picks only the source: fields merge in import order as
+                usual, so `enabled = false` on one fragment
                 disables the plugin unless a later one sets `enabled`. Set
                 `name` to keep them apart.
 

@@ -338,6 +338,7 @@ describe("Plugin Lifecycle Hooks", function()
 
   it("startup run_config loop continues after a function-form opts throws", function()
     local state = require('zpack.state')
+    local configured = {}
 
     require('zpack').setup({
       spec = {
@@ -345,12 +346,12 @@ describe("Plugin Lifecycle Hooks", function()
           'test/plugin-a',
           lazy = false,
           opts = function() error("simulated opts failure", 0) end,
-          config = function() end,
+          config = function() configured.a = true end,
         },
         {
           'test/plugin-b',
           lazy = false,
-          config = function() _G._zpack_test_b_configured = true end,
+          config = function() configured.b = true end,
         },
       },
       defaults = { confirm = false },
@@ -358,25 +359,41 @@ describe("Plugin Lifecycle Hooks", function()
 
     helpers.flush_pending()
 
-    assert.is_true(_G._zpack_test_b_configured == true,
-      "plugin-b's config must run despite plugin-a's opts throwing")
+    assert.is_true(configured.b, "plugin-b's config must run despite plugin-a's opts throwing")
 
-    -- plugin-a's run_config threw; it must not be silently marked "loaded".
-    assert.are_not.equal("loaded", state.spec_registry['https://github.com/test/plugin-a'].load_status,
-      "plugin-a must not be marked loaded after its run_config threw")
-    assert.is_not_nil(helpers.unloaded_plugin_names()['plugin-a'],
-      "plugin-a must remain in unloaded_plugin_names so :ZPack load can retry it")
+    -- lazy.nvim parity: M.config resolves opts inside its Util.try, so the
+    -- config is skipped and the load finishes.
+    assert.is_nil(configured.a)
+    assert.are.equal("loaded", state.spec_registry['https://github.com/test/plugin-a'].load_status)
 
-    local saw_config_notify = false
+    local reports = 0
     for _, n in ipairs(_G.test_state.notifications) do
-      if n.msg:find("Failed to run config for plugin%-a") then
-        saw_config_notify = true
-        break
+      if n.msg:find("Failed to run config for plugin%-a: simulated opts failure") then
+        reports = reports + 1
       end
     end
-    assert.is_true(saw_config_notify, "run_config failure should surface a structured notify")
+    assert.are.equal(1, reports, "run_config failure should surface one structured notify")
+  end)
 
-    _G._zpack_test_b_configured = nil
+  it("runs an install's build for a plugin whose function-form opts throw", function()
+    local add = vim.pack.add
+    vim.pack.add = function(packs, opts)
+      for _, pack_spec in ipairs(packs) do
+        require('zpack.state').src_with_pending_build[pack_spec.src] = true
+      end
+      return add(packs, opts)
+    end
+    local built = {}
+    require('zpack').setup({
+      spec = {
+        { 'test/eager', opts = function() error('boom', 0) end, build = function() built.eager = true end },
+        { 'test/lazy', cmd = 'ZpackOptsThrowBuild', opts = function() error('boom', 0) end, build = function() built.lazy = true end },
+      },
+      defaults = { confirm = false },
+    })
+    vim.pack.add = add
+    helpers.flush_pending()
+    assert.are.same({ eager = true, lazy = true }, built)
   end)
 
   -- Regression: a throw inside process_spec (e.g. packadd failing) used to
@@ -551,7 +568,7 @@ describe("Plugin Lifecycle Hooks", function()
 
   -- Regression: function-form spec.cmd / spec.keys / spec.event / spec.ft used
   -- to be resolved with the un-pcall'd util.resolve_field at registration sites
-  -- (lazy.is_lazy, lazy.process_all, lazy_trigger.cmd.setup, lazy_trigger.keys
+  -- (lazy.is_lazy, lazy.setup_triggers, lazy_trigger.cmd.setup, lazy_trigger.keys
   -- .setup). A throw aborted setup() mid-flight, stranding every later plugin
   -- un-registered. try_resolve_field at the resolve sites now reports the
   -- failure and returns nil so registration continues.

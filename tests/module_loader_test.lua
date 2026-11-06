@@ -128,6 +128,18 @@ describe("Module Loader", function()
     assert.are.equal("loaded", state.spec_registry[src].load_status)
   end)
 
+  it("loader finishes a load whose function-form opts throw, as lazy.nvim does", function()
+    helpers.write_plugin_files('opts-throw', { 'opts-throw.lua' })
+    require('zpack').setup({
+      spec = { { 'test/opts-throw', lazy = true, opts = function() error('boom', 0) end } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    assert.is_function(require('zpack.module_loader').loader('opts-throw'))
+    assert.are.equal('loaded', require('zpack.state').spec_registry['https://github.com/test/opts-throw'].load_status)
+  end)
+
   it("self-require during loading does not cause circular dependency error", function()
     helpers.write_plugin_files('self-require', { 'self-require.lua' })
     local config_called = false

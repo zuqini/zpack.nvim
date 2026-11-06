@@ -9,7 +9,7 @@ local M = {}
 local module_lookup_cache = {}
 
 ---@type vim.pack.Spec[]
-local lazy_pack_specs = {}
+local pack_specs = {}
 
 ---What require leaves in package.loaded while a module loads, and keeps there if the load throws.
 local LOADING = package.loaded[...]
@@ -48,7 +48,7 @@ local function find_src_by_scanning(modname)
   local norm = util.normalize_name(topmod)
   local first
 
-  for _, pack_spec in ipairs(lazy_pack_specs) do
+  for _, pack_spec in ipairs(pack_specs) do
     local src = pack_spec.src
     local registry_entry = state.spec_registry[src]
     local plugin = registry_entry and registry_entry.plugin
@@ -65,11 +65,11 @@ local function find_src_by_scanning(modname)
   return first
 end
 
----Initialize module loader with lazy plugins
----@param lazy_packs vim.pack.Spec[]
-function M.initialize_cache(lazy_packs)
+---Initialize module loader with the plugins it may load, in the order it tries them
+---@param packs vim.pack.Spec[]
+function M.initialize_cache(packs)
   module_lookup_cache = {}
-  lazy_pack_specs = lazy_packs
+  pack_specs = packs
 end
 
 function M.reset_lookup_cache()
@@ -108,7 +108,7 @@ local function load_from_plugin(path, modname)
   return open or err
 end
 
----Custom loader that triggers packadd for lazy plugins
+---Custom loader that loads a pending plugin holding the module
 ---@param modname string
 ---@return function|string|nil
 function M.loader(modname)
@@ -120,6 +120,12 @@ function M.loader(modname)
 
   local registry_entry = state.spec_registry[src]
   if not registry_entry or registry_entry.load_status ~= "pending" then
+    return nil
+  end
+  -- On 'runtimepath' already, with its :packadd underway: a late setup()'s pass loading
+  -- the lazy dependencies of an eager plugin before sourcing it, whose code requires
+  -- its compiled module. The searchers after this one find it.
+  if (',' .. vim.o.runtimepath .. ','):find(',' .. registry_entry.plugin.path .. ',', 1, true) then
     return nil
   end
 
