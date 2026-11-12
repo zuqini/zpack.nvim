@@ -1004,6 +1004,49 @@ describe("Lazy Loading - Keymaps", function()
       "Non-abbreviation modes must not have <C-]> appended")
   end)
 
+  it("Lazy proxy re-feeds the first press of a key in mode '!'", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/plugin', keys = { { 'jk', function() end, mode = '!' } } },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local feed_captured
+    local original_feedkeys = vim.api.nvim_feedkeys
+    vim.api.nvim_feedkeys = function(keys, _, _)
+      feed_captured = keys
+    end
+    local proxy = vim.fn.maparg('jk', 'i', false, true).callback
+    assert.is_not_nil(proxy, "Proxy should be installed in insert mode")
+    proxy()
+    vim.api.nvim_feedkeys = original_feedkeys
+
+    assert.is_truthy(feed_captured and feed_captured:find('jk', 1, true),
+      "the first press must reach the plugin's mapping")
+  end)
+
+  it("a loading plugin drops its proxies in modes '!' and '!a'", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/plugin', keys = { { 'jk', mode = '!' }, { 'teh', mode = '!a' } } },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    assert.is_not_nil(vim.fn.maparg('jk', 'c', false, true).callback)
+    assert.is_not_nil(vim.fn.maparg('teh', 'c', true, true).callback)
+
+    vim.cmd('ZPack load plugin')
+    helpers.flush_pending()
+
+    for _, mode in ipairs({ 'i', 'c' }) do
+      assert.are.equal('', vim.fn.maparg('jk', mode))
+      assert.are.equal('', vim.fn.maparg('teh', mode, true))
+    end
+  end)
+
   -- Bead zpack_nvim-n3g: ft-scoped keys must not install a global proxy and
   -- must register a FileType autocmd for the requested filetypes.
   it("KeySpec with ft does not install global proxy", function()

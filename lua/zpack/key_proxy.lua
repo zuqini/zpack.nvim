@@ -45,8 +45,7 @@ end
 local function delete_proxy(key_info)
   local lhs, mode = key_info.key_spec[1], key_info.split_mode
   if key_info.global then
-    local map = mode:sub(-1) == 'a' and vim.fn.maparg(lhs, mode:sub(1, -2), true, true)
-        or vim.fn.maparg(lhs, mode, false, true)
+    local map = keymap.maparg(lhs, mode)
     if map.callback == key_info.proxy and map.buffer == 0 then
       pcall(vim.keymap.del, mode, lhs)
     end

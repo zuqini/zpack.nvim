@@ -8,21 +8,6 @@ local key_proxy = require('zpack.key_proxy')
 
 local M = {}
 
----Check whether a mapping for `lhs` is currently installed in `mode`.
----Abbreviation modes (ia/ca/!a) are queried via maparg's {abbr}=true on the
----base mode, since maparg's {mode} arg does not accept the 'a' suffix.
----@param lhs string
----@param mode string
----@return boolean
-local mapping_present = function(lhs, mode)
-  if mode:sub(-1) == 'a' then
-    local base = mode:sub(1, -2)
-    local m = vim.fn.maparg(lhs, base, true, true)
-    return type(m) == 'table' and next(m) ~= nil
-  end
-  return vim.fn.maparg(lhs, mode) ~= ''
-end
-
 ---The function behind a key's proxies, one per key so key_proxy can tell them apart.
 ---@param key_info table
 ---@param key_id string
@@ -57,7 +42,7 @@ local function proxy_for(key_info, key_id)
     -- real keymap — a nil-rhs spec (e.g. `{ 'i', mode = 'o' }`) is the
     -- "load + fall through to native binding" pattern and must still feed.
     if key_info.key_spec[2] ~= nil
-      and not mapping_present(lhs, key_info.split_mode) then
+      and next(keymap.maparg(lhs, key_info.split_mode)) == nil then
       return
     end
     -- Abbreviation modes (ia/ca/!a) need <C-]> appended on the re-fed lhs

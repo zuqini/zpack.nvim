@@ -64,6 +64,17 @@ M.is_nop_rhs = function(rhs)
   return type(rhs) == "string" and (rhs == "" or rhs:lower() == "<nop>")
 end
 
+---`maparg()` for one of `vim.keymap.set`'s modes: it takes abbreviations as a flag
+---and reads `!` as normal mode, so ask for insert mode, which `!` maps too.
+---@param lhs string
+---@param mode string
+---@return table map Empty when `lhs` isn't mapped
+M.maparg = function(lhs, mode)
+  local abbr = mode:sub(-1) == 'a'
+  local base = abbr and mode:sub(1, -2) or mode
+  return vim.fn.maparg(lhs, base == '!' and 'i' or base, abbr, true)
+end
+
 ---What makes two keys the same mapping. lazy.nvim parity: `buffer = true` and
 ---`buffer = 0` both mean "current buffer".
 ---@param lhs string
