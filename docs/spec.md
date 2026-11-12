@@ -36,7 +36,7 @@
   -- config = true,                      -- Calls require(main).setup({})
   build = string|function(plugin)       -- Build step:
         | (string|function(plugin))[]   --   - ':<ex>' runs as an ex-command
-        | false,                        --   - other strings run via `sh -c` in plugin dir
+        | false,                        --   - other strings run via `sh -c` (`cmd.exe /c` on Windows) in plugin dir
                                         --   - functions receive the plugin
                                         --   - arrays run each entry in order
                                         --   - `false` opts out
