@@ -272,14 +272,22 @@ describe("resolve_main", function()
     assert.are.equal('zeebar', main)
   end)
 
-  it("takes the only module of a plugin not named like it, as lazy.nvim does", function()
-    local utils = require('zpack.utils')
-    local function main_of(name, files)
-      helpers.write_plugin_files(name, files)
-      local path = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name
-      return utils.resolve_main({ spec = { src = 'https://github.com/test/' .. name, name = name }, path = path }, {})
-    end
+  local function main_of(name, files)
+    helpers.write_plugin_files(name, files)
+    local plugin = {
+      spec = { src = 'https://github.com/test/' .. name, name = name },
+      path = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name,
+    }
+    local main = require('zpack.utils').resolve_main(plugin, {})
+    assert.are.equal(main, plugin.main)
+    return main
+  end
 
+  it("takes the module named like the plugin from among several", function()
+    assert.are.equal('named', main_of('named.nvim', { 'first/init.lua', 'named/init.lua', 'second.lua' }))
+  end)
+
+  it("takes the only module of a plugin not named like it, as lazy.nvim does", function()
     assert.are.equal('null-ls', main_of('none-ls.nvim', { 'null-ls/init.lua' }))
     assert.are.equal('solo', main_of('one-file.nvim', { 'solo.lua' }))
     assert.are.equal('alpha', main_of('alpha-nvim', { 'alpha.lua', 'alpha/themes/x.lua' }))
