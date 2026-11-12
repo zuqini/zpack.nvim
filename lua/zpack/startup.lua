@@ -54,8 +54,6 @@ local function toposort_startup_packs(packs)
     result[#result + 1] = pack
   end
 
-  table.sort(packs, util.compare_priority)
-
   for _, pack in ipairs(packs) do
     visit(pack)
   end
