@@ -120,6 +120,23 @@ function M.cases(config)
   }
 
   cases[#cases + 1] = {
+    name = command .. " reaches zpack.nvim when no spec lists it",
+    fn = function()
+      require('zpack').setup({
+        spec = { { 'test/plugin-a' } },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+
+      vim.cmd(command .. ' zpack.nvim')
+      helpers.flush_pending()
+
+      assert.is_nil(helpers.find_notification({ 'not found in spec' }))
+      assert.are.same({ 'zpack.nvim' }, _G.test_state.vim_pack_update_calls[1].names)
+    end,
+  }
+
+  cases[#cases + 1] = {
     name = command .. " with plugin not in spec shows error",
     fn = function()
       require('zpack').setup({
