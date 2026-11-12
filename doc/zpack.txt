@@ -164,14 +164,14 @@ with |zpack-setup-cmd_name|; a short name like `Z` or `Zp` saves typing.
                 plugin's failed fetch doesn't stop it.
 
 :ZPack reload {plugin}
-                Re-source a plugin without restarting Neovim, as
-                `:Lazy reload` does. It runs the plugin's `deactivate` hook
-                (if it has one and the plugin has loaded), drops the plugin's
-                modules from `package.loaded`, and loads it again from the
-                start. A lazy plugin that hasn't loaded yet is loaded too,
-                where `:Lazy reload` leaves it to its triggers. It reads the
-                installed copy, so for a `dev = true` plugin run
-                `:ZPack update {plugin}` first (see |zpack-Spec.dev|).
+                Re-source a plugin without restarting Neovim. It runs the
+                plugin's `deactivate` hook (if it has one and the plugin has
+                loaded), drops the plugin's modules from `package.loaded`,
+                and loads it again from the start. A lazy plugin that hasn't
+                loaded yet is loaded too, where `:Lazy reload` leaves it to
+                its triggers. It reads the installed copy, so for a
+                `dev = true` plugin run `:ZPack update {plugin}` first (see
+                |zpack-Spec.dev|).
 
 ------------------------------------------------------------------------------
 4.3 CONFIGURATIONS                                     *zpack-configurations*
