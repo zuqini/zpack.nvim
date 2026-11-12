@@ -446,6 +446,20 @@ describe("Plugin Lifecycle Hooks", function()
     assert.are.equal(3, built)
   end)
 
+  it("raises no error for a build whose plugin's config deletes the plugin", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/selfdel', cmd = 'ZpackSelfDel', build = function() end,
+          config = function() vim.pack.del({ 'selfdel' }) end },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    assert.has_no.errors(function() vim.cmd('ZPack build selfdel') end)
+    helpers.flush_pending()
+  end)
+
   -- Regression: a throw inside process_spec (e.g. packadd failing) used to
   -- leave load_status pinned at "loading" forever, so the next load attempt
   -- hit the misleading "Circular dependency detected" branch.
