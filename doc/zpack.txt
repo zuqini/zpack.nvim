@@ -1082,6 +1082,8 @@ main            (string, optional)
                 1. For mini.* plugins, uses the plugin name directly
                 2. Normalizes the plugin name (removes vim-/nvim- prefix,
                    .vim/.nvim suffix) and searches for a matching module
+                3. Otherwise, as in lazy.nvim, a plugin whose `lua/` holds
+                   one module uses it (none-ls.nvim's `null-ls`)
 
                 Use this when automatic detection fails.
 

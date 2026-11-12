@@ -360,12 +360,23 @@ M.resolve_main = function(plugin, spec)
   local norm_name = M.normalize_name(name)
   local lua_dir = plugin.path .. "/lua"
 
+  local mods, seen = {}, {}
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do
     local mod = M.top_module(dir_entry)
     if mod and M.normalize_name(mod) == norm_name then
-      plugin.main = mod
-      return mod
+      mods = { mod }
+      break
     end
+    if mod and not seen[mod] then
+      seen[mod] = true
+      mods[#mods + 1] = mod
+    end
+  end
+
+  -- A plugin's only module is its main whatever its name: none-ls.nvim's `null-ls`.
+  if #mods == 1 then
+    plugin.main = mods[1]
+    return mods[1]
   end
 
   state.resolve_main_not_found[cache_key] = true
