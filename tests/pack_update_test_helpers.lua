@@ -103,6 +103,23 @@ function M.cases(config)
   }
 
   cases[#cases + 1] = {
+    name = command .. " reaches a plugin its cond keeps unloaded",
+    fn = function()
+      require('zpack').setup({
+        spec = { { 'test/plugin-off', cond = false } },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
+
+      vim.cmd(command .. ' plugin-off')
+      helpers.flush_pending()
+
+      assert.is_nil(helpers.find_notification({ 'not found in spec' }))
+      assert.are.same({ 'plugin-off' }, _G.test_state.vim_pack_update_calls[1].names)
+    end,
+  }
+
+  cases[#cases + 1] = {
     name = command .. " with plugin not in spec shows error",
     fn = function()
       require('zpack').setup({

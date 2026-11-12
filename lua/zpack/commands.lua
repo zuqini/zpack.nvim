@@ -73,7 +73,7 @@ M.packs_in_load_order = function()
 end
 
 local is_registered_or_notify = function(plugin_name)
-  if not vim.tbl_contains(M.registered_names(), plugin_name) then
+  if plugin_name ~= 'zpack.nvim' and not state.name_to_src[plugin_name] then
     util.schedule_notify(('Plugin "%s" not found in spec'):format(plugin_name), vim.log.levels.ERROR)
     return false
   end
