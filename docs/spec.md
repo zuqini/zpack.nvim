@@ -91,7 +91,7 @@ The plugin data object passed to hooks and trigger functions:
   name = string,                  -- Resolved plugin name (alias for spec.name, lazy.nvim parity)
   dir = string,                   -- Plugin directory (alias for path, lazy.nvim parity)
   dependencies = string[],        -- Sorted list of resolved dependency names (lazy.nvim parity)
-  main = string?,                 -- Detected main module name (available after config)
+  main = string?,                 -- Detected main module name (set before `config` runs; nil inside `opts` functions)
 }
 ```
 

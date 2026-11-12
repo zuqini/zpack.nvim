@@ -103,7 +103,7 @@ command name is configurable via |zpack-setup-cmd_name| — a short name like
                 except those with `pin = true`, or update a specific plugin if
                 a name is provided. With `!`, apply
                 updates immediately, skipping the confirmation buffer.
-                Supports tab completion of installed plugin names. See
+                Supports tab completion of registered plugin names. See
                 |vim.pack.update()|. On Neovim 0.13+, equivalent to
                 `:packupdate[!] [plugin]`. A `pin` exists only in your specs, so
                 a bulk update moves a plugin whose spec couldn't be read this
@@ -153,7 +153,7 @@ command name is configurable via |zpack-setup-cmd_name| — a short name like
                 Remove a specific plugin by name, or remove all installed
                 plugins when called with ! and no plugin name. Without the !,
                 attempting to delete all will show a warning message.
-                Supports tab completion of installed plugin names. Deleting
+                Supports tab completion of registered plugin names. Deleting
                 active plugins in your spec can result in errors in your
                 current session. Restart Neovim to re-install them. On Neovim
                 0.13+, `:ZPack delete {plugin}` is equivalent to
@@ -1228,8 +1228,9 @@ The plugin data object passed to hooks and trigger functions:
                                       -- lazy.nvim parity)
       dependencies = string[],        -- Sorted list of resolved dependency
                                       -- names (lazy.nvim parity)
-      main = string?,                 -- Detected main module name
-                                      -- (available after config resolves)
+      main = string?,                 -- Detected main module name (set
+                                      -- before `config` runs; nil inside
+                                      -- `opts` functions)
     }
 <
 
