@@ -61,7 +61,7 @@ function M.registered_plugins()
   return require('zpack.commands').packs_in_load_order()
 end
 
-local KEYMAP_MODES = { 'n', 'x', 's', 'o', 'i', 'c', 't' }
+local KEYMAP_MODES = { 'n', 'x', 's', 'o', 'i', 'c', 't', 'ia', 'ca' }
 
 ---@return { [string]: { [string]: true } } lhs of each global keymap, by mode
 local function global_keymaps()
