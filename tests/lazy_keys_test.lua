@@ -1004,28 +1004,30 @@ describe("Lazy Loading - Keymaps", function()
       "Non-abbreviation modes must not have <C-]> appended")
   end)
 
-  it("Lazy proxy re-feeds the first press of a key in mode '!'", function()
-    require('zpack').setup({
-      spec = {
-        { 'test/plugin', keys = { { 'jk', function() end, mode = '!' } } },
-      },
-      defaults = { confirm = false },
-    })
-    helpers.flush_pending()
+  for _, mode in ipairs({ '!', '!a' }) do
+    it(("Lazy proxy re-feeds the first press of a key in mode '%s'"):format(mode), function()
+      require('zpack').setup({
+        spec = {
+          { 'test/plugin', keys = { { 'jk', function() end, mode = mode } } },
+        },
+        defaults = { confirm = false },
+      })
+      helpers.flush_pending()
 
-    local feed_captured
-    local original_feedkeys = vim.api.nvim_feedkeys
-    vim.api.nvim_feedkeys = function(keys, _, _)
-      feed_captured = keys
-    end
-    local proxy = vim.fn.maparg('jk', 'i', false, true).callback
-    assert.is_not_nil(proxy, "Proxy should be installed in insert mode")
-    proxy()
-    vim.api.nvim_feedkeys = original_feedkeys
+      local feed_captured
+      local original_feedkeys = vim.api.nvim_feedkeys
+      vim.api.nvim_feedkeys = function(keys, _, _)
+        feed_captured = keys
+      end
+      local proxy = vim.fn.maparg('jk', 'i', mode == '!a', true).callback
+      assert.is_not_nil(proxy, "Proxy should be installed in insert mode")
+      proxy()
+      vim.api.nvim_feedkeys = original_feedkeys
 
-    assert.is_truthy(feed_captured and feed_captured:find('jk', 1, true),
-      "the first press must reach the plugin's mapping")
-  end)
+      assert.is_truthy(feed_captured and feed_captured:find('jk', 1, true),
+        "the first press must reach the plugin's mapping")
+    end)
+  end
 
   it("a loading plugin drops its proxies in modes '!' and '!a'", function()
     require('zpack').setup({
