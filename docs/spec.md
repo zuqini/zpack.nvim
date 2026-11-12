@@ -136,10 +136,9 @@ Snapshot of a registered plugin returned by the public API functions under `requ
 {
   name   = string,                        -- resolved plugin name
   src    = string,                        -- git URL or local path
-  status = "loaded"|"pending"             -- current load/enablement state
-         | "loading"|"disabled",
+  status = "loaded"|"pending"|"loading"   -- current load/enablement state
+         | "disabled"|"installing",
   lazy   = boolean,                       -- configured to lazy-load?
-  path   = string,                        -- plugin directory on disk
-  rev    = string?,                       -- installed git revision
+  path   = string?,                       -- plugin directory on disk; nil while installing
 }
 ```
