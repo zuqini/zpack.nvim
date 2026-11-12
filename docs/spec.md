@@ -40,7 +40,7 @@
                                         --   - functions receive the plugin
                                         --   - arrays run each entry in order
                                         --   - `false` opts out
-  deactivate = function(plugin) end,    -- Teardown hook for :ZPack reload
+  deactivate = function(plugin) end,    -- Teardown hook for :ZPack reload of a loaded plugin
 
   -- Lazy loading triggers (auto-sets lazy=true unless overridden)
   -- All triggers can also be functions that receive zpack.Plugin and return the respective type,

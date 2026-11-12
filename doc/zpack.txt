@@ -1226,10 +1226,11 @@ specs           (zpack.Spec|zpack.Spec[], optional)
                                                      *zpack-Spec.deactivate*
 deactivate      (function(plugin), optional)
                 Called by `:ZPack reload {plugin}` before the plugin is
-                sourced again, as in lazy.nvim. Use it to remove the
-                autocommands, keymaps or watchers the plugin set up when it
-                loaded. If it throws, the error is shown as a warning and the
-                reload goes on.
+                sourced again, as in lazy.nvim. A plugin that hasn't loaded
+                yet has nothing to tear down, so the hook is skipped for it.
+                Use it to remove the autocommands, keymaps or watchers the
+                plugin set up when it loaded. If it throws, the error is shown
+                as a warning and the reload goes on.
 
 ==============================================================================
 8. PLUGIN REFERENCE                                *zpack-plugin-reference*
