@@ -1249,8 +1249,8 @@ The plugin data object passed to hooks and trigger functions:
       dependencies = string[],        -- Sorted list of resolved dependency
                                       -- names, as in lazy.nvim
       main = string?,                 -- Detected main module name (set
-                                      -- before `config` runs; nil inside
-                                      -- `opts` functions)
+                                      -- before the first `config` runs; nil
+                                      -- inside `opts` functions until then)
     }
 <
 
