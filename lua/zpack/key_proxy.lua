@@ -41,20 +41,31 @@ M.drop = function(key_id)
   proxy_of[key_id] = nil
 end
 
+---The modes behind each of `vim.keymap.set`'s that maps several: another mapping
+---can have replaced the proxy in one of them.
+local SINGLE_MODES = {
+  [''] = { 'n', 'x', 's', 'o' },
+  v = { 'x', 's' },
+  ['!'] = { 'i', 'c' },
+  ['!a'] = { 'ia', 'ca' },
+}
+
 ---@param key_info table
 local function delete_proxy(key_info)
-  local lhs, mode = key_info.key_spec[1], key_info.split_mode
-  if key_info.global then
-    local map = keymap.maparg(lhs, mode)
-    if map.callback == key_info.proxy and map.buffer == 0 then
-      pcall(vim.keymap.del, mode, lhs)
+  local lhs = key_info.key_spec[1]
+  for _, mode in ipairs(SINGLE_MODES[key_info.split_mode] or { key_info.split_mode }) do
+    if key_info.global then
+      local map = keymap.maparg(lhs, mode)
+      if map.callback == key_info.proxy and map.buffer == 0 then
+        pcall(vim.keymap.del, mode, lhs)
+      end
     end
-  end
-  for buf in pairs(key_info.bufs) do
-    if vim.api.nvim_buf_is_valid(buf) then
-      for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, mode)) do
-        if map.callback == key_info.proxy then
-          pcall(vim.keymap.del, mode, lhs, { buffer = buf })
+    for buf in pairs(key_info.bufs) do
+      if vim.api.nvim_buf_is_valid(buf) then
+        for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, mode)) do
+          if map.callback == key_info.proxy then
+            pcall(vim.keymap.del, mode, lhs, { buffer = buf })
+          end
         end
       end
     end

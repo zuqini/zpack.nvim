@@ -1047,6 +1047,43 @@ describe("Lazy Loading - Keymaps", function()
     end
   end)
 
+  -- Decision zpack_nvim-zhe (c): only zpack's own proxy goes, in each mode it's still in.
+  for _, case in ipairs({
+    { mode = '', modes = { 'n', 'x', 's', 'o' } },
+    { mode = 'v', modes = { 'x', 's' } },
+    { mode = '!', modes = { 'i', 'c' } },
+  }) do
+    for _, over in ipairs(case.modes) do
+      for _, scope in ipairs({ 'global', 'buffer-local' }) do
+        it(("a loading plugin keeps a mapping put over mode '%s' of its %s proxy in mode '%s'")
+          :format(over, scope, case.mode), function()
+          local buffer = scope == 'buffer-local' or nil
+          require('zpack').setup({
+            spec = {
+              { 'test/plugin', keys = { { 'jk', mode = case.mode, buffer = buffer } } },
+            },
+            defaults = { confirm = false },
+          })
+          helpers.flush_pending()
+          vim.keymap.set(over, 'jk', '<Nop>', { desc = 'mine', buffer = buffer })
+
+          vim.cmd('ZPack load plugin')
+          helpers.flush_pending()
+
+          for _, mode in ipairs(case.modes) do
+            local map = vim.fn.maparg('jk', mode, false, true)
+            if mode == over then
+              assert.are.equal('mine', map.desc, ("the mapping over mode '%s' must stay"):format(mode))
+            else
+              assert.are.same({}, map, ("the proxy in mode '%s' must go"):format(mode))
+            end
+          end
+          vim.keymap.del(over, 'jk', { buffer = buffer })
+        end)
+      end
+    end
+  end
+
   -- Bead zpack_nvim-n3g: ft-scoped keys must not install a global proxy and
   -- must register a FileType autocmd for the requested filetypes.
   it("KeySpec with ft does not install global proxy", function()
