@@ -1274,7 +1274,7 @@ pattern         (string|string[], optional)
 >lua
     {
       [1] = "<leader>ff",             -- LHS keymap (required)
-      [2] = function() end,           -- RHS function
+      [2] = function() end|"rhs",     -- RHS (optional), see below
       desc = "description",           -- Keymap description
       mode = "n"|{"n","v"},           -- Mode(s), default: "n"
       ft = "lua"|{"lua","vim"},       -- FileType scope; install buffer-locally on matching FileType only
@@ -1293,8 +1293,12 @@ pattern         (string|string[], optional)
                 The left-hand side of the keymap (e.g., `<leader>ff`).
 
                                                         *zpack.KeySpec.[2]*
-[2]             (function, required)
-                The right-hand side function to execute.
+[2]             (string|function|false, optional)
+                The right-hand side: a function, or a string as for
+                |vim.keymap.set()|. Omit it for a key that only loads the
+                plugin: the press then goes to what the plugin or Neovim
+                maps it to. `false` or |vim.NIL| disables an earlier spec's
+                key, see |zpack-Spec.keys|.
 
                                                         *zpack.KeySpec.desc*
 desc            (string, optional)

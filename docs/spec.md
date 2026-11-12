@@ -109,7 +109,7 @@ The plugin data object passed to hooks and trigger functions:
 ```lua
 {
   [1] = "<leader>ff",             -- LHS keymap (required)
-  [2] = function() end,           -- RHS function
+  [2] = function() end|"rhs",     -- RHS (optional): omit for a key that only loads the plugin; `false` disables an earlier spec's key
   desc = "description",           -- Keymap description
   mode = "n"|{"n","v"},           -- Mode(s), default: "n"
   ft = "lua"|{"lua","vim"},       -- FileType scope; keymap installs buffer-locally on matching FileType only
