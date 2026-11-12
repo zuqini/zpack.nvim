@@ -10,7 +10,7 @@
 
 ---@class zpack.KeySpec : zpack.KeymapOpts
 ---@field [1] string
----@field [2]? string|fun()
+---@field [2]? string|fun()|false
 ---@field noremap? boolean
 ---@field ft? string|string[] FileType scope (lazy.nvim parity); keymap installs buffer-locally on matching FileType only (both proxy and real keymap)
 
