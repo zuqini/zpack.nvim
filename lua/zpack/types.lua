@@ -73,7 +73,7 @@
 ---@field specs? string|string[]|zpack.Spec|zpack.Spec[] Companion plugin specs grouped with this one (lazy.nvim parity)
 ---@field pin? boolean Exclude from :ZPack update bulk runs (lazy.nvim parity)
 ---@field optional? boolean Only install if also referenced non-optionally (lazy.nvim parity)
----@field dev? boolean Use local checkout under `dev.path` (lazy.nvim parity)
+---@field dev? boolean Clone from the local checkout under `dev.path`
 ---@field deactivate? fun(plugin: zpack.Plugin?) Teardown hook invoked by :ZPack reload (lazy.nvim parity)
 ---@field import? string|fun():zpack.Spec[] Module path string or function returning specs (lazy.nvim parity)
 ---@field _import_order? number Internal: Order in which spec was imported

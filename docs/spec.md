@@ -71,7 +71,7 @@
   -- lazy.nvim spec parity flags
   pin = true,                           -- Exclude from :ZPack update bulk runs
   optional = true,                      -- Only install if also referenced elsewhere non-optionally
-  dev = true,                           -- Use local checkout under setup({ dev = { path = '~/projects' } })
+  dev = true,                           -- Clone from the local checkout under setup({ dev = { path = '~/projects' } })
   specs = { { 'companion/plugin' } },   -- Companion plugin specs grouped with this one
 
   -- Spec imports

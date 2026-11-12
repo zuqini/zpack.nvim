@@ -173,9 +173,10 @@ command name is configurable via |zpack-setup-cmd_name| — a short name like
                 Re-source a plugin: runs the plugin's `deactivate` hook (if
                 defined and the plugin has loaded), drops its `package.loaded`
                 modules, resets its load state, and re-runs the lifecycle. Useful when iterating
-                on a plugin's code without restarting Neovim — typical for
-                authors using `dev = true`. lazy.nvim parity for
-                `:Lazy reload <plugin>`.
+                on a plugin's code without restarting Neovim. It re-reads the
+                installed copy, so for a `dev = true` plugin run
+                `:ZPack update {plugin}` first (see |zpack-Spec.dev|).
+                lazy.nvim parity for `:Lazy reload <plugin>`.
 
 ------------------------------------------------------------------------------
 4.3 CONFIGURATIONS                                     *zpack-configurations*
@@ -363,8 +364,10 @@ As a thin layer, zpack does not provide:
 - UI dashboard for your plugins (see |zpack-extensions|)
 - Advanced profiling, file-watch / auto-reload, change-detection, etc.
   (`dev = true` rewrites a spec's source to a local checkout under
-  `setup({ dev = { path } })`; live file-watch is out of scope. `:ZPack
-  reload {plugin}` is a manual command, not an autocmd-driven reload.)
+  `setup({ dev = { path } })`, which `vim.pack` clones like any other
+  source, so an edit needs a commit and `:ZPack update {plugin}`; live
+  file-watch is out of scope. `:ZPack reload {plugin}` is a manual command,
+  not an autocmd-driven reload.)
 
 If you're a lazy.nvim user, see |zpack-migrating-lazy|. If something you
 need isn't achievable natively or through zpack, please submit an issue
@@ -687,7 +690,7 @@ parent's lazy trigger fires.
       pin = true,                           -- Exclude from :ZPack update bulk runs
       optional = true,                      -- Only install if also referenced
                                             --   non-optionally elsewhere
-      dev = true,                           -- Use local checkout under
+      dev = true,                           -- Clone the local checkout under
                                             --   setup({ dev = { path } })
       specs = { ... },                      -- Companion plugin specs grouped
                                             --   with this one (peers, not deps)
@@ -1184,10 +1187,14 @@ optional        (boolean, optional)
 
                                                             *zpack-Spec.dev*
 dev             (boolean, optional)
-                lazy.nvim parity. When `true`, rewrite this spec's source
-                to a local checkout under |zpack-setup-dev|'s `path` (the
-                derived plugin name is appended). Useful for plugin authors
-                iterating locally without changing the spec for ship.
+                When `true`, rewrite this spec's source to a local checkout
+                under |zpack-setup-dev|'s `path` (the derived plugin name is
+                appended). Useful for plugin authors iterating locally
+                without changing the spec for ship. Unlike lazy.nvim, which
+                uses the checkout in place, |vim.pack| clones it as it does
+                any other source: an edit reaches Neovim once it is
+                committed, on the branch the checkout had when it was
+                installed, and `:ZPack update {plugin}` has run.
 
                                                           *zpack-Spec.specs*
 specs           (zpack.Spec|zpack.Spec[], optional)
@@ -1385,8 +1392,11 @@ dev mode                  Set `dev = true` on a spec and configure
                           `setup({ dev = { path = '~/projects' } })` —
                           the source is rewritten to `<path>/<plugin-name>`.
                           See |zpack-Spec.dev| and |zpack-setup-dev|.
-                          Live file-watch / auto-reload is out of scope;
-                          use `:ZPack reload {plugin}` to manually re-source.
+                          The checkout is cloned, not used in place:
+                          commit an edit and run `:ZPack update {plugin}`
+                          to pick it up. Live file-watch / auto-reload is
+                          out of scope; use `:ZPack reload {plugin}` to
+                          manually re-source.
 
                                                   *zpack-migration-profiling*
 profiling                 Use `nvim --startuptime startuptime.log`.
