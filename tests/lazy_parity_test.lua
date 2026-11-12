@@ -894,6 +894,34 @@ describe("deactivate hook (zpack_nvim-aht) + :ZPack reload (zpack_nvim-dpl)", fu
     assert.are.same({ stale = true }, package.loaded['unrelated'],
       "reload must NOT touch keys outside the plugin's main namespace")
   end)
+
+  it("reload clears a module the plugin holds outside its main namespace", function()
+    local plugin_path = vim.fn.tempname() .. '/extens'
+    table.insert(_G.test_state.plugin_roots, vim.fs.dirname(plugin_path))
+    vim.fn.mkdir(plugin_path .. '/lua/telescope/_extensions', 'p')
+    vim.fn.writefile({ 'return {}' }, plugin_path .. '/lua/extens.lua')
+    vim.fn.writefile({ 'return {}' }, plugin_path .. '/lua/telescope/_extensions/extens.lua')
+
+    require('zpack').setup({
+      spec = { { 'test/extens', lazy = false, main = 'extens' } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local pack_spec = _G.test_state.registered_pack_specs.extens
+    require('zpack.state').spec_registry[pack_spec.src].plugin.path = plugin_path
+    vim.pack.get = function() return { { spec = pack_spec, path = plugin_path } } end
+
+    package.loaded['telescope._extensions.extens'] = { stale = true }
+    package.loaded['telescope._extensions.other'] = { stale = true }
+
+    vim.cmd('ZPack reload extens')
+    helpers.flush_pending()
+
+    assert.is_nil(package.loaded['telescope._extensions.extens'])
+    assert.are.same({ stale = true }, package.loaded['telescope._extensions.other'])
+    package.loaded['telescope._extensions.other'] = nil
+  end)
 end)
 
 describe("dev = true source rewrite (zpack_nvim-lkb)", function()

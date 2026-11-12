@@ -433,25 +433,16 @@ Sub.reload = {
       end
     end
 
-    -- Drop modules whose file lives under THIS plugin's lua/. The fs_stat
-    -- is the sibling-plugin disambiguator (e.g. telescope-fzf-native's
-    -- `telescope.extensions.fzf`); the `main` prefix is an optimization,
-    -- skipped when utils.resolve_main caches a not-found result.
+    -- lazy.nvim parity: drop every module whose file is under this plugin's lua/,
+    -- whatever its namespace (`telescope._extensions.x`).
     local lua_dir = plugin and plugin.path and (plugin.path .. '/lua') or nil
     if lua_dir then
-      local main = plugin and util.resolve_main(plugin, spec) or nil
-      local prefix = main and main ~= '' and (main .. '.') or nil
       for key in pairs(package.loaded) do
         if type(key) == 'string' then
-          local in_namespace = prefix == nil
-              or key == main
-              or key:sub(1, #prefix) == prefix
-          if in_namespace then
-            local rel = key:gsub('%.', '/')
-            if vim.uv.fs_stat(lua_dir .. '/' .. rel .. '.lua')
-                or vim.uv.fs_stat(lua_dir .. '/' .. rel .. '/init.lua') then
-              package.loaded[key] = nil
-            end
+          local rel = key:gsub('%.', '/')
+          if vim.uv.fs_stat(lua_dir .. '/' .. rel .. '.lua')
+              or vim.uv.fs_stat(lua_dir .. '/' .. rel .. '/init.lua') then
+            package.loaded[key] = nil
           end
         end
       end
