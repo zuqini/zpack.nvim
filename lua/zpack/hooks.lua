@@ -149,11 +149,12 @@ end
 
 ---A build can need the plugin, so it starts once the plugin is loaded.
 ---@param src string
----@return boolean started False if there's no build or the plugin failed to load
+---@return boolean started False if there's no build, or the plugin isn't registered or failed to load
 M.load_and_build = function(src)
   local entry = state.spec_registry[src]
   local build = entry and entry.merged_spec and entry.merged_spec.build
-  if not build or not require('zpack.plugin_loader').try_process_spec(state.src_to_pack_spec[src], { bang = true }) then
+  if not build or not require('zpack.plugin_loader').try_process_spec(state.src_to_pack_spec[src], { bang = true })
+      or not entry.plugin then
     return false
   end
   M.execute_build(build, entry.plugin, src)
