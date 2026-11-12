@@ -1052,6 +1052,7 @@ describe("Lazy Loading - Keymaps", function()
     { mode = '', modes = { 'n', 'x', 's', 'o' } },
     { mode = 'v', modes = { 'x', 's' } },
     { mode = '!', modes = { 'i', 'c' } },
+    { mode = '!a', modes = { 'ia', 'ca' } },
   }) do
     for _, over in ipairs(case.modes) do
       for _, scope in ipairs({ 'global', 'buffer-local' }) do
@@ -1071,7 +1072,8 @@ describe("Lazy Loading - Keymaps", function()
           helpers.flush_pending()
 
           for _, mode in ipairs(case.modes) do
-            local map = vim.fn.maparg('jk', mode, false, true)
+            local abbr = mode:sub(-1) == 'a'
+            local map = vim.fn.maparg('jk', mode:sub(1, 1), abbr, true)
             if mode == over then
               assert.are.equal('mine', map.desc, ("the mapping over mode '%s' must stay"):format(mode))
             else
