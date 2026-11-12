@@ -1029,6 +1029,30 @@ describe("Lazy Loading - Keymaps", function()
     end)
   end
 
+  it("Lazy proxy re-feeds nothing when the key's own mapping failed to apply", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/plugin', keys = { { 'jk', 42, mode = '!' } } },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local feed_captured
+    local original_feedkeys = vim.api.nvim_feedkeys
+    vim.api.nvim_feedkeys = function(keys, _, _)
+      feed_captured = keys
+    end
+    local proxy = vim.fn.maparg('jk', 'i', false, true).callback
+    assert.is_not_nil(proxy, "Proxy should be installed in insert mode")
+    proxy()
+    vim.api.nvim_feedkeys = original_feedkeys
+    helpers.flush_pending()
+
+    assert.is_nil(feed_captured, "an unmapped lhs must not be typed into the buffer")
+    assert.is_not_nil(helpers.find_notification({ 'Failed to map jk' }))
+  end)
+
   it("a loading plugin drops its proxies in modes '!' and '!a'", function()
     require('zpack').setup({
       spec = {
