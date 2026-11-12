@@ -915,9 +915,13 @@ config          (function(plugin, opts)|true, optional)
                 automatically without a custom config function.
 
                                                            *zpack-Spec.build*
-build           (string|function(plugin), optional)
+build           (string|function(plugin)|(string|function(plugin))[]|false,
+                optional)
                 Build command (string) or function to run after
-                installing/updating the plugin. Function receives
+                installing/updating the plugin, or a list of them to run in
+                order. A string starting with `:` is an Ex command; any other
+                runs with `sh -c` (`cmd.exe /c` on Windows) in the plugin's
+                directory. `false` opts out. Function receives
                 |zpack.Plugin|.
 
                                                            *zpack-Spec.event*
