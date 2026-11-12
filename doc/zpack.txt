@@ -171,8 +171,8 @@ command name is configurable via |zpack-setup-cmd_name| — a short name like
 
 :ZPack reload {plugin}
                 Re-source a plugin: runs the plugin's `deactivate` hook (if
-                defined), drops its `package.loaded` modules, resets its
-                load state, and re-runs the lifecycle. Useful when iterating
+                defined and the plugin has loaded), drops its `package.loaded`
+                modules, resets its load state, and re-runs the lifecycle. Useful when iterating
                 on a plugin's code without restarting Neovim — typical for
                 authors using `dev = true`. lazy.nvim parity for
                 `:Lazy reload <plugin>`.

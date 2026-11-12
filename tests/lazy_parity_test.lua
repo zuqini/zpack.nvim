@@ -1074,6 +1074,27 @@ describe(":ZPack reload edge cases", function()
         "Reload must not produce a deactivate failure notify for nil-plugin reload")
     end
   end)
+
+  it("reload runs no deactivate for a plugin that hasn't loaded", function()
+    local lifecycle = {}
+    require('zpack').setup({
+      spec = {
+        {
+          'test/pendrelo',
+          cmd = 'PendRelo',
+          deactivate = function() table.insert(lifecycle, 'deactivate') end,
+          config = function() table.insert(lifecycle, 'config') end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    vim.cmd('ZPack reload pendrelo')
+    helpers.flush_pending()
+
+    assert.are.same({ 'config' }, lifecycle)
+  end)
 end)
 
 describe(":ZPack update names list preserves vim.pack universe under pin", function()

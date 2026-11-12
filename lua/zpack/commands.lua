@@ -420,10 +420,11 @@ Sub.reload = {
     local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
     local plugin = registry_entry.plugin
 
-    -- Skip deactivate when plugin is nil (never-loaded / install-failed):
-    -- deactivate(nil) would force user code to nil-guard. A throw is caught
-    -- and surfaced so a broken deactivate doesn't strand the reload.
-    if plugin and type(spec.deactivate) == 'function' then
+    -- lazy.nvim parity: only a loaded plugin has anything to tear down. Nor
+    -- when plugin is nil (install-failed): deactivate(nil) would force user
+    -- code to nil-guard. A throw is caught and surfaced so a broken
+    -- deactivate doesn't strand the reload.
+    if plugin and registry_entry.load_status == 'loaded' and type(spec.deactivate) == 'function' then
       local ok, err = pcall(spec.deactivate, plugin)
       if not ok then
         util.schedule_notify(
