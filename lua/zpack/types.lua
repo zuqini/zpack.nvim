@@ -25,7 +25,8 @@
 
 ---Plugin data passed to load callback from vim.pack.add and forwarded to
 ---spec hooks (init/config/opts/cond/build/deactivate). zpack's own fields are
----`spec`, `path`, and the late-resolved `main`; lazy.nvim parity adds
+---`spec`, `path`, and `main` (the spec's, else detected before the first
+---`config`); lazy.nvim parity adds
 ---`name` (alias for spec.name), `dir` (alias for path), and `dependencies`
 ---(sorted list of resolved dependency names from this plugin's outgoing
 ---deps in the resolved spec tree).
