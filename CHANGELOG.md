@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/zuqini/zpack.nvim/compare/v3.0.0...v3.0.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* lazy keys in mode "!", reload, named update of a cond = false plugin, and main detection ([#55](https://github.com/zuqini/zpack.nvim/issues/55)) ([79c8536](https://github.com/zuqini/zpack.nvim/commit/79c8536c9ebb68124181100462253ceac92e24b9))
+
 ## [3.0.0](https://github.com/zuqini/zpack.nvim/compare/v2.0.4...v3.0.0) (2026-11-06)
 
 
