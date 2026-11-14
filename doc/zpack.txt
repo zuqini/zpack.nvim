@@ -1116,6 +1116,10 @@ main            (string, optional)
                    `nvim-` prefix and its `.vim` or `.nvim` suffix.
                 3. Otherwise, as in lazy.nvim, the one module in the plugin's
                    `lua/`, if there is only one (`null-ls` for none-ls.nvim).
+                   A compiled `.so` or `.dll` counts as a module here, but
+                   only a Lua module is matched against the name in 2:
+                   foo.nvim with `lua/foo.so` beside another module gets
+                   none, where lazy.nvim takes `foo`.
 
                 Set it when detection fails.
 
