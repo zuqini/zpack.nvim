@@ -423,6 +423,30 @@ describe("plugin.main in config hooks", function()
     assert.are.same({ init = 'bare.module', opts = 'test.module' }, seen)
   end)
 
+  it("a `main` of false leaves the plugin's module to detection, as in lazy.nvim", function()
+    helpers.write_plugin_files('falsy', { 'falsy/init.lua' })
+    local seen = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/falsy',
+          main = false,
+          init = function(plugin)
+            seen.init = tostring(plugin.main)
+          end,
+          config = function(plugin)
+            seen.config = plugin.main
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.are.same({ init = 'nil', config = 'falsy' }, seen)
+  end)
+
   it("plugin.main is nil when not detected", function()
     local received_main = "not_set"
 
