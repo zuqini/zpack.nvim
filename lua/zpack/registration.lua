@@ -70,6 +70,7 @@ M.register_all = function(ctx)
     -- value is stable across runs even though dependency_graph is a set.
     plugin.name = pack_spec.name
     plugin.dir = plugin.path
+    plugin.main = registry_entry.merged_spec.main
     local dep_set = state.dependency_graph[pack_spec.src]
     if dep_set then
       local dep_names = {}

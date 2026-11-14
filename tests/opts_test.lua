@@ -394,6 +394,35 @@ describe("plugin.main in config hooks", function()
     assert.are.equal('test.module', received_main)
   end)
 
+  it("plugin.main is the spec's `main` in init and opts functions, as in lazy.nvim", function()
+    local seen = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/bare',
+          main = 'bare.module',
+          init = function(plugin)
+            seen.init = plugin.main
+          end,
+        },
+        {
+          'test/plugin',
+          main = 'test.module',
+          opts = function(plugin)
+            seen.opts = plugin.main
+            return {}
+          end,
+          config = function() end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.are.same({ init = 'bare.module', opts = 'test.module' }, seen)
+  end)
+
   it("plugin.main is nil when not detected", function()
     local received_main = "not_set"
 

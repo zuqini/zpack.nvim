@@ -367,6 +367,7 @@ M.resolve_main = function(plugin, spec)
       mods = { mod }
       break
     end
+    mod = mod or dir_entry.name:match("^(.+)%.so$") or dir_entry.name:match("^(.+)%.dll$")
     if mod and not seen[mod] then
       seen[mod] = true
       mods[#mods + 1] = mod
