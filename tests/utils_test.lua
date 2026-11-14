@@ -300,6 +300,11 @@ describe("resolve_main", function()
     assert.are.equal('native', main_of('compiled-only.nvim', { 'native.so' }))
   end)
 
+  it("leaves no `main` when only a compiled module is named like the plugin beside a Lua one", function()
+    assert.is_nil(main_of('foo.nvim', { 'foo.so', 'bar.lua' }))
+    assert.is_nil(main_of('foo-dll.nvim', { 'foo_dll.dll', 'bar.lua' }))
+  end)
+
   it("reads a symlinked compiled module by its module name, as lazy.nvim does", function()
     local function link_compiled(name)
       local lua_dir = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name .. '/lua'
