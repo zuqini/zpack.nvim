@@ -362,12 +362,13 @@ M.resolve_main = function(plugin, spec)
 
   local mods, seen = {}, {}
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do
-    local mod = M.top_module(dir_entry)
+    local compiled = dir_entry.name:match("^(.+)%.so$") or dir_entry.name:match("^(.+)%.dll$")
+    local mod = not compiled and M.top_module(dir_entry) or nil
     if mod and M.normalize_name(mod) == norm_name then
       mods = { mod }
       break
     end
-    mod = mod or dir_entry.name:match("^(.+)%.so$") or dir_entry.name:match("^(.+)%.dll$")
+    mod = mod or compiled
     if mod and not seen[mod] then
       seen[mod] = true
       mods[#mods + 1] = mod

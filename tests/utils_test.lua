@@ -299,4 +299,19 @@ describe("resolve_main", function()
     assert.is_nil(main_of('mixed-dll.nvim', { 'helper.lua', 'native.dll' }))
     assert.are.equal('native', main_of('compiled-only.nvim', { 'native.so' }))
   end)
+
+  it("reads a symlinked compiled module by its module name, as lazy.nvim does", function()
+    local function link_compiled(name)
+      local lua_dir = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name .. '/lua'
+      vim.fn.mkdir(lua_dir, 'p')
+      assert(vim.uv.fs_symlink('../target/libnative.so', lua_dir .. '/native.so'))
+    end
+
+    link_compiled('linked-only.nvim')
+    assert.are.equal('native', main_of('linked-only.nvim', {}))
+    link_compiled('linked-beside.nvim')
+    assert.are.equal('native', main_of('linked-beside.nvim', { 'native.lua' }))
+    link_compiled('linked-mixed.nvim')
+    assert.is_nil(main_of('linked-mixed.nvim', { 'helper.lua' }))
+  end)
 end)
