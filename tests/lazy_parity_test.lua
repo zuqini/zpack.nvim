@@ -894,6 +894,25 @@ describe("deactivate hook (zpack_nvim-aht) + :ZPack reload (zpack_nvim-dpl)", fu
     assert.are.same({ stale = true }, package.loaded['unrelated'],
       "reload must NOT touch keys outside the plugin's main namespace")
   end)
+
+  it("reload clears a module the plugin holds outside its main namespace", function()
+    helpers.write_plugin_files('extens', { 'extens.lua', 'telescope/_extensions/extens.lua' })
+    require('zpack').setup({
+      spec = { { 'test/extens', lazy = false, main = 'extens' } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    package.loaded['telescope._extensions.extens'] = { stale = true }
+    package.loaded['telescope._extensions.other'] = { stale = true }
+
+    vim.cmd('ZPack reload extens')
+    helpers.flush_pending()
+
+    assert.is_nil(package.loaded['telescope._extensions.extens'])
+    assert.are.same({ stale = true }, package.loaded['telescope._extensions.other'])
+    package.loaded['telescope._extensions.other'] = nil
+  end)
 end)
 
 describe("dev = true source rewrite (zpack_nvim-lkb)", function()
@@ -1045,6 +1064,27 @@ describe(":ZPack reload edge cases", function()
           and n.msg:find('Failed to run deactivate hook', 1, true),
         "Reload must not produce a deactivate failure notify for nil-plugin reload")
     end
+  end)
+
+  it("reload runs no deactivate for a plugin that hasn't loaded", function()
+    local lifecycle = {}
+    require('zpack').setup({
+      spec = {
+        {
+          'test/pendrelo',
+          cmd = 'PendRelo',
+          deactivate = function() table.insert(lifecycle, 'deactivate') end,
+          config = function() table.insert(lifecycle, 'config') end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    vim.cmd('ZPack reload pendrelo')
+    helpers.flush_pending()
+
+    assert.are.same({ 'config' }, lifecycle)
   end)
 end)
 

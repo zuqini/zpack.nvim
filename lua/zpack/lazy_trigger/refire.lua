@@ -54,9 +54,7 @@ M.snapshot = function(event)
   local chain = build_chain(event)
   local snap = {}
   for _, ev in ipairs(chain) do
-    if ev == "FileType" then
-      snap[ev] = nil
-    else
+    if ev ~= "FileType" then
       local existing = {}
       for _, au in ipairs(vim.api.nvim_get_autocmds({ event = ev })) do
         if au.group then

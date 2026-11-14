@@ -73,7 +73,7 @@ M.packs_in_load_order = function()
 end
 
 local is_registered_or_notify = function(plugin_name)
-  if not vim.tbl_contains(M.registered_names(), plugin_name) then
+  if plugin_name ~= 'zpack.nvim' and not state.name_to_src[plugin_name] then
     util.schedule_notify(('Plugin "%s" not found in spec'):format(plugin_name), vim.log.levels.ERROR)
     return false
   end
@@ -420,10 +420,11 @@ Sub.reload = {
     local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
     local plugin = registry_entry.plugin
 
-    -- Skip deactivate when plugin is nil (never-loaded / install-failed):
-    -- deactivate(nil) would force user code to nil-guard. A throw is caught
-    -- and surfaced so a broken deactivate doesn't strand the reload.
-    if plugin and type(spec.deactivate) == 'function' then
+    -- lazy.nvim parity: only a loaded plugin has anything to tear down. Nor
+    -- when plugin is nil (install-failed): deactivate(nil) would force user
+    -- code to nil-guard. A throw is caught and surfaced so a broken
+    -- deactivate doesn't strand the reload.
+    if plugin and registry_entry.load_status == 'loaded' and type(spec.deactivate) == 'function' then
       local ok, err = pcall(spec.deactivate, plugin)
       if not ok then
         util.schedule_notify(
@@ -433,25 +434,16 @@ Sub.reload = {
       end
     end
 
-    -- Drop modules whose file lives under THIS plugin's lua/. The fs_stat
-    -- is the sibling-plugin disambiguator (e.g. telescope-fzf-native's
-    -- `telescope.extensions.fzf`); the `main` prefix is an optimization,
-    -- skipped when utils.resolve_main caches a not-found result.
+    -- lazy.nvim parity: drop every module whose file is under this plugin's lua/,
+    -- whatever its namespace (`telescope._extensions.x`).
     local lua_dir = plugin and plugin.path and (plugin.path .. '/lua') or nil
     if lua_dir then
-      local main = plugin and util.resolve_main(plugin, spec) or nil
-      local prefix = main and main ~= '' and (main .. '.') or nil
       for key in pairs(package.loaded) do
         if type(key) == 'string' then
-          local in_namespace = prefix == nil
-              or key == main
-              or key:sub(1, #prefix) == prefix
-          if in_namespace then
-            local rel = key:gsub('%.', '/')
-            if vim.uv.fs_stat(lua_dir .. '/' .. rel .. '.lua')
-                or vim.uv.fs_stat(lua_dir .. '/' .. rel .. '/init.lua') then
-              package.loaded[key] = nil
-            end
+          local rel = key:gsub('%.', '/')
+          if vim.uv.fs_stat(lua_dir .. '/' .. rel .. '.lua')
+              or vim.uv.fs_stat(lua_dir .. '/' .. rel .. '/init.lua') then
+            package.loaded[key] = nil
           end
         end
       end

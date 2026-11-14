@@ -149,11 +149,14 @@ end
 
 ---A build can need the plugin, so it starts once the plugin is loaded.
 ---@param src string
----@return boolean started False if there's no build or the plugin failed to load
+---@return boolean started False if there's no build, or the plugin isn't installed or failed to load
 M.load_and_build = function(src)
   local entry = state.spec_registry[src]
+  local pack_spec = state.src_to_pack_spec[src]
   local build = entry and entry.merged_spec and entry.merged_spec.build
-  if not build or not require('zpack.plugin_loader').try_process_spec(state.src_to_pack_spec[src], { bang = true }) then
+  -- A plugin vim.pack had added before setup() is installed with no `entry.plugin`.
+  if not build or not require('zpack.plugin_loader').try_process_spec(pack_spec, { bang = true })
+      or not pcall(vim.pack.get, { pack_spec.name }, { info = false }) then
     return false
   end
   M.execute_build(build, entry.plugin, src)

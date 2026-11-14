@@ -11,10 +11,10 @@
 ```lua
 {
   -- Plugin source (provide at least one; src > url > dir > [1])
-  [1] = "user/repo",                    -- Plugin short name or full git URL. owner/repo expands to https://github.com/{owner/repo} when no explicit src/url/dir is given; a full git URL (any scheme:// URL or scp-style user@host:) is used as-is; use dir for local paths. The plugin name always derives from [1]
-  src = "https://...",                  -- Custom git URL, passed to git verbatim (~ not expanded — use dir for local checkouts)
-  dir = "/path/to/plugin",              -- Local plugin directory, the field for local checkouts (~ expanded; lazy.nvim compat, mapped to src)
-  url = "https://...",                  -- Custom git URL (lazy.nvim compat, mapped to src, overrides [1] — e.g. to swap in a fork)
+  [1] = "user/repo",                    -- owner/repo on GitHub, or a full git URL (see below). The plugin's name always comes from [1]
+  src = "https://...",                  -- Git URL, passed to git verbatim (~ not expanded; use dir for a local checkout)
+  dir = "/path/to/plugin",              -- Local checkout (~ expanded; lazy.nvim compat, mapped to src)
+  url = "https://...",                  -- Git URL (lazy.nvim compat, mapped to src); overrides [1], e.g. to swap in a fork
 
   -- Dependencies
   dependencies = string|string[]|zpack.Spec|zpack.Spec[], -- Plugin dependencies
@@ -36,16 +36,16 @@
   -- config = true,                      -- Calls require(main).setup({})
   build = string|function(plugin)       -- Build step:
         | (string|function(plugin))[]   --   - ':<ex>' runs as an ex-command
-        | false,                        --   - other strings run via $SHELL in plugin dir
+        | false,                        --   - other strings run via `sh -c` (`cmd.exe /c` on Windows) in plugin dir
                                         --   - functions receive the plugin
                                         --   - arrays run each entry in order
-                                        --   - `false` opts out (lazy.nvim parity)
-  deactivate = function(plugin) end,    -- Teardown hook for :ZPack reload (lazy.nvim parity)
+                                        --   - `false` opts out
+  deactivate = function(plugin) end,    -- Teardown hook for :ZPack reload of a loaded plugin
 
   -- Lazy loading triggers (auto-sets lazy=true unless overridden)
   -- All triggers can also be functions that receive zpack.Plugin and return the respective type,
   -- or `false`, which clears what earlier specs of the plugin set
-  event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]|function(plugin, list), -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua". zpack auto-emits `User VeryLazy` once on UIEnter so user-config `autocmd User VeryLazy` hooks fire.
+  event = string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]|function(plugin, list), -- Autocommand event(s). Supports 'VeryLazy' and inline patterns: "BufReadPre *.lua"
   pattern = string|string[],            -- Global fallback pattern(s) for all events
   cmd = string|string[]|function(plugin, list), -- Command(s) to create; tab-completion on the command also triggers the load
   keys = string|string[]|zpack.KeySpec|zpack.KeySpec[]|function(plugin, list), -- Keymap(s) to create. A table of only strings is a list of keys, so `{ lhs, 'dd' }` is two keys: nest it or add a field to make it one
@@ -68,17 +68,22 @@
   main = "module.name",                 -- Explicit main module (auto-detected if not set)
   module = false,                       -- Disable module-based lazy loading for this plugin
 
-  -- lazy.nvim spec parity flags
+  -- Also from lazy.nvim
   pin = true,                           -- Exclude from :ZPack update bulk runs
   optional = true,                      -- Only install if also referenced elsewhere non-optionally
-  dev = true,                           -- Use local checkout under setup({ dev = { path = '~/projects' } })
+  dev = true,                           -- Clone from the local checkout under setup({ dev = { path = '~/projects' } })
   specs = { { 'companion/plugin' } },   -- Companion plugin specs grouped with this one
 
   -- Spec imports
   import = "plugins.lsp",               -- A single lua/{path}.lua spec module, else lua/{path}/*.lua and lua/{path}/*/init.lua
-  -- import = function() return { ... } end, -- Or a function returning a spec list (lazy.nvim parity)
+  -- import = function() return { ... } end, -- Or a function returning a spec list
 }
 ```
+
+Notes:
+
+- `[1]`: `owner/repo` expands to `https://github.com/owner/repo` unless `src`, `url` or `dir` is set. A full git URL (any `scheme://` URL, or scp-style `user@host:`) is used as it is. For a local path use `dir`.
+- `event`: zpack fires `User VeryLazy` once on `UIEnter`, so your own `autocmd User VeryLazy` runs too.
 
 ### zpack.Plugin Reference
 
@@ -88,10 +93,10 @@ The plugin data object passed to hooks and trigger functions:
 {
   spec = vim.pack.Spec,           -- The resolved vim.pack spec (name, src, version)
   path = string,                  -- Absolute path to the plugin directory
-  name = string,                  -- Resolved plugin name (alias for spec.name, lazy.nvim parity)
-  dir = string,                   -- Plugin directory (alias for path, lazy.nvim parity)
-  dependencies = string[],        -- Sorted list of resolved dependency names (lazy.nvim parity)
-  main = string?,                 -- Detected main module name (available after config)
+  name = string,                  -- Resolved plugin name (alias for spec.name, as in lazy.nvim)
+  dir = string,                   -- Plugin directory (alias for path, as in lazy.nvim)
+  dependencies = string[],        -- Sorted list of resolved dependency names, as in lazy.nvim
+  main = string?,                 -- Detected main module name (set before the first `config` runs; nil inside `opts` functions until then)
 }
 ```
 
@@ -109,7 +114,7 @@ The plugin data object passed to hooks and trigger functions:
 ```lua
 {
   [1] = "<leader>ff",             -- LHS keymap (required)
-  [2] = function() end,           -- RHS function
+  [2] = function() end|"rhs",     -- RHS (optional): omit for a key that only loads the plugin; `false` disables an earlier spec's key
   desc = "description",           -- Keymap description
   mode = "n"|{"n","v"},           -- Mode(s), default: "n"
   ft = "lua"|{"lua","vim"},       -- FileType scope; keymap installs buffer-locally on matching FileType only
@@ -123,23 +128,22 @@ The plugin data object passed to hooks and trigger functions:
 }
 ```
 
-A KeySpec whose `[2]` rhs is `<Nop>` (any case) or the empty string is
-installed as a real no-op keymap rather than a lazy proxy — pressing the key
-never loads the plugin. Useful for suppressing default mappings the plugin
-would otherwise install. Matches lazy.nvim's `Util.is_nop` behavior.
+A KeySpec whose `[2]` is `<Nop>` (any case) or the empty string is mapped as a
+real no-op, not as a lazy proxy, so pressing the key never loads the plugin.
+Use it to suppress a default mapping the plugin would otherwise install.
+lazy.nvim does the same (`Util.is_nop`).
 
 ### zpack.PluginInfo Reference
 
-Snapshot of a registered plugin returned by the public API functions under `require('zpack.api')`. Treat as read-only. See `:help zpack-public-api` or [docs/public_api.md](public_api.md) for the full reference, including stability guarantees and field-level docs.
+A snapshot of a registered plugin, returned by the functions in `require('zpack.api')`. Treat it as read-only. See `:help zpack-public-api` or [docs/public_api.md](public_api.md) for the API.
 
 ```lua
 {
   name   = string,                        -- resolved plugin name
   src    = string,                        -- git URL or local path
-  status = "loaded"|"pending"             -- current load/enablement state
-         | "loading"|"disabled",
+  status = "loaded"|"pending"|"loading"   -- current load/enablement state
+         | "disabled"|"installing",
   lazy   = boolean,                       -- configured to lazy-load?
-  path   = string,                        -- plugin directory on disk
-  rev    = string?,                       -- installed git revision
+  path   = string?,                       -- plugin directory on disk; nil while installing
 }
 ```

@@ -75,8 +75,6 @@ local process_all = function(ctx)
   local hooks = require('zpack.hooks')
   local state = require('zpack.state')
 
-  vim.api.nvim_clear_autocmds({ group = state.lazy_build_group })
-  vim.api.nvim_clear_autocmds({ group = state.delete_group })
   ctx.vim_packs = require('zpack.merge').resolve_all(ctx.imported.graph, ctx.imported.enabled_results)
   hooks.setup_delete_tracking()
   require('zpack.registration').register_all(ctx)

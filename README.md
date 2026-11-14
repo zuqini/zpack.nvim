@@ -66,7 +66,7 @@ return {
 
 #### Commands
 
-zpack provides a single user command, `:ZPack`, with subcommands. Rename via [`cmd_name`](#configurations) — a short name like `Z` or `Zp` is recommended for ease of use (`:Z update`, `:Zp clean`).
+zpack provides a single user command, `:ZPack`, with subcommands. Rename it with [`cmd_name`](#configurations); a short name like `Z` or `Zp` saves typing (`:Z update`, `:Zp clean`).
 
 | Command | Description |
 | --- | --- |
@@ -76,8 +76,8 @@ zpack provides a single user command, `:ZPack`, with subcommands. Rename via [`c
 | `:ZPack[!] build [plugin]` | Run a plugin's build hook; `!` runs every plugin's build hook |
 | `:ZPack[!] load [plugin]` | Load an unloaded plugin; `!` loads all unloaded plugins |
 | `:ZPack[!] delete [plugin]` | Remove a plugin; `!` removes all plugins |
-| `:ZPack[!] sync` | Bulk update + clean (lazy.nvim parity); `!` doesn't ask before deleting |
-| `:ZPack reload {plugin}` | Re-source a plugin (lazy.nvim parity) |
+| `:ZPack[!] sync` | Update everything, then clean, like `:Lazy sync`; `!` doesn't ask before deleting |
+| `:ZPack reload {plugin}` | Re-source a plugin without restarting, like `:Lazy reload` |
 
 
 #### Configurations
@@ -88,8 +88,8 @@ require('zpack').setup({
   defaults = {
     confirm = true,          -- set to false to skip vim.pack install prompts (default: true)
     cond = nil,              -- global condition for all plugins, e.g. not vim.g.is_vscode (default: nil)
-    lazy = false,            -- make every spec lazy-load by default unless it sets lazy=false (lazy.nvim parity, default: false)
-    version = nil,           -- default version applied when a spec has no version/sem_version/branch/tag/commit (lazy.nvim parity, default: nil)
+    lazy = false,            -- lazy-load every spec unless it sets lazy = false (default: false)
+    version = nil,           -- version for specs that set no version/sem_version/branch/tag/commit (default: nil)
   },
   performance = {
     vim_loader = true,       -- enables vim.loader for faster startup (default: true)
@@ -149,11 +149,12 @@ zpack might be for you if:
 - you simplified your config to use `vim.pack` as-is, but you miss lazy-loading, build hooks, plugin management commands, or drop-in lazy plugin specs
 
 As a thin layer, zpack does not provide:
-- UI dashboard for your plugins (see [Extensions](#extensions) for community solutions)
-- Advanced profiling, file-watch / auto-reload, change-detection, etc.
-  (`dev = true` rewrites a spec's source to a local checkout under
-  `setup({ dev = { path } })`; live file-watch is out of scope. `:ZPack
-  reload {plugin}` is a manual command, not an autocmd-driven reload.)
+- A UI dashboard for your plugins (see [Extensions](#extensions) for community solutions)
+- Profiling, file watching, auto-reload or change detection.
+  `:ZPack reload {plugin}` re-sources a plugin by hand. `dev = true` points a
+  spec at a local checkout under `setup({ dev = { path } })`, which `vim.pack`
+  clones like any other source, so an edit needs a commit and
+  `:ZPack update {plugin}`.
 
 If you're a lazy.nvim user, see [Migrating from lazy.nvim](docs/tips.md#migrating-from-lazynvim)
 

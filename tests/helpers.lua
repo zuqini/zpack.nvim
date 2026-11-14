@@ -61,7 +61,7 @@ function M.registered_plugins()
   return require('zpack.commands').packs_in_load_order()
 end
 
-local KEYMAP_MODES = { 'n', 'x', 's', 'o', 'i', 'c', 't' }
+local KEYMAP_MODES = { 'n', 'x', 's', 'o', 'i', 'c', 't', 'ia', 'ca' }
 
 ---@return { [string]: { [string]: true } } lhs of each global keymap, by mode
 local function global_keymaps()
@@ -171,12 +171,13 @@ function M.setup_test_env()
     else
       for _, name in ipairs(names) do
         local pack_spec = _G.test_state.registered_pack_specs[name]
-        if pack_spec then
-          table.insert(results, make_entry(name, pack_spec))
+        if not pack_spec then
+          error(('Plugin `%s` is not installed'):format(name))
         end
+        table.insert(results, make_entry(name, pack_spec))
       end
     end
-    return #results > 0 and results or {}
+    return results
   end
 
   _G.test_state.original_vim_pack_del = vim.pack.del

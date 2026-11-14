@@ -30,7 +30,7 @@ local function derive_status(entry)
   end
   -- load_status wins over cond_result: a cond=false plugin can still end up
   -- loaded if it is pulled in as a required dependency or force-loaded via
-  -- `:ZPack! load`. Reporting "disabled" for an actually-loaded plugin would
+  -- `:ZPack load <name>`. Reporting "disabled" for an actually-loaded plugin would
   -- break UIs that key off status.
   if entry.load_status == 'loaded' then
     return 'loaded'
@@ -61,22 +61,12 @@ local function entry_to_info(src, entry)
     return nil
   end
   local plugin = entry.plugin
-  local lazy_flag = entry.is_lazy_resolved == true
-  if not plugin then
-    return {
-      name = require('zpack.pack').resolve_plugin_name(entry.merged_spec, src),
-      src = src,
-      status = 'installing',
-      lazy = lazy_flag,
-      path = nil,
-    }
-  end
   return {
-    name = plugin.spec.name,
+    name = plugin and plugin.spec.name or require('zpack.pack').resolve_plugin_name(entry.merged_spec, src),
     src = src,
     status = derive_status(entry),
-    lazy = lazy_flag,
-    path = plugin.path,
+    lazy = entry.is_lazy_resolved == true,
+    path = plugin and plugin.path,
   }
 end
 

@@ -396,6 +396,70 @@ describe("Plugin Lifecycle Hooks", function()
     assert.are.same({ eager = true, lazy = true }, built)
   end)
 
+  it("runs no build for a plugin whose install was declined", function()
+    local add = vim.pack.add
+    vim.pack.add = function(packs, opts)
+      return add(packs, { confirm = opts.confirm })
+    end
+    local built = false
+    require('zpack').setup({
+      spec = { { 'test/declined', build = function() built = true end } },
+      defaults = { confirm = false },
+    })
+    vim.pack.add = add
+    _G.test_state.registered_pack_specs.declined = nil
+    helpers.flush_pending()
+
+    vim.cmd('ZPack! build')
+    helpers.flush_pending()
+    assert.is_false(built)
+    assert.is_nil(helpers.find_notification({ 'Running build hooks' }))
+    assert.is_not_nil(helpers.find_notification({ 'No plugins with build hooks found' }))
+  end)
+
+  it("builds an installed plugin that vim.pack had added before setup()", function()
+    local add = vim.pack.add
+    vim.pack.add = function(packs, opts)
+      return add(packs, { confirm = opts.confirm })
+    end
+    local built = 0
+    require('zpack').setup({
+      spec = { { 'test/pre', build = function() built = built + 1 end } },
+      defaults = { confirm = false },
+    })
+    vim.pack.add = add
+    helpers.flush_pending()
+
+    vim.cmd('ZPack build pre')
+    helpers.flush_pending()
+    assert.are.equal(1, built)
+    assert.is_not_nil(helpers.find_notification({ 'Running build hook for pre' }))
+
+    vim.api.nvim_exec_autocmds('PackChanged', {
+      data = { kind = 'update', spec = _G.test_state.registered_pack_specs.pre },
+    })
+    helpers.flush_pending()
+    assert.are.equal(2, built)
+
+    vim.cmd('ZPack! build')
+    helpers.flush_pending()
+    assert.are.equal(3, built)
+  end)
+
+  it("raises no error for a build whose plugin's config deletes the plugin", function()
+    require('zpack').setup({
+      spec = {
+        { 'test/selfdel', cmd = 'ZpackSelfDel', build = function() end,
+          config = function() vim.pack.del({ 'selfdel' }) end },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    assert.has_no.errors(function() vim.cmd('ZPack build selfdel') end)
+    helpers.flush_pending()
+  end)
+
   -- Regression: a throw inside process_spec (e.g. packadd failing) used to
   -- leave load_status pinned at "loading" forever, so the next load attempt
   -- hit the misleading "Circular dependency detected" branch.
