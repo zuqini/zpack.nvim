@@ -74,7 +74,7 @@ zpack provides a single user command, `:ZPack`, with subcommands. Rename it with
 | `:ZPack[!] restore [plugin]` | Restore plugins to the lockfile state; `!` skips the confirm buffer |
 | `:ZPack[!] clean` | Remove plugins no longer in your spec, after listing them and asking; `!` doesn't ask |
 | `:ZPack[!] build [plugin]` | Run a plugin's build hook; `!` runs every plugin's build hook |
-| `:ZPack[!] load [plugin]` | Load an unloaded plugin; `!` loads all unloaded plugins |
+| `:ZPack[!] load [plugin]` | Load an unloaded plugin; `!` loads all unloaded plugins whose `cond` isn't false |
 | `:ZPack[!] delete [plugin]` | Remove a plugin; `!` removes all plugins |
 | `:ZPack[!] sync` | Update everything, then clean, like `:Lazy sync`; `!` doesn't ask before deleting |
 | `:ZPack reload {plugin}` | Re-source a plugin without restarting, like `:Lazy reload` |

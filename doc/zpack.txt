@@ -140,8 +140,10 @@ with |zpack-setup-cmd_name|; a short name like `Z` or `Zp` saves typing.
 
 :ZPack[!] load [plugin]
                 Load the named plugin. `:ZPack! load` loads every plugin that
-                hasn't loaded yet. With neither a name nor `!` it only warns.
-                Tab completion lists unloaded plugins.
+                hasn't loaded yet, apart from those whose `cond` is false;
+                name one to load it anyway. With neither a name nor `!` it
+                only warns. Tab completion lists unloaded plugins whose `cond`
+                is true.
 
 :ZPack[!] delete [plugin]
                 Remove the named plugin from disk. `:ZPack! delete` removes
