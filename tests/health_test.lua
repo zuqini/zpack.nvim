@@ -115,6 +115,34 @@ describe("Health Check", function()
       "Plugins section should report a registered count")
   end)
 
+  it("advises a restart, not :ZPack update, for a plugin that isn't on disk", function()
+    vim.pack.add = function(specs)
+      for _, pack_spec in ipairs(specs) do
+        pack_spec.name = pack_spec.name or pack_spec.src:match('[^/]+$')
+        _G.test_state.registered_pack_specs[pack_spec.name] = pack_spec
+      end
+    end
+    require('zpack').setup({
+      spec = { { 'test/declined' } },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local report, restore = capture_health()
+    run_check()
+    restore()
+
+    local advice
+    for _, item in ipairs(section(report, 'Plugins').items) do
+      if item.kind == 'warn' and item.msg:find('installing: 1', 1, true) then
+        advice = table.concat(item.advice, ' ')
+      end
+    end
+    assert.is_not_nil(advice)
+    assert.is_truthy(advice:find('Restart Neovim', 1, true))
+    assert.is_falsy(advice:find('update', 1, true))
+  end)
+
   it("surfaces an invalid merged config", function()
     require('zpack').setup({ spec = {}, defaults = { confirm = 'yes' } })
     helpers.flush_pending()
