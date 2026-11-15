@@ -270,7 +270,7 @@ describe("resolve_main caching", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)
 
-  it("resolve_main result is cached in plugin.main", function()
+  it("returns the spec's main, which is on plugin.main", function()
     require('zpack').setup({
       spec = {
         {
@@ -285,22 +285,17 @@ describe("resolve_main caching", function()
     helpers.flush_pending()
     local state = require('zpack.state')
     local utils = require('zpack.utils')
-    local src = 'https://github.com/test/plugin'
-    local entry = state.spec_registry[src]
+    local entry = state.spec_registry['https://github.com/test/plugin']
 
-    local spec = entry.merged_spec
-    utils.resolve_main(entry.plugin, spec)
+    assert.are.equal('custom.module', utils.resolve_main(entry.plugin))
     assert.are.equal('custom.module', entry.plugin.main)
   end)
 
-  it("resolve_main uses cached value on subsequent calls", function()
+  it("keeps a detected main on plugin.main for later calls", function()
+    helpers.write_plugin_files('kept.nvim', { 'kept/init.lua', 'other.lua' })
     require('zpack').setup({
       spec = {
-        {
-          'test/plugin',
-          main = 'cached.module',
-          opts = {},
-        },
+        { 'test/kept.nvim', opts = {} },
       },
       defaults = { confirm = false },
     })
@@ -308,16 +303,12 @@ describe("resolve_main caching", function()
     helpers.flush_pending()
     local state = require('zpack.state')
     local utils = require('zpack.utils')
-    local src = 'https://github.com/test/plugin'
-    local entry = state.spec_registry[src]
+    local entry = state.spec_registry['https://github.com/test/kept.nvim']
+    assert.are.equal('kept', entry.plugin.main)
 
-    local spec = entry.merged_spec
-    local first_result = utils.resolve_main(entry.plugin, spec)
-    spec.main = 'changed.module'
-    local second_result = utils.resolve_main(entry.plugin, spec)
-
-    assert.are.equal('cached.module', first_result)
-    assert.are.equal('cached.module', second_result)
+    vim.fn.delete(entry.plugin.path .. '/lua/kept', 'rf')
+    utils.reset_lsdir_cache()
+    assert.are.equal('kept', utils.resolve_main(entry.plugin))
   end)
 
   it("finds a module an update adds on :ZPack reload", function()
@@ -362,8 +353,7 @@ describe("mini.* plugin handling", function()
     local src = 'https://github.com/nvim-mini/mini.surround'
     local entry = state.spec_registry[src]
 
-    local spec = entry.merged_spec
-    local main = utils.resolve_main(entry.plugin, spec)
+    local main = utils.resolve_main(entry.plugin)
     assert.are.equal('mini.surround', main)
   end)
 
@@ -384,8 +374,7 @@ describe("mini.* plugin handling", function()
     local src = 'https://github.com/nvim-mini/mini.nvim'
     local entry = state.spec_registry[src]
 
-    local spec = entry.merged_spec
-    local main = utils.resolve_main(entry.plugin, spec)
+    local main = utils.resolve_main(entry.plugin)
     assert.is_nil(main, "mini.nvim should not match special case")
   end)
 end)
