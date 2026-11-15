@@ -46,9 +46,24 @@ end
 
 ---The top-level module an entry of a plugin's lua/ provides.
 ---@param entry zpack.DirEntry
----@return string?
+---@return string? name
+---@return boolean? compiled
 M.top_module = function(entry)
-  return entry.name:match("^(.+)%.lua$") or ((entry.type == "directory" or entry.type == "link") and entry.name or nil)
+  local name = entry.name
+  local len = #name
+  if len > 3 and name:sub(-3) == ".so" then
+    return name:sub(1, -4), true
+  end
+  if len > 4 then
+    local ext = name:sub(-4)
+    if ext == ".lua" then
+      return name:sub(1, -5)
+    end
+    if ext == ".dll" then
+      return name:sub(1, -5), true
+    end
+  end
+  return (entry.type == "directory" or entry.type == "link") and name or nil
 end
 
 ---vim.notify's default handler echoes every level, so a debug note waits for
@@ -355,25 +370,28 @@ M.resolve_main = function(plugin)
   local norm_name = M.normalize_name(name)
   local lua_dir = plugin.path .. "/lua"
 
-  local mods, seen = {}, {}
+  local mods, seen, named_compiled = {}, {}, nil
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do
-    local compiled = dir_entry.name:match("^(.+)%.so$") or dir_entry.name:match("^(.+)%.dll$")
-    local mod = not compiled and M.top_module(dir_entry) or nil
+    local mod, compiled = M.top_module(dir_entry)
     if mod and M.normalize_name(mod) == norm_name then
-      mods = { mod }
-      break
+      if not compiled then
+        plugin.main = mod
+        return mod
+      end
+      named_compiled = named_compiled or mod
     end
-    mod = mod or compiled
     if mod and not seen[mod] then
       seen[mod] = true
       mods[#mods + 1] = mod
     end
   end
 
-  -- A plugin's only module is its main whatever its name: none-ls.nvim's `null-ls`.
-  if #mods == 1 then
-    plugin.main = mods[1]
-    return mods[1]
+  -- No Lua module is named like the plugin: take a compiled one that is, else
+  -- the plugin's only module whatever its name: none-ls.nvim's `null-ls`.
+  local main = named_compiled or (#mods == 1 and mods[1]) or nil
+  if main then
+    plugin.main = main
+    return main
   end
 
   state.resolve_main_not_found[cache_key] = true

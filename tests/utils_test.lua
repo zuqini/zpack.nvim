@@ -257,8 +257,6 @@ describe("resolve_main", function()
 
   it("passes over a compiled module listed before the plugin's Lua one", function()
     local utils = require('zpack.utils')
-    helpers.write_plugin_files('zee-bar', { 'zeebar/init.lua', 'zee_bar.so' })
-    local path = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/zee-bar'
     local original_lsdir = utils.lsdir
     utils.lsdir = function(dir)
       local entries = vim.deepcopy(original_lsdir(dir))
@@ -266,10 +264,15 @@ describe("resolve_main", function()
       return entries
     end
 
-    local main = utils.resolve_main({ spec = { src = 'https://github.com/test/zee-bar', name = 'zee-bar' }, path = path }, {})
+    local mains = {}
+    for name, compiled in pairs({ ['zee-bar'] = 'zee_bar.so', ['zee-bar.nvim'] = 'zee_bar.dll' }) do
+      helpers.write_plugin_files(name, { 'zeebar/init.lua', compiled })
+      local path = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name
+      mains[compiled] = utils.resolve_main({ spec = { src = 'https://github.com/test/' .. name, name = name }, path = path }, {})
+    end
     utils.lsdir = original_lsdir
 
-    assert.are.equal('zeebar', main)
+    assert.are.same({ ['zee_bar.so'] = 'zeebar', ['zee_bar.dll'] = 'zeebar' }, mains)
   end)
 
   local function main_of(name, files)
@@ -300,9 +303,9 @@ describe("resolve_main", function()
     assert.are.equal('native', main_of('compiled-only.nvim', { 'native.so' }))
   end)
 
-  it("leaves no `main` when only a compiled module is named like the plugin beside a Lua one", function()
-    assert.is_nil(main_of('foo.nvim', { 'foo.so', 'bar.lua' }))
-    assert.is_nil(main_of('foo-dll.nvim', { 'foo_dll.dll', 'bar.lua' }))
+  it("takes a compiled module named like the plugin beside other modules, as lazy.nvim does", function()
+    assert.are.equal('foo', main_of('foo.nvim', { 'foo.so', 'bar.lua' }))
+    assert.are.equal('foo_dll', main_of('foo-dll.nvim', { 'foo_dll.dll', 'bar.lua', 'baz/init.lua' }))
   end)
 
   it("reads a symlinked compiled module by its module name, as lazy.nvim does", function()
