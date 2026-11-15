@@ -1282,6 +1282,13 @@ dependencies    (string[])
                 specs are resolved. Added for lazy.nvim spec drop-in compatibility
                 (LazyPlugin.dependencies).
 
+                                                        *zpack.Plugin.main*
+main            (string?)
+                The spec's `main` (|zpack-Spec.main|), set in every hook,
+                trigger function and `cond`, as in lazy.nvim. Without one,
+                the detected module, set before the first `config` runs and
+                nil until then, or nil if detection finds none.
+
 ==============================================================================
 9. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*
                                                        *zpack.EventSpec*
