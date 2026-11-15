@@ -330,6 +330,64 @@ describe("resolve_main caching", function()
 
     assert.are.same({ 'nil', 'late' }, seen)
   end)
+
+  it("finds the module an update renames on :ZPack reload", function()
+    helpers.write_plugin_files('moved.nvim', { 'moved_old/init.lua' })
+    local called = {}
+    for _, mod in ipairs({ 'moved_old', 'moved_new' }) do
+      package.preload[mod] = function()
+        return { setup = function() called[#called + 1] = mod end }
+      end
+    end
+    require('zpack').setup({
+      spec = {
+        { 'test/moved.nvim', opts = {} },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local state = require('zpack.state')
+    local src = 'https://github.com/test/moved.nvim'
+    vim.fn.delete(state.spec_registry[src].plugin.path .. '/lua/moved_old', 'rf')
+    helpers.write_plugin_files('moved.nvim', { 'moved_new/init.lua' })
+    vim.api.nvim_exec_autocmds('PackChanged', { data = { kind = 'update', spec = state.src_to_pack_spec[src] } })
+    vim.cmd('ZPack reload moved.nvim')
+    helpers.flush_pending()
+
+    for _, mod in ipairs({ 'moved_old', 'moved_new' }) do
+      package.preload[mod] = nil
+      package.loaded[mod] = nil
+    end
+    assert.are.same({ 'moved_old', 'moved_new' }, called)
+    assert.are.equal('moved_new', state.spec_registry[src].plugin.main)
+  end)
+
+  it("keeps the spec's main, from any fragment, on :ZPack reload", function()
+    helpers.write_plugin_files('pinned.nvim', { 'pinned_decoy.lua' })
+    local called = {}
+    for _, mod in ipairs({ 'pinned_decoy', 'pinned_chosen' }) do
+      package.preload[mod] = function()
+        return { setup = function() called[#called + 1] = mod end }
+      end
+    end
+    require('zpack').setup({
+      spec = {
+        { 'test/pinned.nvim', opts = {} },
+        { 'test/pinned.nvim', main = 'pinned_chosen' },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    vim.cmd('ZPack reload pinned.nvim')
+    helpers.flush_pending()
+
+    for _, mod in ipairs({ 'pinned_decoy', 'pinned_chosen' }) do
+      package.preload[mod] = nil
+      package.loaded[mod] = nil
+    end
+    assert.are.same({ 'pinned_chosen', 'pinned_chosen' }, called)
+  end)
 end)
 
 describe("mini.* plugin handling", function()

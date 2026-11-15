@@ -1257,7 +1257,8 @@ The plugin data object passed to hooks and trigger functions:
                                       -- names, as in lazy.nvim
       main = string?,                 -- The spec's `main`, in every hook.
                                       -- Without one, the detected module,
-                                      -- set before the first `config` runs
+                                      -- set before `config` runs on each
+                                      -- load, `:ZPack reload` included,
                                       -- and nil until then
     }
 <
@@ -1292,8 +1293,9 @@ main            (string?)
                 trigger function and `cond`, as in lazy.nvim. Without one,
                 nil until zpack detects the module, which it does only for a
                 plugin with `opts` or `config`, after its `opts` functions
-                and before `config` (or the automatic `setup()`) first runs.
-                It stays nil if detection finds none.
+                and before `config` (or the automatic `setup()`) runs, on
+                the first load and again on each `:ZPack reload`. It stays
+                nil if detection finds none.
 
 ==============================================================================
 9. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*
