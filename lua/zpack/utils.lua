@@ -46,9 +46,24 @@ end
 
 ---The top-level module an entry of a plugin's lua/ provides.
 ---@param entry zpack.DirEntry
----@return string?
+---@return string? name
+---@return boolean? compiled
 M.top_module = function(entry)
-  return entry.name:match("^(.+)%.lua$") or ((entry.type == "directory" or entry.type == "link") and entry.name or nil)
+  local name = entry.name
+  local len = #name
+  if len > 3 and name:sub(-3) == ".so" then
+    return name:sub(1, -4), true
+  end
+  if len > 4 then
+    local ext = name:sub(-4)
+    if ext == ".lua" then
+      return name:sub(1, -5)
+    end
+    if ext == ".dll" then
+      return name:sub(1, -5), true
+    end
+  end
+  return (entry.type == "directory" or entry.type == "link") and name or nil
 end
 
 ---vim.notify's default handler echoes every level, so a debug note waits for
@@ -357,8 +372,7 @@ M.resolve_main = function(plugin)
 
   local mods, seen, named_compiled = {}, {}, nil
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do
-    local compiled = dir_entry.name:match("^(.+)%.so$") or dir_entry.name:match("^(.+)%.dll$")
-    local mod = compiled or M.top_module(dir_entry)
+    local mod, compiled = M.top_module(dir_entry)
     if mod and M.normalize_name(mod) == norm_name then
       if not compiled then
         plugin.main = mod

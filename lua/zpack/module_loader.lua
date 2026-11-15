@@ -31,7 +31,7 @@ end
 ---@return boolean
 local function claims_topmod(path, topmod)
   for _, entry in ipairs(util.lsdir(path .. "/lua")) do
-    if util.top_module(entry) == topmod or entry.name == topmod .. ".so" or entry.name == topmod .. ".dll" then
+    if util.top_module(entry) == topmod then
       return true
     end
   end
