@@ -355,25 +355,29 @@ M.resolve_main = function(plugin)
   local norm_name = M.normalize_name(name)
   local lua_dir = plugin.path .. "/lua"
 
-  local mods, seen = {}, {}
+  local mods, seen, named_compiled = {}, {}, nil
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do
     local compiled = dir_entry.name:match("^(.+)%.so$") or dir_entry.name:match("^(.+)%.dll$")
-    local mod = not compiled and M.top_module(dir_entry) or nil
+    local mod = compiled or M.top_module(dir_entry)
     if mod and M.normalize_name(mod) == norm_name then
-      mods = { mod }
-      break
+      if not compiled then
+        plugin.main = mod
+        return mod
+      end
+      named_compiled = named_compiled or mod
     end
-    mod = mod or compiled
     if mod and not seen[mod] then
       seen[mod] = true
       mods[#mods + 1] = mod
     end
   end
 
-  -- A plugin's only module is its main whatever its name: none-ls.nvim's `null-ls`.
-  if #mods == 1 then
-    plugin.main = mods[1]
-    return mods[1]
+  -- A Lua module named like the plugin wins over a compiled one, which wins
+  -- over the plugin's only module whatever its name: none-ls.nvim's `null-ls`.
+  local main = named_compiled or (#mods == 1 and mods[1]) or nil
+  if main then
+    plugin.main = main
+    return main
   end
 
   state.resolve_main_not_found[cache_key] = true

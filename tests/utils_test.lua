@@ -300,9 +300,9 @@ describe("resolve_main", function()
     assert.are.equal('native', main_of('compiled-only.nvim', { 'native.so' }))
   end)
 
-  it("leaves no `main` when only a compiled module is named like the plugin beside a Lua one", function()
-    assert.is_nil(main_of('foo.nvim', { 'foo.so', 'bar.lua' }))
-    assert.is_nil(main_of('foo-dll.nvim', { 'foo_dll.dll', 'bar.lua' }))
+  it("takes a compiled module named like the plugin beside other modules, as lazy.nvim does", function()
+    assert.are.equal('foo', main_of('foo.nvim', { 'foo.so', 'bar.lua' }))
+    assert.are.equal('foo_dll', main_of('foo-dll.nvim', { 'foo_dll.dll', 'bar.lua', 'baz/init.lua' }))
   end)
 
   it("reads a symlinked compiled module by its module name, as lazy.nvim does", function()
