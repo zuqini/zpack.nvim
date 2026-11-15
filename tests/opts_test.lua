@@ -363,6 +363,40 @@ describe("resolve_main caching", function()
     assert.are.equal('moved_new', state.spec_registry[src].plugin.main)
   end)
 
+  it("requires the module an update renames through vim.loader on :ZPack reload", function()
+    local root = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/indexed.nvim'
+    _G.zpack_indexed_setups = {}
+    local function write_module(mod)
+      helpers.write_plugin_files('indexed.nvim', { mod .. '/init.lua' })
+      vim.fn.writefile({ ("return { setup = function() table.insert(_G.zpack_indexed_setups, '%s') end }"):format(mod) },
+        root .. '/lua/' .. mod .. '/init.lua')
+    end
+    write_module('indexed_old')
+    vim.opt.runtimepath:prepend(root)
+    finally(function()
+      vim.opt.runtimepath:remove(root)
+      _G.zpack_indexed_setups = nil
+      package.loaded.indexed_old, package.loaded.indexed_new = nil, nil
+    end)
+    require('zpack').setup({
+      spec = {
+        { 'test/indexed.nvim', opts = {} },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    assert.is_true(vim.loader.enabled)
+
+    local spec = require('zpack.state').src_to_pack_spec['https://github.com/test/indexed.nvim']
+    vim.fn.delete(root .. '/lua/indexed_old', 'rf')
+    write_module('indexed_new')
+    vim.api.nvim_exec_autocmds('PackChanged', { data = { kind = 'update', spec = spec, path = root } })
+    vim.cmd('ZPack reload indexed.nvim')
+    helpers.flush_pending()
+
+    assert.are.same({ 'indexed_old', 'indexed_new' }, _G.zpack_indexed_setups)
+  end)
+
   it("keeps the spec's main, from any fragment, on :ZPack reload", function()
     helpers.write_plugin_files('pinned.nvim', { 'pinned_decoy.lua' })
     local called = {}
