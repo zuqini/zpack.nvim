@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.0.1](https://github.com/zuqini/zpack.nvim/compare/v3.0.0...v3.0.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* lazy keys in mode "!", reload, named update of a cond = false plugin, and main detection ([#55](https://github.com/zuqini/zpack.nvim/issues/55)) ([79c8536](https://github.com/zuqini/zpack.nvim/commit/79c8536c9ebb68124181100462253ceac92e24b9))
+* main detection across `:ZPack reload` and in-session updates ([#59](https://github.com/zuqini/zpack.nvim/issues/59)) ([324559a](https://github.com/zuqini/zpack.nvim/commit/324559ae60852be1d92ee191766958ee3664e830))
+* main detection beside a compiled module, and the spec's main on the plugin in every hook ([#57](https://github.com/zuqini/zpack.nvim/issues/57)) ([5b76441](https://github.com/zuqini/zpack.nvim/commit/5b76441be720b52101307089724b1a3b71f92f73))
+* **main:** take a compiled module named like the plugin, as lazy.nvim does ([#58](https://github.com/zuqini/zpack.nvim/issues/58)) ([0e96646](https://github.com/zuqini/zpack.nvim/commit/0e96646ed0a7a1d188157eee0930fa6710fbb4fc))
+
 ## [3.0.0](https://github.com/zuqini/zpack.nvim/compare/v2.0.4...v3.0.0) (2026-11-06)
 
 
