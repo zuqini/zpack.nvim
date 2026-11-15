@@ -55,7 +55,7 @@ function M.run_config(src, plugin)
     utils.schedule_notify(("Failed to run config for %s: %s"):format(label, tostring(resolved_opts)), vim.log.levels.ERROR)
     return
   end
-  local main = utils.resolve_main(plugin, spec)
+  local main = utils.resolve_main(plugin)
 
   if type(spec.config) == "function" then
     local config_fn = spec.config --[[@as fun(plugin: zpack.Plugin, opts: table)]]

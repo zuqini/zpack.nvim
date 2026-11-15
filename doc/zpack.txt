@@ -1116,6 +1116,10 @@ main            (string, optional)
                    `nvim-` prefix and its `.vim` or `.nvim` suffix.
                 3. Otherwise, as in lazy.nvim, the one module in the plugin's
                    `lua/`, if there is only one (`null-ls` for none-ls.nvim).
+                   A compiled `.so` or `.dll` counts as a module here, but
+                   only a Lua module is matched against the name in 2:
+                   foo.nvim with `lua/foo.so` beside another module gets
+                   none, where lazy.nvim takes `foo`.
 
                 Set it when detection fails.
 
@@ -1248,9 +1252,10 @@ The plugin data object passed to hooks and trigger functions:
                                       -- as in lazy.nvim)
       dependencies = string[],        -- Sorted list of resolved dependency
                                       -- names, as in lazy.nvim
-      main = string?,                 -- Detected main module name (set
-                                      -- before the first `config` runs; nil
-                                      -- inside `opts` functions until then)
+      main = string?,                 -- The spec's `main`, in every hook.
+                                      -- Without one, the detected module,
+                                      -- set before the first `config` runs
+                                      -- and nil until then
     }
 <
 

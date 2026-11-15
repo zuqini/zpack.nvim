@@ -327,11 +327,11 @@ end
 
 ---Resolve the main module for a plugin (for auto-setup)
 ---Inspired by lazy.nvim's loader.get_main()
+---The spec's `main` is on the plugin from registration, so it is returned as is.
 ---Results are cached in plugin.main (for found modules) and state.resolve_main_not_found (for not-found)
 ---@param plugin zpack.Plugin
----@param spec zpack.Spec
 ---@return string? main_module The main module name, or nil if not found
-M.resolve_main = function(plugin, spec)
+M.resolve_main = function(plugin)
   if plugin.main ~= nil then
     return plugin.main
   end
@@ -339,11 +339,6 @@ M.resolve_main = function(plugin, spec)
   local cache_key = plugin.spec.src
   if state.resolve_main_not_found[cache_key] then
     return nil
-  end
-
-  if spec.main then
-    plugin.main = spec.main
-    return spec.main
   end
 
   local name = plugin.spec.name
@@ -362,11 +357,13 @@ M.resolve_main = function(plugin, spec)
 
   local mods, seen = {}, {}
   for _, dir_entry in ipairs(M.lsdir(lua_dir)) do
-    local mod = M.top_module(dir_entry)
+    local compiled = dir_entry.name:match("^(.+)%.so$") or dir_entry.name:match("^(.+)%.dll$")
+    local mod = not compiled and M.top_module(dir_entry) or nil
     if mod and M.normalize_name(mod) == norm_name then
       mods = { mod }
       break
     end
+    mod = mod or compiled
     if mod and not seen[mod] then
       seen[mod] = true
       mods[#mods + 1] = mod

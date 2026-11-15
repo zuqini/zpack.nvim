@@ -293,4 +293,30 @@ describe("resolve_main", function()
     assert.are.equal('alpha', main_of('alpha-nvim', { 'alpha.lua', 'alpha/themes/x.lua' }))
     assert.is_nil(main_of('two-mods.nvim', { 'first/init.lua', 'second.lua' }))
   end)
+
+  it("counts a compiled module among a plugin's modules, as lazy.nvim does", function()
+    assert.is_nil(main_of('mixed.nvim', { 'helper.lua', 'native.so' }))
+    assert.is_nil(main_of('mixed-dll.nvim', { 'helper.lua', 'native.dll' }))
+    assert.are.equal('native', main_of('compiled-only.nvim', { 'native.so' }))
+  end)
+
+  it("leaves no `main` when only a compiled module is named like the plugin beside a Lua one", function()
+    assert.is_nil(main_of('foo.nvim', { 'foo.so', 'bar.lua' }))
+    assert.is_nil(main_of('foo-dll.nvim', { 'foo_dll.dll', 'bar.lua' }))
+  end)
+
+  it("reads a symlinked compiled module by its module name, as lazy.nvim does", function()
+    local function link_compiled(name)
+      local lua_dir = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name .. '/lua'
+      vim.fn.mkdir(lua_dir, 'p')
+      assert(vim.uv.fs_symlink('../target/libnative.so', lua_dir .. '/native.so'))
+    end
+
+    link_compiled('linked-only.nvim')
+    assert.are.equal('native', main_of('linked-only.nvim', {}))
+    link_compiled('linked-beside.nvim')
+    assert.are.equal('native', main_of('linked-beside.nvim', { 'native.lua' }))
+    link_compiled('linked-mixed.nvim')
+    assert.is_nil(main_of('linked-mixed.nvim', { 'helper.lua' }))
+  end)
 end)

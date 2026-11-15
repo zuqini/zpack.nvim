@@ -394,6 +394,85 @@ describe("plugin.main in config hooks", function()
     assert.are.equal('test.module', received_main)
   end)
 
+  it("plugin.main is the spec's `main` in init and opts functions, as in lazy.nvim", function()
+    local seen = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/bare',
+          main = 'bare.module',
+          init = function(plugin)
+            seen.init = plugin.main
+          end,
+        },
+        {
+          'test/plugin',
+          main = 'test.module',
+          opts = function(plugin)
+            seen.opts = plugin.main
+            return {}
+          end,
+          config = function() end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.are.same({ init = 'bare.module', opts = 'test.module' }, seen)
+  end)
+
+  it("plugin.main is the spec's `main` in cond and trigger functions", function()
+    local seen = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/plugin',
+          main = 'test.module',
+          cond = function(plugin)
+            seen['cond: ' .. tostring(plugin.main)] = true
+            return true
+          end,
+          cmd = function(plugin)
+            seen['cmd: ' .. tostring(plugin.main)] = true
+            return 'MainInTrigger'
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    pcall(vim.api.nvim_del_user_command, 'MainInTrigger')
+    assert.are.same({ ['cond: test.module'] = true, ['cmd: test.module'] = true }, seen)
+  end)
+
+  it("a `main` of false leaves the plugin's module to detection, as in lazy.nvim", function()
+    helpers.write_plugin_files('falsy', { 'falsy/init.lua' })
+    local seen = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/falsy',
+          main = false,
+          init = function(plugin)
+            seen.init = tostring(plugin.main)
+          end,
+          config = function(plugin)
+            seen.config = plugin.main
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.are.same({ init = 'nil', config = 'falsy' }, seen)
+  end)
+
   it("plugin.main is nil when not detected", function()
     local received_main = "not_set"
 
