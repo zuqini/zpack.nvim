@@ -473,6 +473,25 @@ describe("plugin.main in config hooks", function()
     assert.are.same({ init = 'nil', config = 'falsy' }, seen)
   end)
 
+  it("the spec's `main` wins over a module detection would find", function()
+    helpers.write_plugin_files('picked', { 'decoy.lua' })
+    local called = {}
+    package.loaded['decoy'] = { setup = function() called[#called + 1] = 'decoy' end }
+    package.loaded['chosen'] = { setup = function() called[#called + 1] = 'chosen' end }
+
+    require('zpack').setup({
+      spec = {
+        { 'test/picked', main = 'chosen', opts = {} },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    package.loaded['decoy'] = nil
+    package.loaded['chosen'] = nil
+    assert.are.same({ 'chosen' }, called)
+  end)
+
   it("plugin.main is nil when not detected", function()
     local received_main = "not_set"
 
