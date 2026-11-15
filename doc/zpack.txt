@@ -1288,8 +1288,10 @@ dependencies    (string[])
 main            (string?)
                 The spec's `main` (|zpack-Spec.main|), set in every hook,
                 trigger function and `cond`, as in lazy.nvim. Without one,
-                the detected module, set before the first `config` runs and
-                nil until then, or nil if detection finds none.
+                nil until zpack detects the module, which it does only for a
+                plugin with `opts` or `config`, after its `opts` functions
+                and before `config` (or the automatic `setup()`) first runs.
+                It stays nil if detection finds none.
 
 ==============================================================================
 9. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*
