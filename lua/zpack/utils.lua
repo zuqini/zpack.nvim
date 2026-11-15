@@ -343,7 +343,7 @@ end
 ---Resolve the main module for a plugin (for auto-setup)
 ---Inspired by lazy.nvim's loader.get_main()
 ---The spec's `main` is on the plugin from registration, so it is returned as is.
----Results are cached in plugin.main (for found modules) and state.resolve_main_not_found (for not-found)
+---A found module is cached in plugin.main.
 ---@param plugin zpack.Plugin
 ---@return string? main_module The main module name, or nil if not found
 M.resolve_main = function(plugin)
@@ -351,14 +351,8 @@ M.resolve_main = function(plugin)
     return plugin.main
   end
 
-  local cache_key = plugin.spec.src
-  if state.resolve_main_not_found[cache_key] then
-    return nil
-  end
-
   local name = plugin.spec.name
   if not name then
-    state.resolve_main_not_found[cache_key] = true
     return nil
   end
 
@@ -389,13 +383,8 @@ M.resolve_main = function(plugin)
   -- No Lua module is named like the plugin: take a compiled one that is, else
   -- the plugin's only module whatever its name: none-ls.nvim's `null-ls`.
   local main = named_compiled or (#mods == 1 and mods[1]) or nil
-  if main then
-    plugin.main = main
-    return main
-  end
-
-  state.resolve_main_not_found[cache_key] = true
-  return nil
+  plugin.main = main
+  return main
 end
 
 return M

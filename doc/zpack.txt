@@ -140,8 +140,10 @@ with |zpack-setup-cmd_name|; a short name like `Z` or `Zp` saves typing.
 
 :ZPack[!] load [plugin]
                 Load the named plugin. `:ZPack! load` loads every plugin that
-                hasn't loaded yet. With neither a name nor `!` it only warns.
-                Tab completion lists unloaded plugins.
+                hasn't loaded yet, apart from those whose `cond` is false;
+                name one to load it anyway. With neither a name nor `!` it
+                only warns. Tab completion lists unloaded plugins whose `cond`
+                is true.
 
 :ZPack[!] delete [plugin]
                 Remove the named plugin from disk. `:ZPack! delete` removes
@@ -1255,8 +1257,10 @@ The plugin data object passed to hooks and trigger functions:
                                       -- names, as in lazy.nvim
       main = string?,                 -- The spec's `main`, in every hook.
                                       -- Without one, the detected module,
-                                      -- set before the first `config` runs
-                                      -- and nil until then
+                                      -- set before `opts` functions and
+                                      -- `config` run on each load,
+                                      -- `:ZPack reload` included, and nil
+                                      -- until then
     }
 <
 
@@ -1289,9 +1293,10 @@ main            (string?)
                 The spec's `main` (|zpack-Spec.main|), set in every hook,
                 trigger function and `cond`, as in lazy.nvim. Without one,
                 nil until zpack detects the module, which it does only for a
-                plugin with `opts` or `config`, after its `opts` functions
-                and before `config` (or the automatic `setup()`) first runs.
-                It stays nil if detection finds none.
+                plugin with `opts` or `config`, before its `opts` functions
+                and `config` (or the automatic `setup()`) run, on the first
+                load and again on each `:ZPack reload`. It stays nil if
+                detection finds none.
 
 ==============================================================================
 9. EVENTSPEC REFERENCE                            *zpack-eventspec-reference*

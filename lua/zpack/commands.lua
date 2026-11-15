@@ -449,6 +449,8 @@ Sub.reload = {
       end
     end
 
+    if plugin then plugin.main = spec.main or nil end
+
     -- init runs once at startup; reload re-runs it (fresh-load contract).
     -- Type-guard: try_call_hook ERRORs on a missing hook, and startup's
     -- caller pre-filters via ctx.src_with_init.

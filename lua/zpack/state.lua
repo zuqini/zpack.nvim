@@ -38,9 +38,6 @@ M.name_to_src = {}
 M.lazy_parent_cache = {}
 
 ---@type { [string]: boolean }
-M.resolve_main_not_found = {}
-
----@type { [string]: boolean }
 M.src_with_pending_build = {}
 
 ---Forget a trial resolve, to import the specs again.
@@ -56,7 +53,6 @@ M.remove_plugin = function(plugin_name, src)
   M.src_to_pack_spec[src] = nil
   M.name_to_src[plugin_name] = nil
   M.lazy_parent_cache[src] = nil
-  M.resolve_main_not_found[src] = nil
 
   M.dependency_graph[src] = nil
   M.reverse_dependency_graph[src] = nil

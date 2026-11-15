@@ -270,7 +270,7 @@ describe("resolve_main caching", function()
   before_each(helpers.setup_test_env)
   after_each(helpers.cleanup_test_env)
 
-  it("resolve_main result is cached in plugin.main", function()
+  it("returns the spec's main, which is on plugin.main", function()
     require('zpack').setup({
       spec = {
         {
@@ -285,22 +285,17 @@ describe("resolve_main caching", function()
     helpers.flush_pending()
     local state = require('zpack.state')
     local utils = require('zpack.utils')
-    local src = 'https://github.com/test/plugin'
-    local entry = state.spec_registry[src]
+    local entry = state.spec_registry['https://github.com/test/plugin']
 
-    local spec = entry.merged_spec
-    utils.resolve_main(entry.plugin, spec)
+    assert.are.equal('custom.module', utils.resolve_main(entry.plugin))
     assert.are.equal('custom.module', entry.plugin.main)
   end)
 
-  it("resolve_main uses cached value on subsequent calls", function()
+  it("keeps a detected main on plugin.main for later calls", function()
+    helpers.write_plugin_files('kept.nvim', { 'kept/init.lua', 'other.lua' })
     require('zpack').setup({
       spec = {
-        {
-          'test/plugin',
-          main = 'cached.module',
-          opts = {},
-        },
+        { 'test/kept.nvim', opts = {} },
       },
       defaults = { confirm = false },
     })
@@ -308,16 +303,124 @@ describe("resolve_main caching", function()
     helpers.flush_pending()
     local state = require('zpack.state')
     local utils = require('zpack.utils')
-    local src = 'https://github.com/test/plugin'
-    local entry = state.spec_registry[src]
+    local entry = state.spec_registry['https://github.com/test/kept.nvim']
+    assert.are.equal('kept', entry.plugin.main)
 
-    local spec = entry.merged_spec
-    local first_result = utils.resolve_main(entry.plugin, spec)
-    spec.main = 'changed.module'
-    local second_result = utils.resolve_main(entry.plugin, spec)
+    vim.fn.delete(entry.plugin.path .. '/lua/kept', 'rf')
+    utils.reset_lsdir_cache()
+    assert.are.equal('kept', utils.resolve_main(entry.plugin))
+  end)
 
-    assert.are.equal('cached.module', first_result)
-    assert.are.equal('cached.module', second_result)
+  it("finds a module an update adds on :ZPack reload", function()
+    helpers.write_plugin_files('late.nvim', { 'a.lua', 'b.lua' })
+    local seen = {}
+    require('zpack').setup({
+      spec = {
+        { 'test/late.nvim', opts = {}, config = function(plugin) seen[#seen + 1] = tostring(plugin.main) end },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    helpers.write_plugin_files('late.nvim', { 'late/init.lua' })
+    local spec = require('zpack.state').src_to_pack_spec['https://github.com/test/late.nvim']
+    vim.api.nvim_exec_autocmds('PackChanged', { data = { kind = 'update', spec = spec } })
+    vim.cmd('ZPack reload late.nvim')
+    helpers.flush_pending()
+
+    assert.are.same({ 'nil', 'late' }, seen)
+  end)
+
+  it("finds the module an update renames on :ZPack reload", function()
+    helpers.write_plugin_files('moved.nvim', { 'moved_old/init.lua' })
+    local called = {}
+    for _, mod in ipairs({ 'moved_old', 'moved_new' }) do
+      package.preload[mod] = function()
+        return { setup = function() called[#called + 1] = mod end }
+      end
+    end
+    require('zpack').setup({
+      spec = {
+        { 'test/moved.nvim', opts = {} },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    local state = require('zpack.state')
+    local src = 'https://github.com/test/moved.nvim'
+    vim.fn.delete(state.spec_registry[src].plugin.path .. '/lua/moved_old', 'rf')
+    helpers.write_plugin_files('moved.nvim', { 'moved_new/init.lua' })
+    vim.api.nvim_exec_autocmds('PackChanged', { data = { kind = 'update', spec = state.src_to_pack_spec[src] } })
+    vim.cmd('ZPack reload moved.nvim')
+    helpers.flush_pending()
+
+    for _, mod in ipairs({ 'moved_old', 'moved_new' }) do
+      package.preload[mod] = nil
+      package.loaded[mod] = nil
+    end
+    assert.are.same({ 'moved_old', 'moved_new' }, called)
+    assert.are.equal('moved_new', state.spec_registry[src].plugin.main)
+  end)
+
+  it("requires the module an update renames through vim.loader on :ZPack reload", function()
+    local root = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/indexed.nvim'
+    _G.zpack_indexed_setups = {}
+    local function write_module(mod)
+      helpers.write_plugin_files('indexed.nvim', { mod .. '/init.lua' })
+      vim.fn.writefile({ ("return { setup = function() table.insert(_G.zpack_indexed_setups, '%s') end }"):format(mod) },
+        root .. '/lua/' .. mod .. '/init.lua')
+    end
+    write_module('indexed_old')
+    vim.opt.runtimepath:prepend(root)
+    finally(function()
+      vim.opt.runtimepath:remove(root)
+      _G.zpack_indexed_setups = nil
+      package.loaded.indexed_old, package.loaded.indexed_new = nil, nil
+    end)
+    require('zpack').setup({
+      spec = {
+        { 'test/indexed.nvim', opts = {} },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    assert.is_true(vim.loader.enabled)
+
+    local spec = require('zpack.state').src_to_pack_spec['https://github.com/test/indexed.nvim']
+    vim.fn.delete(root .. '/lua/indexed_old', 'rf')
+    write_module('indexed_new')
+    vim.api.nvim_exec_autocmds('PackChanged', { data = { kind = 'update', spec = spec, path = root } })
+    vim.cmd('ZPack reload indexed.nvim')
+    helpers.flush_pending()
+
+    assert.are.same({ 'indexed_old', 'indexed_new' }, _G.zpack_indexed_setups)
+  end)
+
+  it("keeps the spec's main, from any fragment, on :ZPack reload", function()
+    helpers.write_plugin_files('pinned.nvim', { 'pinned_decoy.lua' })
+    local called = {}
+    for _, mod in ipairs({ 'pinned_decoy', 'pinned_chosen' }) do
+      package.preload[mod] = function()
+        return { setup = function() called[#called + 1] = mod end }
+      end
+    end
+    require('zpack').setup({
+      spec = {
+        { 'test/pinned.nvim', opts = {} },
+        { 'test/pinned.nvim', main = 'pinned_chosen' },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+    vim.cmd('ZPack reload pinned.nvim')
+    helpers.flush_pending()
+
+    for _, mod in ipairs({ 'pinned_decoy', 'pinned_chosen' }) do
+      package.preload[mod] = nil
+      package.loaded[mod] = nil
+    end
+    assert.are.same({ 'pinned_chosen', 'pinned_chosen' }, called)
   end)
 end)
 
@@ -342,8 +445,7 @@ describe("mini.* plugin handling", function()
     local src = 'https://github.com/nvim-mini/mini.surround'
     local entry = state.spec_registry[src]
 
-    local spec = entry.merged_spec
-    local main = utils.resolve_main(entry.plugin, spec)
+    local main = utils.resolve_main(entry.plugin)
     assert.are.equal('mini.surround', main)
   end)
 
@@ -364,8 +466,7 @@ describe("mini.* plugin handling", function()
     local src = 'https://github.com/nvim-mini/mini.nvim'
     local entry = state.spec_registry[src]
 
-    local spec = entry.merged_spec
-    local main = utils.resolve_main(entry.plugin, spec)
+    local main = utils.resolve_main(entry.plugin)
     assert.is_nil(main, "mini.nvim should not match special case")
   end)
 end)
@@ -490,6 +591,30 @@ describe("plugin.main in config hooks", function()
     package.loaded['decoy'] = nil
     package.loaded['chosen'] = nil
     assert.are.same({ 'chosen' }, called)
+  end)
+
+  it("a detected main is on plugin.main in opts functions", function()
+    helpers.write_plugin_files('det.nvim', { 'det/init.lua', 'other.lua' })
+    local seen = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/det.nvim',
+          opts = function(plugin)
+            seen.opts = tostring(plugin.main)
+            return {}
+          end,
+          config = function(plugin)
+            seen.config = plugin.main
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.are.same({ opts = 'det', config = 'det' }, seen)
   end)
 
   it("plugin.main is nil when not detected", function()

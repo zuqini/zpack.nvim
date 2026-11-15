@@ -65,7 +65,7 @@ M.is_nop_rhs = function(rhs)
 end
 
 ---`maparg()` for one of `vim.keymap.set`'s modes: it takes abbreviations as a flag
----and reads `!` as normal mode, so ask for insert mode, which `!` maps too.
+---and reads `!` as `:map`'s modes, so ask for insert mode, which `!` maps too.
 ---@param lhs string
 ---@param mode string
 ---@return table map Empty when `lhs` isn't mapped

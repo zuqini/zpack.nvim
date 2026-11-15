@@ -268,7 +268,7 @@ describe("resolve_main", function()
     for name, compiled in pairs({ ['zee-bar'] = 'zee_bar.so', ['zee-bar.nvim'] = 'zee_bar.dll' }) do
       helpers.write_plugin_files(name, { 'zeebar/init.lua', compiled })
       local path = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name
-      mains[compiled] = utils.resolve_main({ spec = { src = 'https://github.com/test/' .. name, name = name }, path = path }, {})
+      mains[compiled] = utils.resolve_main({ spec = { src = 'https://github.com/test/' .. name, name = name }, path = path })
     end
     utils.lsdir = original_lsdir
 
@@ -281,7 +281,7 @@ describe("resolve_main", function()
       spec = { src = 'https://github.com/test/' .. name, name = name },
       path = vim.fn.stdpath('data') .. '/site/pack/zpack/opt/' .. name,
     }
-    local main = require('zpack.utils').resolve_main(plugin, {})
+    local main = require('zpack.utils').resolve_main(plugin)
     assert.are.equal(main, plugin.main)
     return main
   end

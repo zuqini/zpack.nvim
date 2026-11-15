@@ -96,7 +96,7 @@ The plugin data object passed to hooks and trigger functions:
   name = string,                  -- Resolved plugin name (alias for spec.name, as in lazy.nvim)
   dir = string,                   -- Plugin directory (alias for path, as in lazy.nvim)
   dependencies = string[],        -- Sorted list of resolved dependency names, as in lazy.nvim
-  main = string?,                 -- The spec's `main`, in every hook. Without one, the detected module, set before the first `config` runs and nil until then
+  main = string?,                 -- The spec's `main`, in every hook. Without one, the detected module, set before `opts` functions and `config` run on each load (`:ZPack reload` included) and nil until then
 }
 ```
 

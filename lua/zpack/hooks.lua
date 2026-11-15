@@ -197,6 +197,7 @@ M.setup_lazy_build_tracking = function()
   util.autocmd('PackChanged', function(event)
     if event.data.kind == "update" or event.data.kind == "install" then
       util.reset_lsdir_cache()
+      vim.loader.reset(event.data.path)
       require('zpack.module_loader').reset_lookup_cache()
       M.load_and_build(event.data.spec.src)
     end

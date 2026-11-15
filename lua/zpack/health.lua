@@ -105,9 +105,8 @@ local function check_plugins()
     vim.health.info(('loading: %d'):format(counts.loading))
   end
   if counts.installing > 0 then
-    local cmd_name = (state.config and state.config.cmd_name) or 'ZPack'
     vim.health.warn(('installing: %d — not yet on disk'):format(counts.installing), {
-      ('Restart Neovim, or run :%s update, once installation finishes.'):format(cmd_name),
+      'Restart Neovim to install them.',
     })
   end
   if counts.disabled > 0 then

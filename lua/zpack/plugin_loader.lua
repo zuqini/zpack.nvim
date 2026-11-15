@@ -43,6 +43,7 @@ function M.run_config(src, plugin)
   local registry_entry = state.spec_registry[src]
   local spec = registry_entry.merged_spec --[[@as zpack.Spec]]
   local label = (plugin and plugin.spec and plugin.spec.name) or src
+  local main = utils.resolve_main(plugin)
   -- resolve_opts is the single authoritative path for opts; it walks
   -- sorted_specs fresh so function-form opts compose correctly.
   local opts_ok, resolved_opts = pcall(
@@ -55,7 +56,6 @@ function M.run_config(src, plugin)
     utils.schedule_notify(("Failed to run config for %s: %s"):format(label, tostring(resolved_opts)), vim.log.levels.ERROR)
     return
   end
-  local main = utils.resolve_main(plugin)
 
   if type(spec.config) == "function" then
     local config_fn = spec.config --[[@as fun(plugin: zpack.Plugin, opts: table)]]
