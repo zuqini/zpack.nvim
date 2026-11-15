@@ -26,7 +26,7 @@
 ---Plugin data passed to load callback from vim.pack.add and forwarded to
 ---spec hooks (init/config/opts/cond/build/deactivate). zpack's own fields are
 ---`spec`, `path`, and `main` (the spec's, else detected before each load's
----`config`); lazy.nvim parity adds
+---`opts` functions and `config`); lazy.nvim parity adds
 ---`name` (alias for spec.name), `dir` (alias for path), and `dependencies`
 ---(sorted list of resolved dependency names from this plugin's outgoing
 ---deps in the resolved spec tree).
@@ -36,7 +36,7 @@
 ---@field name? string Resolved plugin name (alias for spec.name; lazy.nvim parity)
 ---@field dir? string Plugin directory (alias for path; lazy.nvim parity)
 ---@field dependencies? string[] Sorted list of dependency names (lazy.nvim parity)
----@field main? string The spec's `main`, else the detected main module name (set before `config` runs on each load, `:ZPack reload` included)
+---@field main? string The spec's `main`, else the detected main module name (set before `opts` functions and `config` run on each load, `:ZPack reload` included)
 
 ---@alias zpack.EventValue string|string[]|zpack.EventSpec|(string|zpack.EventSpec)[]
 ---@alias zpack.CmdValue string|string[]

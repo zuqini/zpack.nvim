@@ -593,6 +593,30 @@ describe("plugin.main in config hooks", function()
     assert.are.same({ 'chosen' }, called)
   end)
 
+  it("a detected main is on plugin.main in opts functions", function()
+    helpers.write_plugin_files('det.nvim', { 'det/init.lua', 'other.lua' })
+    local seen = {}
+
+    require('zpack').setup({
+      spec = {
+        {
+          'test/det.nvim',
+          opts = function(plugin)
+            seen.opts = tostring(plugin.main)
+            return {}
+          end,
+          config = function(plugin)
+            seen.config = plugin.main
+          end,
+        },
+      },
+      defaults = { confirm = false },
+    })
+
+    helpers.flush_pending()
+    assert.are.same({ opts = 'det', config = 'det' }, seen)
+  end)
+
   it("plugin.main is nil when not detected", function()
     local received_main = "not_set"
 
