@@ -319,6 +319,26 @@ describe("resolve_main caching", function()
     assert.are.equal('cached.module', first_result)
     assert.are.equal('cached.module', second_result)
   end)
+
+  it("finds a module an update adds on :ZPack reload", function()
+    helpers.write_plugin_files('late.nvim', { 'a.lua', 'b.lua' })
+    local seen = {}
+    require('zpack').setup({
+      spec = {
+        { 'test/late.nvim', opts = {}, config = function(plugin) seen[#seen + 1] = tostring(plugin.main) end },
+      },
+      defaults = { confirm = false },
+    })
+    helpers.flush_pending()
+
+    helpers.write_plugin_files('late.nvim', { 'late/init.lua' })
+    local spec = require('zpack.state').src_to_pack_spec['https://github.com/test/late.nvim']
+    vim.api.nvim_exec_autocmds('PackChanged', { data = { kind = 'update', spec = spec } })
+    vim.cmd('ZPack reload late.nvim')
+    helpers.flush_pending()
+
+    assert.are.same({ 'nil', 'late' }, seen)
+  end)
 end)
 
 describe("mini.* plugin handling", function()
