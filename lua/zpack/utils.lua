@@ -386,8 +386,8 @@ M.resolve_main = function(plugin)
     end
   end
 
-  -- A Lua module named like the plugin wins over a compiled one, which wins
-  -- over the plugin's only module whatever its name: none-ls.nvim's `null-ls`.
+  -- No Lua module is named like the plugin: take a compiled one that is, else
+  -- the plugin's only module whatever its name: none-ls.nvim's `null-ls`.
   local main = named_compiled or (#mods == 1 and mods[1]) or nil
   if main then
     plugin.main = main
